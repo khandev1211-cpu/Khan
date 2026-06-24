@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "lexer.h"
+#include "parser.h"
+#include "ast.h"
 
 static char *read_file(const char *path) {
     FILE *file = fopen(path, "rb");
@@ -13,6 +15,10 @@ static char *read_file(const char *path) {
     rewind(file);
 
     char *buffer = malloc(size + 1);
+    if (!buffer) {
+        fprintf(stderr, "Out of memory.\n");
+        exit(74);
+    }
     fread(buffer, 1, size, file);
     buffer[size] = '\0';
 
@@ -31,13 +37,23 @@ int main(int argc, char *argv[]) {
     Lexer lexer;
     lexer_init(&lexer, source);
 
-    for (;;) {
-        Token token = lexer_next_token(&lexer);
-        printf("%-4d %-15s '%.*s'\n", token.line, token_type_name(token.type),
-               token.length, token.start);
-        if (token.type == TOKEN_EOF) break;
+    Parser parser;
+    parser_init(&parser, &lexer);
+
+    AstNode *program = parser_parse(&parser);
+
+    if (parser.had_error) {
+        fprintf(stderr, "Parse completed with errors.\n");
+        ast_print(program, 0);
+        ast_free(program);
+        free(source);
+        return 65;
     }
 
+    // Print the AST so we can see the structure
+    ast_print(program, 0);
+
+    ast_free(program);
     free(source);
     return 0;
 }

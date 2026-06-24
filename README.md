@@ -3,7 +3,7 @@
 ![Language](https://img.shields.io/badge/language-C11-blue)
 ![Build](https://img.shields.io/badge/build-make-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
-![Status](https://img.shields.io/badge/status-lexer--stage-yellow)
+![Status](https://img.shields.io/badge/status-parser--stage-green)
 
 **Khan** is a custom, indentation-based programming language being built from scratch in C. Created by **Irfan Khan**, this project is a hands-on exploration of compiler design, lexer construction, and language runtime development. The language draws inspiration from Python's clean indentation syntax while keeping a minimal, low-level implementation in pure C.
 
@@ -46,15 +46,15 @@ The project is actively developed and serves as both a learning resource for com
 
 ## Current Status
 
-**Phase: Lexer (Tokenizer) — Complete ✅**
+**Phase: Lexer + Parser — Complete ✅**
 
-The lexer is fully functional and can tokenize any valid `.kh` source file. The next phases will involve building a parser, AST (Abstract Syntax Tree), and eventually a runtime/interpreter.
+The lexer and recursive descent parser are fully functional. The lexer tokenizes any valid `.kh` source file, and the parser constructs an Abstract Syntax Tree (AST) with full operator precedence and indentation-based block structure.
 
 | Component       | Status     |
 |-----------------|------------|
 | Lexer/Tokenizer | ✅ Complete |
-| Parser          | ❌ Not started |
-| AST Builder     | ❌ Not started |
+| Parser          | ✅ Complete |
+| AST Builder     | ✅ Complete |
 | Interpreter     | ❌ Not started |
 | Standard Library| ❌ Not started |
 
@@ -83,14 +83,27 @@ The lexer is fully functional and can tokenize any valid `.kh` source file. The 
 - ✅ **Line comments** — `#` style comments
 - ✅ **Error reporting** — Descriptive error messages with line numbers
 
+### Implemented (Parser Stage)
+
+- ✅ **Recursive descent parser** — Full Pratt-style expression parsing with operator precedence
+- ✅ **Abstract Syntax Tree (AST)** — 18 node types covering all language constructs
+- ✅ **Operator precedence** — `*`/`/`/`%` before `+`/`-` before comparisons before `==`/`!=` before `and` before `or`
+- ✅ **Indentation-based block parsing** — INDENT/DEDENT tokens drive block structure
+- ✅ **Function declarations** — With optional parenthesized parameter lists
+- ✅ **If/else conditionals** — With indented then/else blocks
+- ✅ **While loops** — With indented body blocks
+- ✅ **Return statements** — With expression
+- ✅ **Function calls** — With argument lists
+- ✅ **Assignment expressions** — `x = value`
+- ✅ **Grouping with parentheses** — `(expr)`
+- ✅ **Error recovery** — Continues parsing after errors, reports multiple issues
+- ✅ **AST debug printing** — Tree-structured output for development
+
 ### Planned
 
-- 🔲 Parser (syntax analysis)
-- 🔲 Abstract Syntax Tree (AST)
 - 🔲 Tree-walk interpreter
 - 🔲 Type checking
 - 🔲 Standard library functions
-- 🔲 Module/import system runtime
 
 ---
 
@@ -160,12 +173,14 @@ Khan/
 │   ├── hello.kh          # Hello World example
 │   └── funcs.kh          # Function definition example
 └── src/
-    ├── main.c            # Entry point, file I/O, token dumping
-    ├── main.o            # Compiled object file
+    ├── main.c            # Entry point, file I/O, parser driver
     ├── lexer.c           # Lexer implementation (267 lines)
     ├── lexer.h           # Lexer header / struct definitions
-    ├── lexer.o           # Compiled object file
-    └── token.h           # Token type enum and Token struct
+    ├── token.h           # Token type enum and Token struct
+    ├── ast.c             # AST node constructors, free, debug print
+    ├── ast.h             # AST node types, struct, function declarations
+    ├── parser.c          # Recursive descent parser (450+ lines)
+    └── parser.h          # Parser struct and public API
 ```
 
 ### File Descriptions
@@ -393,12 +408,14 @@ Error tokens carry a human-readable message string instead of a source lexeme.
 - [x] Comment handling
 - [x] Error reporting
 
-### Phase 2: Parser 🔲 (Next)
-- [ ] Recursive descent parser
-- [ ] Expression parsing (prefix, infix, postfix)
-- [ ] Statement parsing
-- [ ] AST node definitions
-- [ ] Error recovery
+### Phase 2: Parser ✅ (Complete)
+- [x] Recursive descent parser
+- [x] Expression parsing (prefix, infix, postfix) with full operator precedence
+- [x] Statement parsing (let, print, if/else, while, fn, return)
+- [x] AST node definitions (18 node types)
+- [x] Error recovery and reporting
+- [x] Indentation-based block parsing
+- [x] Function calls with argument lists
 
 ### Phase 3: Interpreter 🔲
 - [ ] Tree-walk interpreter
