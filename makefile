@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -std=c11 -Wall -Wextra -g
 
-SRC = src/main.c src/lexer.c src/ast.c src/parser.c
+SRC = src/main.c src/lexer.c src/ast.c src/parser.c src/interpreter.c
 OBJ = $(SRC:.c=.o)
 
 khan: $(OBJ)

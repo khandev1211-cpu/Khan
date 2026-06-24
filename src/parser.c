@@ -423,12 +423,8 @@ AstNode *parser_parse(Parser *parser) {
     while (!check(parser, TOKEN_EOF)) {
         stmts = ast_list_append(stmts, declaration(parser));
 
-        // Expect newline (or EOF) after each top-level statement
-        if (!check(parser, TOKEN_EOF) && !check(parser, TOKEN_DEDENT)) {
-            consume(parser, TOKEN_NEWLINE, "Expected newline after statement.");
-        }
-
-        // Skip any extra newlines
+        // Skip newlines between top-level statements (blank lines are
+        // transparent to the lexer, so NEWLINE may or may not be present)
         while (match(parser, TOKEN_NEWLINE)) {}
     }
 

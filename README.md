@@ -46,16 +46,16 @@ The project is actively developed and serves as both a learning resource for com
 
 ## Current Status
 
-**Phase: Lexer + Parser — Complete ✅**
+**Phase: Lexer + Parser + Interpreter — Complete ✅**
 
-The lexer and recursive descent parser are fully functional. The lexer tokenizes any valid `.kh` source file, and the parser constructs an Abstract Syntax Tree (AST) with full operator precedence and indentation-based block structure.
+The Khan programming language is now fully functional. The lexer tokenizes source code, the parser builds an Abstract Syntax Tree (AST), and the tree-walk interpreter executes the program with full support for variables, functions, control flow, and expressions.
 
 | Component       | Status     |
 |-----------------|------------|
 | Lexer/Tokenizer | ✅ Complete |
 | Parser          | ✅ Complete |
 | AST Builder     | ✅ Complete |
-| Interpreter     | ❌ Not started |
+| Interpreter     | ✅ Complete |
 | Standard Library| ❌ Not started |
 
 ---
@@ -99,11 +99,26 @@ The lexer and recursive descent parser are fully functional. The lexer tokenizes
 - ✅ **Error recovery** — Continues parsing after errors, reports multiple issues
 - ✅ **AST debug printing** — Tree-structured output for development
 
+### Implemented (Interpreter Stage)
+
+- ✅ **Tree-walk interpreter** — Recursively evaluates AST nodes at runtime
+- ✅ **Dynamic typing** — Numbers, strings, booleans, nil, and function values
+- ✅ **Lexical scoping** — Environment chain with parent scope lookup
+- ✅ **Variable assignment** — Reassign values with `=`
+- ✅ **Function calls** — Parameter binding, argument passing, return values
+- ✅ **Closures** — Functions capture their defining environment
+- ✅ **Arithmetic** — All numeric operations with division-by-zero protection
+- ✅ **String concatenation** — `+` operator joins strings
+- ✅ **Boolean logic** — `and`, `or`, `not` with truthiness checking
+- ✅ **Comparisons** — Equality across types, ordered comparisons for numbers
+- ✅ **Control flow** — `if`/`else` and `while` loops
+- ✅ **Print output** — Built-in `print` statement
+- ✅ **Runtime error reporting** — Line-numbered error messages
+
 ### Planned
 
-- 🔲 Tree-walk interpreter
-- 🔲 Type checking
 - 🔲 Standard library functions
+- 🔲 Type checking
 
 ---
 
@@ -417,13 +432,14 @@ Error tokens carry a human-readable message string instead of a source lexeme.
 - [x] Indentation-based block parsing
 - [x] Function calls with argument lists
 
-### Phase 3: Interpreter 🔲
-- [ ] Tree-walk interpreter
-- [ ] Environment/scope management
-- [ ] Variable assignment and lookup
-- [ ] Function calls and stack frames
-- [ ] Control flow (if/while)
-- [ ] Boolean and logical operations
+### Phase 3: Interpreter ✅ (Complete)
+- [x] Tree-walk interpreter
+- [x] Environment/scope management (lexical scoping)
+- [x] Variable assignment and lookup
+- [x] Function calls and stack frames
+- [x] Control flow (if/while)
+- [x] Boolean and logical operations
+- [x] String concatenation
 
 ### Phase 4: Standard Library 🔲
 - [ ] Built-in functions

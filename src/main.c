@@ -3,6 +3,7 @@
 #include "lexer.h"
 #include "parser.h"
 #include "ast.h"
+#include "interpreter.h"
 
 static char *read_file(const char *path) {
     FILE *file = fopen(path, "rb");
@@ -44,16 +45,22 @@ int main(int argc, char *argv[]) {
 
     if (parser.had_error) {
         fprintf(stderr, "Parse completed with errors.\n");
-        ast_print(program, 0);
         ast_free(program);
         free(source);
         return 65;
     }
 
-    // Print the AST so we can see the structure
-    ast_print(program, 0);
+    // Execute the program
+    Interpreter interp;
+    interpreter_init(&interp);
 
+    Environment *global = env_new(NULL);
+    interpreter_execute(&interp, program, global);
+
+    int exit_code = interp.had_runtime_error ? 70 : 0;
+
+    env_free(global);
     ast_free(program);
     free(source);
-    return 0;
+    return exit_code;
 }
