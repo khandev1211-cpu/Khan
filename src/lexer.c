@@ -56,7 +56,6 @@ static Token error_token(Lexer *lexer, const char *message) {
     return token;
 }
 
-// Skips spaces/tabs within a line (not newlines) and comments.
 static void skip_inline_whitespace(Lexer *lexer) {
     for (;;) {
         char c = peek(lexer);
@@ -115,60 +114,67 @@ static Token string_literal(Lexer *lexer) {
         advance(lexer);
     }
     if (is_at_end(lexer)) return error_token(lexer, "Unterminated string.");
-    advance(lexer); // closing quote
+    advance(lexer);
     return make_token(lexer, TOKEN_STRING);
 }
 
-// Handles start-of-line indentation: measures spaces, compares to indent
-// stack, and queues INDENT/DEDENT tokens as needed. Returns 1 if a
-// structural token was produced (caller should return it immediately).
-static int handle_indentation(Lexer *lexer, Token *out) {
-    // Skip fully blank or comment-only lines without affecting indentation.
+// Measures indentation for exactly one logical (non-blank, non-comment-only)
+// line, then updates the indent stack. Skips blank/comment-only lines first.
+// Returns 1 if a structural token (INDENT/DEDENT) was produced via *out.
+static int measure_indentation(Lexer *lexer, Token *out) {
     for (;;) {
-        const char *line_start = lexer->current;
         int spaces = 0;
         while (peek(lexer) == ' ') { spaces++; advance(lexer); }
-        if (peek(lexer) == '\n' || peek(lexer) == '\0' || peek(lexer) == '#') {
-            if (peek(lexer) == '#') {
-                while (peek(lexer) != '\n' && !is_at_end(lexer)) advance(lexer);
-            }
-            if (peek(lexer) == '\n') {
-                advance(lexer);
-                lexer->line++;
-                continue; // blank/comment line, keep scanning
-            }
-            if (is_at_end(lexer)) {
-                // EOF: emit remaining dedents
-                if (lexer->indent_top > 0) {
-                    lexer->indent_top--;
-                    *out = make_token(lexer, TOKEN_DEDENT);
-                    return 1;
-                }
-                return 0;
-            }
+
+        if (peek(lexer) == '#') {
+            while (peek(lexer) != '\n' && !is_at_end(lexer)) advance(lexer);
         }
-        (void)line_start;
-        // Real code line found at this indentation level.
-        if (spaces > lexer->indent_stack[lexer->indent_top]) {
+
+        if (peek(lexer) == '\n') {
+            advance(lexer);
+            lexer->line++;
+            continue; // blank or comment-only line; keep scanning
+        }
+
+        // Reached either EOF or real content. Reset start so structural
+        // tokens don't carry stray newline/space text.
+        lexer->start = lexer->current;
+
+        int top = lexer->indent_stack[lexer->indent_top];
+
+        if (spaces > top) {
             lexer->indent_top++;
             lexer->indent_stack[lexer->indent_top] = spaces;
             *out = make_token(lexer, TOKEN_INDENT);
             return 1;
         }
-        if (spaces < lexer->indent_stack[lexer->indent_top]) {
-            lexer->indent_top--;
+
+        if (spaces < top) {
+            int pops = 0;
+            while (lexer->indent_top > 0 && spaces < lexer->indent_stack[lexer->indent_top]) {
+                lexer->indent_top--;
+                pops++;
+            }
+            lexer->pending_dedents = pops - 1;
             *out = make_token(lexer, TOKEN_DEDENT);
             return 1;
         }
-        return 0; // same indentation, nothing structural to emit
+
+        return 0; // spaces == top: no structural token needed
     }
 }
 
 Token lexer_next_token(Lexer *lexer) {
+    if (lexer->pending_dedents > 0) {
+        lexer->pending_dedents--;
+        lexer->start = lexer->current;
+        return make_token(lexer, TOKEN_DEDENT);
+    }
+
     if (lexer->at_line_start) {
         Token structural;
-        if (handle_indentation(lexer, &structural)) {
-            lexer->start = lexer->current;
+        if (measure_indentation(lexer, &structural)) {
+            lexer->at_line_start = 0;
             return structural;
         }
         lexer->at_line_start = 0;
@@ -178,10 +184,6 @@ Token lexer_next_token(Lexer *lexer) {
     lexer->start = lexer->current;
 
     if (is_at_end(lexer)) {
-        if (lexer->indent_top > 0) {
-            lexer->indent_top--;
-            return make_token(lexer, TOKEN_DEDENT);
-        }
         return make_token(lexer, TOKEN_EOF);
     }
 
