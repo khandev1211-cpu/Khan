@@ -18,6 +18,7 @@ typedef enum {
     TOKEN_RETURN,
     TOKEN_TRUE,
     TOKEN_FALSE,
+    TOKEN_NIL,
     TOKEN_AND,
     TOKEN_OR,
     TOKEN_NOT,

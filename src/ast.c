@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,16 @@ AstNode *ast_new_number(double value, int line) {
     AstNode *node = ast_new_node(AST_NUMBER, line);
     node->data.number_value = value;
     return node;
+}
+
+AstNode *ast_new_bool(int value, int line) {
+    AstNode *node = ast_new_node(AST_BOOL, line);
+    node->data.bool_value = value;
+    return node;
+}
+
+AstNode *ast_new_nil(int line) {
+    return ast_new_node(AST_NIL, line);
 }
 
 AstNode *ast_new_string(const char *value, int line) {
@@ -158,6 +169,10 @@ void ast_free(AstNode *node) {
     switch (node->type) {
         case AST_NUMBER:
             break;
+        case AST_BOOL:
+            break;
+        case AST_NIL:
+            break;
         case AST_STRING:
             free((void *)node->data.string_value);
             break;
@@ -251,6 +266,12 @@ void ast_print(AstNode *node, int indent) {
     switch (node->type) {
         case AST_NUMBER:
             printf("(number %g)\n", node->data.number_value);
+            break;
+        case AST_BOOL:
+            printf("(bool %s)\n", node->data.bool_value ? "true" : "false");
+            break;
+        case AST_NIL:
+            printf("(nil)\n");
             break;
         case AST_STRING:
             printf("(string \"%s\")\n", node->data.string_value);

@@ -1,0 +1,427 @@
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <time.h>
+#include <ctype.h>
+#include "stdlib.h"
+
+// ===========================================================================
+// Helper: check argument count and types
+// ===========================================================================
+static int check_arg_count(Interpreter *interp, const char *name,
+                            int expected, int actual) {
+    if (actual != expected) {
+        fprintf(stderr, "Runtime error: %s() expects %d argument(s), got %d\n",
+                name, expected, actual);
+        interp->had_runtime_error = 1;
+        return 0;
+    }
+    return 1;
+}
+
+static int expect_number(Interpreter *interp, const char *name,
+                          int index, Value v, double *out) {
+    if (v.type != VAL_NUMBER) {
+        fprintf(stderr, "Runtime error: %s() argument %d must be a number\n",
+                name, index + 1);
+        interp->had_runtime_error = 1;
+        return 0;
+    }
+    *out = v.as.number;
+    return 1;
+}
+
+static int expect_string(Interpreter *interp, const char *name,
+                          int index, Value v, const char **out) {
+    if (v.type != VAL_STRING) {
+        fprintf(stderr, "Runtime error: %s() argument %d must be a string\n",
+                name, index + 1);
+        interp->had_runtime_error = 1;
+        return 0;
+    }
+    *out = v.as.string;
+    return 1;
+}
+
+// ===========================================================================
+// Type conversion functions
+// ===========================================================================
+static void fn_num(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "num", 1, argc)) { *result = value_nil(); return; }
+    const char *s;
+    if (expect_string(interp, "num", 0, args[0], &s)) {
+        char *end;
+        double d = strtod(s, &end);
+        if (end == s) { *result = value_nil(); return; }
+        *result = value_number(d);
+        return;
+    }
+    *result = value_nil();
+}
+
+static void fn_str(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "str", 1, argc)) { *result = value_nil(); return; }
+    switch (args[0].type) {
+        case VAL_NUMBER: {
+            char buf[64];
+            if (args[0].as.number == (long long)args[0].as.number) {
+                snprintf(buf, sizeof(buf), "%lld", (long long)args[0].as.number);
+            } else {
+                snprintf(buf, sizeof(buf), "%g", args[0].as.number);
+            }
+            *result = value_string(buf);
+            return;
+        }
+        case VAL_STRING:
+            *result = value_string(args[0].as.string);
+            return;
+        case VAL_BOOL:
+            *result = value_string(args[0].as.boolean ? "true" : "false");
+            return;
+        case VAL_NIL:
+            *result = value_string("nil");
+            return;
+        default:
+            *result = value_string("<unknown>");
+            return;
+    }
+}
+
+static void fn_type(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "type", 1, argc)) { *result = value_nil(); return; }
+    switch (args[0].type) {
+        case VAL_NUMBER:   *result = value_string("number"); return;
+        case VAL_STRING:   *result = value_string("string"); return;
+        case VAL_BOOL:     *result = value_string("bool"); return;
+        case VAL_NIL:      *result = value_string("nil"); return;
+        case VAL_FUNCTION: *result = value_string("function"); return;
+        case VAL_NATIVE:   *result = value_string("native"); return;
+    }
+    *result = value_string("unknown");
+}
+
+// ===========================================================================
+// String functions
+// ===========================================================================
+static void fn_len(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "len", 1, argc)) { *result = value_nil(); return; }
+    if (args[0].type == VAL_STRING) {
+        *result = value_number((double)strlen(args[0].as.string));
+        return;
+    }
+    if (args[0].type == VAL_NUMBER) {
+        char buf[64];
+        if (args[0].as.number == (long long)args[0].as.number) {
+            snprintf(buf, sizeof(buf), "%lld", (long long)args[0].as.number);
+        } else {
+            snprintf(buf, sizeof(buf), "%g", args[0].as.number);
+        }
+        *result = value_number((double)strlen(buf));
+        return;
+    }
+    fprintf(stderr, "Runtime error: len() argument must be a string or number\n");
+    interp->had_runtime_error = 1;
+    *result = value_nil();
+}
+
+static void fn_substring(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "substring", 3, argc)) { *result = value_nil(); return; }
+    const char *s;
+    double start, length;
+    if (!expect_string(interp, "substring", 0, args[0], &s)) { *result = value_nil(); return; }
+    if (!expect_number(interp, "substring", 1, args[1], &start)) { *result = value_nil(); return; }
+    if (!expect_number(interp, "substring", 2, args[2], &length)) { *result = value_nil(); return; }
+
+    int len = (int)strlen(s);
+    int si = (int)start;
+    int li = (int)length;
+
+    if (si < 0) si = 0;
+    if (si > len) si = len;
+    if (li < 0) li = 0;
+    if (si + li > len) li = len - si;
+
+    char *tmp = malloc(li + 1);
+    strncpy(tmp, s + si, li);
+    tmp[li] = '\0';
+    *result = value_string(tmp);
+    free(tmp);
+}
+
+static void fn_upper(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "upper", 1, argc)) { *result = value_nil(); return; }
+    const char *s;
+    if (!expect_string(interp, "upper", 0, args[0], &s)) { *result = value_nil(); return; }
+
+    char *tmp = malloc(strlen(s) + 1);
+    for (int i = 0; s[i]; i++) tmp[i] = toupper((unsigned char)s[i]);
+    tmp[strlen(s)] = '\0';
+    *result = value_string(tmp);
+    free(tmp);
+}
+
+static void fn_lower(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "lower", 1, argc)) { *result = value_nil(); return; }
+    const char *s;
+    if (!expect_string(interp, "lower", 0, args[0], &s)) { *result = value_nil(); return; }
+
+    char *tmp = malloc(strlen(s) + 1);
+    for (int i = 0; s[i]; i++) tmp[i] = tolower((unsigned char)s[i]);
+    tmp[strlen(s)] = '\0';
+    *result = value_string(tmp);
+    free(tmp);
+}
+
+static void fn_contains(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "contains", 2, argc)) { *result = value_nil(); return; }
+    const char *haystack, *needle;
+    if (!expect_string(interp, "contains", 0, args[0], &haystack)) { *result = value_nil(); return; }
+    if (!expect_string(interp, "contains", 1, args[1], &needle)) { *result = value_nil(); return; }
+    *result = value_bool(strstr(haystack, needle) != NULL);
+}
+
+static void fn_trim(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "trim", 1, argc)) { *result = value_nil(); return; }
+    const char *s;
+    if (!expect_string(interp, "trim", 0, args[0], &s)) { *result = value_nil(); return; }
+
+    while (*s && isspace((unsigned char)*s)) s++;
+    int len = (int)strlen(s);
+    while (len > 0 && isspace((unsigned char)s[len - 1])) len--;
+
+    char *tmp = malloc(len + 1);
+    strncpy(tmp, s, len);
+    tmp[len] = '\0';
+    *result = value_string(tmp);
+    free(tmp);
+}
+
+static void fn_split(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "split", 2, argc)) { *result = value_nil(); return; }
+    const char *s, *delim;
+    if (!expect_string(interp, "split", 0, args[0], &s)) { *result = value_nil(); return; }
+    if (!expect_string(interp, "split", 1, args[1], &delim)) { *result = value_nil(); return; }
+
+    if (strlen(delim) == 0) { *result = value_string(s); return; }
+    const char *pos = strstr(s, delim);
+    if (!pos) { *result = value_string(s); return; }
+
+    int len = (int)(pos - s);
+    char *tmp = malloc(len + 1);
+    strncpy(tmp, s, len);
+    tmp[len] = '\0';
+    *result = value_string(tmp);
+    free(tmp);
+}
+
+// ===========================================================================
+// Math functions
+// ===========================================================================
+static void fn_abs(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "abs", 1, argc)) { *result = value_nil(); return; }
+    double n;
+    if (!expect_number(interp, "abs", 0, args[0], &n)) { *result = value_nil(); return; }
+    *result = value_number(fabs(n));
+}
+
+static void fn_min(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "min", 2, argc)) { *result = value_nil(); return; }
+    double a, b;
+    if (!expect_number(interp, "min", 0, args[0], &a)) { *result = value_nil(); return; }
+    if (!expect_number(interp, "min", 1, args[1], &b)) { *result = value_nil(); return; }
+    *result = value_number(a < b ? a : b);
+}
+
+static void fn_max(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "max", 2, argc)) { *result = value_nil(); return; }
+    double a, b;
+    if (!expect_number(interp, "max", 0, args[0], &a)) { *result = value_nil(); return; }
+    if (!expect_number(interp, "max", 1, args[1], &b)) { *result = value_nil(); return; }
+    *result = value_number(a > b ? a : b);
+}
+
+static void fn_sqrt(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "sqrt", 1, argc)) { *result = value_nil(); return; }
+    double n;
+    if (!expect_number(interp, "sqrt", 0, args[0], &n)) { *result = value_nil(); return; }
+    if (n < 0) {
+        fprintf(stderr, "Runtime error: sqrt() of negative number\n");
+        interp->had_runtime_error = 1;
+        *result = value_nil();
+        return;
+    }
+    *result = value_number(sqrt(n));
+}
+
+static void fn_round(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "round", 1, argc)) { *result = value_nil(); return; }
+    double n;
+    if (!expect_number(interp, "round", 0, args[0], &n)) { *result = value_nil(); return; }
+    *result = value_number(round(n));
+}
+
+static void fn_floor(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "floor", 1, argc)) { *result = value_nil(); return; }
+    double n;
+    if (!expect_number(interp, "floor", 0, args[0], &n)) { *result = value_nil(); return; }
+    *result = value_number(floor(n));
+}
+
+static void fn_ceil(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "ceil", 1, argc)) { *result = value_nil(); return; }
+    double n;
+    if (!expect_number(interp, "ceil", 0, args[0], &n)) { *result = value_nil(); return; }
+    *result = value_number(ceil(n));
+}
+
+static void fn_random(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (argc == 0) {
+        *result = value_number((double)rand() / RAND_MAX);
+        return;
+    }
+    double max;
+    if (!expect_number(interp, "random", 0, args[0], &max)) { *result = value_nil(); return; }
+    *result = value_number((double)rand() / RAND_MAX * max);
+}
+
+static void fn_pow(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "pow", 2, argc)) { *result = value_nil(); return; }
+    double base, exp;
+    if (!expect_number(interp, "pow", 0, args[0], &base)) { *result = value_nil(); return; }
+    if (!expect_number(interp, "pow", 1, args[1], &exp)) { *result = value_nil(); return; }
+    *result = value_number(pow(base, exp));
+}
+
+// ===========================================================================
+// I/O functions
+// ===========================================================================
+static void fn_input(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (argc > 0 && args[0].type == VAL_STRING) {
+        printf("%s", args[0].as.string);
+    }
+
+    char buf[4096];
+    if (!fgets(buf, sizeof(buf), stdin)) {
+        *result = value_string("");
+        return;
+    }
+    size_t len = strlen(buf);
+    if (len > 0 && buf[len - 1] == '\n') buf[len - 1] = '\0';
+    *result = value_string(buf);
+}
+
+static void fn_read_file(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "read_file", 1, argc)) { *result = value_nil(); return; }
+    const char *path;
+    if (!expect_string(interp, "read_file", 0, args[0], &path)) { *result = value_nil(); return; }
+
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "Runtime error: read_file() could not open '%s'\n", path);
+        interp->had_runtime_error = 1;
+        *result = value_nil();
+        return;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    rewind(f);
+
+    char *buffer = malloc(size + 1);
+    fread(buffer, 1, size, f);
+    buffer[size] = '\0';
+    fclose(f);
+
+    *result = value_string(buffer);
+    free(buffer);
+}
+
+static void fn_write_file(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "write_file", 2, argc)) { *result = value_nil(); return; }
+    const char *path, *content;
+    if (!expect_string(interp, "write_file", 0, args[0], &path)) { *result = value_nil(); return; }
+    if (!expect_string(interp, "write_file", 1, args[1], &content)) { *result = value_nil(); return; }
+
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        fprintf(stderr, "Runtime error: write_file() could not open '%s'\n", path);
+        interp->had_runtime_error = 1;
+        *result = value_nil();
+        return;
+    }
+
+    fputs(content, f);
+    fclose(f);
+    *result = value_number((double)strlen(content));
+}
+
+// ===========================================================================
+// Utility functions
+// ===========================================================================
+static void fn_sleep(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "sleep", 1, argc)) { *result = value_nil(); return; }
+    double ms;
+    if (!expect_number(interp, "sleep", 0, args[0], &ms)) { *result = value_nil(); return; }
+
+    clock_t start = clock();
+    while ((double)(clock() - start) / CLOCKS_PER_SEC < ms / 1000.0) {}
+    *result = value_nil();
+}
+
+static void fn_clock(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "clock", 0, argc)) { *result = value_nil(); return; }
+    *result = value_number((double)clock() / CLOCKS_PER_SEC);
+}
+
+static void fn_exit(Value *result, Interpreter *interp, int argc, Value *args) {
+    int code = 0;
+    if (argc > 0 && args[0].type == VAL_NUMBER) {
+        code = (int)args[0].as.number;
+    }
+    exit(code);
+    *result = value_nil();
+}
+
+// ===========================================================================
+// Registration
+// ===========================================================================
+void stdlib_register_all(Environment *env) {
+    srand((unsigned int)time(NULL));
+
+    // Type conversions
+    env_define(env, "num", value_native("num", fn_num));
+    env_define(env, "str", value_native("str", fn_str));
+    env_define(env, "type", value_native("type", fn_type));
+
+    // String functions
+    env_define(env, "len", value_native("len", fn_len));
+    env_define(env, "substring", value_native("substring", fn_substring));
+    env_define(env, "upper", value_native("upper", fn_upper));
+    env_define(env, "lower", value_native("lower", fn_lower));
+    env_define(env, "contains", value_native("contains", fn_contains));
+    env_define(env, "trim", value_native("trim", fn_trim));
+    env_define(env, "split", value_native("split", fn_split));
+
+    // Math functions
+    env_define(env, "abs", value_native("abs", fn_abs));
+    env_define(env, "min", value_native("min", fn_min));
+    env_define(env, "max", value_native("max", fn_max));
+    env_define(env, "sqrt", value_native("sqrt", fn_sqrt));
+    env_define(env, "round", value_native("round", fn_round));
+    env_define(env, "floor", value_native("floor", fn_floor));
+    env_define(env, "ceil", value_native("ceil", fn_ceil));
+    env_define(env, "random", value_native("random", fn_random));
+    env_define(env, "pow", value_native("pow", fn_pow));
+
+    // I/O functions
+    env_define(env, "input", value_native("input", fn_input));
+    env_define(env, "read_file", value_native("read_file", fn_read_file));
+    env_define(env, "write_file", value_native("write_file", fn_write_file));
+
+    // Utility
+    env_define(env, "sleep", value_native("sleep", fn_sleep));
+    env_define(env, "clock", value_native("clock", fn_clock));
+    env_define(env, "exit", value_native("exit", fn_exit));
+}

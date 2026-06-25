@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -331,7 +332,8 @@ static AstNode *finish_call(Parser *parser, AstNode *callee) {
         return callee;
     }
 
-    const char *callee_name = callee->data.name;
+    // strdup the name BEFORE freeing the callee node
+    const char *callee_name = strdup(callee->data.name);
     AstNodeList *args = NULL;
 
     if (!check(parser, TOKEN_RPAREN)) {
@@ -341,7 +343,9 @@ static AstNode *finish_call(Parser *parser, AstNode *callee) {
     }
     consume(parser, TOKEN_RPAREN, "Expected ')' after arguments.");
     ast_free(callee);  // Don't need the identifier node anymore
-    return ast_new_call(callee_name, args, parser->previous.line);
+    AstNode *call_node = ast_new_call(callee_name, args, parser->previous.line);
+    free((void *)callee_name);  // ast_new_call strdup'd it again
+    return call_node;
 }
 
 static AstNode *call(Parser *parser) {
@@ -382,11 +386,15 @@ static AstNode *primary(Parser *parser) {
     }
 
     if (match(parser, TOKEN_TRUE)) {
-        return ast_new_number(1.0, parser->previous.line);
+        return ast_new_bool(1, parser->previous.line);
     }
 
     if (match(parser, TOKEN_FALSE)) {
-        return ast_new_number(0.0, parser->previous.line);
+        return ast_new_bool(0, parser->previous.line);
+    }
+
+    if (match(parser, TOKEN_NIL)) {
+        return ast_new_nil(parser->previous.line);
     }
 
     if (match(parser, TOKEN_LPAREN)) {

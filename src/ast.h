@@ -14,6 +14,8 @@ typedef enum {
     // Expressions
     AST_NUMBER,
     AST_STRING,
+    AST_BOOL,
+    AST_NIL,
     AST_IDENTIFIER,
     AST_BINARY,
     AST_UNARY,
@@ -64,6 +66,9 @@ struct AstNode {
     union {
         // AST_NUMBER
         double number_value;
+
+        // AST_BOOL
+        int bool_value;
 
         // AST_STRING
         const char *string_value;
@@ -142,6 +147,8 @@ struct AstNode {
 AstNode *ast_new_node(AstNodeType type, int line);
 
 AstNode *ast_new_number(double value, int line);
+AstNode *ast_new_bool(int value, int line);
+AstNode *ast_new_nil(int line);
 AstNode *ast_new_string(const char *value, int line);
 AstNode *ast_new_identifier(const char *name, int line);
 AstNode *ast_new_binary(AstNode *left, AstOp op, AstNode *right, int line);

@@ -4,6 +4,7 @@
 #include "parser.h"
 #include "ast.h"
 #include "interpreter.h"
+#include "stdlib.h"
 
 static char *read_file(const char *path) {
     FILE *file = fopen(path, "rb");
@@ -50,11 +51,14 @@ int main(int argc, char *argv[]) {
         return 65;
     }
 
-    // Execute the program
+    // Set up global environment with standard library
     Interpreter interp;
     interpreter_init(&interp);
 
     Environment *global = env_new(NULL);
+    stdlib_register_all(global);
+
+    // Execute the program
     interpreter_execute(&interp, program, global);
 
     int exit_code = interp.had_runtime_error ? 70 : 0;

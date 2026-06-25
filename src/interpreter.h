@@ -4,32 +4,54 @@
 #include "ast.h"
 
 // ---------------------------------------------------------------------------
-// Value types that the interpreter works with at runtime
+// Forward declarations
 // ---------------------------------------------------------------------------
+typedef struct Environment Environment;
+typedef struct Interpreter Interpreter;
+
+// ---------------------------------------------------------------------------
+// A native C function: takes interpreter, arg count, arg array, returns Value
+// We use a struct wrapper to break the circular dependency between
+// NativeFn's return type (Value) and Value's member (NativeFn pointer).
+// ---------------------------------------------------------------------------
+// Value types that the interpreter works with at runtime
 typedef enum {
     VAL_NUMBER,
     VAL_STRING,
     VAL_BOOL,
     VAL_NIL,
     VAL_FUNCTION,
+    VAL_NATIVE,
 } ValueType;
 
-typedef struct Environment Environment;
+// Forward-declare Value struct for the native function pointer
+struct Value;
 
-typedef struct {
+// Native function signature
+typedef void (*NativeFn)(struct Value *result, Interpreter *interp, int argc, struct Value *args);
+
+// Now define Value
+struct Value {
     ValueType type;
     union {
         double number;
         const char *string;
         int boolean;
         struct {
-            const char *name;        // function name (for error messages)
-            Environment *closure;    // captured environment
-            AstNode *body;           // AST_BLOCK
-            AstNodeList *params;     // list of AST_IDENTIFIER nodes
+            const char *name;
+            Environment *closure;
+            AstNode *body;
+            AstNodeList *params;
         } function;
+        struct {
+            const char *name;
+            NativeFn function;
+        } native;
     } as;
-} Value;
+};
+
+// Typedef for convenience
+typedef struct Value Value;
 
 // ---------------------------------------------------------------------------
 // Environment (scope chain)
@@ -59,15 +81,16 @@ Value value_bool(int b);
 Value value_nil(void);
 Value value_function(const char *name, Environment *closure,
                      AstNode *body, AstNodeList *params);
+Value value_native(const char *name, NativeFn fn);
 void value_free(Value v);
 void value_print(Value v);
 
 // ---------------------------------------------------------------------------
 // Interpreter
 // ---------------------------------------------------------------------------
-typedef struct {
+struct Interpreter {
     int had_runtime_error;
-} Interpreter;
+};
 
 void interpreter_init(Interpreter *interp);
 Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env);

@@ -79,7 +79,7 @@ static TokenType keyword_type(const char *start, int length) {
         {"let", TOKEN_LET}, {"fn", TOKEN_FN}, {"print", TOKEN_PRINT},
         {"import", TOKEN_IMPORT}, {"if", TOKEN_IF}, {"else", TOKEN_ELSE},
         {"while", TOKEN_WHILE}, {"return", TOKEN_RETURN},
-        {"true", TOKEN_TRUE}, {"false", TOKEN_FALSE},
+        {"true", TOKEN_TRUE}, {"false", TOKEN_FALSE}, {"nil", TOKEN_NIL},
         {"and", TOKEN_AND}, {"or", TOKEN_OR}, {"not", TOKEN_NOT},
     };
     int n = sizeof(keywords) / sizeof(keywords[0]);
@@ -239,6 +239,7 @@ const char *token_type_name(TokenType type) {
         case TOKEN_RETURN: return "RETURN";
         case TOKEN_TRUE: return "TRUE";
         case TOKEN_FALSE: return "FALSE";
+        case TOKEN_NIL: return "NIL";
         case TOKEN_AND: return "AND";
         case TOKEN_OR: return "OR";
         case TOKEN_NOT: return "NOT";

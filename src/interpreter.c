@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -114,12 +115,22 @@ Value value_function(const char *name, Environment *closure,
     return v;
 }
 
+Value value_native(const char *name, NativeFn fn) {
+    Value v;
+    v.type = VAL_NATIVE;
+    v.as.native.name = strdup(name);
+    v.as.native.function = fn;
+    return v;
+}
+
 void value_free(Value v) {
     if (v.type == VAL_STRING) {
         free((void *)v.as.string);
     } else if (v.type == VAL_FUNCTION) {
         free((void *)v.as.function.name);
         // Don't free closure/body/params — they're owned by the AST
+    } else if (v.type == VAL_NATIVE) {
+        free((void *)v.as.native.name);
     }
 }
 
@@ -145,6 +156,9 @@ void value_print(Value v) {
         case VAL_FUNCTION:
             printf("<fn %s>", v.as.function.name);
             break;
+        case VAL_NATIVE:
+            printf("<native %s>", v.as.native.name);
+            break;
     }
 }
 
@@ -164,6 +178,12 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
     switch (node->type) {
         case AST_NUMBER:
             return value_number(node->data.number_value);
+
+        case AST_BOOL:
+            return value_bool(node->data.bool_value);
+
+        case AST_NIL:
+            return value_nil();
 
         case AST_STRING:
             return value_string(node->data.string_value);
@@ -307,10 +327,6 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
                 runtime_error(interp, node, "Undefined function.");
                 return value_nil();
             }
-            if (callee->type != VAL_FUNCTION) {
-                runtime_error(interp, node, "Can only call functions.");
-                return value_nil();
-            }
 
             // Evaluate arguments
             int argc = 0;
@@ -326,6 +342,20 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
                     return value_nil();
                 }
                 i++;
+            }
+
+            // Handle native function calls
+            if (callee->type == VAL_NATIVE) {
+                Value result;
+                callee->as.native.function(&result, interp, argc, argv);
+                free(argv);
+                return result;
+            }
+
+            if (callee->type != VAL_FUNCTION) {
+                runtime_error(interp, node, "Can only call functions.");
+                free(argv);
+                return value_nil();
             }
 
             // Check arity
