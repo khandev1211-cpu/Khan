@@ -123,6 +123,50 @@ Value value_native(const char *name, NativeFn fn) {
     return v;
 }
 
+// Takes ownership of the `items` buffer directly (no extra copy) — caller
+// must have heap-allocated it and must not free it afterwards.
+Value value_array(Value *items, int count) {
+    Value v;
+    v.type = VAL_ARRAY;
+    v.as.array.items = items;
+    v.as.array.count = count;
+    v.as.array.capacity = count;
+    return v;
+}
+
+// Deep-copies a value so the result owns fully independent memory from the
+// original. MUST be used any time a value is read out of a variable and
+// might end up stored somewhere else (another variable, a function arg,
+// inside an array, etc.) — otherwise two owners can end up pointing at the
+// same heap memory, and freeing one corrupts/frees the other (double-free).
+Value value_copy(Value v) {
+    Value copy = v;
+    switch (v.type) {
+        case VAL_STRING:
+            copy.as.string = strdup(v.as.string);
+            break;
+        case VAL_FUNCTION:
+            copy.as.function.name = strdup(v.as.function.name);
+            break;
+        case VAL_NATIVE:
+            copy.as.native.name = strdup(v.as.native.name);
+            break;
+        case VAL_ARRAY: {
+            int count = v.as.array.count;
+            Value *items = count > 0 ? malloc(sizeof(Value) * count) : NULL;
+            for (int i = 0; i < count; i++) {
+                items[i] = value_copy(v.as.array.items[i]);
+            }
+            copy.as.array.items = items;
+            copy.as.array.capacity = count;
+            break;
+        }
+        default:
+            break; // numbers, bools, nil have no owned memory
+    }
+    return copy;
+}
+
 void value_free(Value v) {
     if (v.type == VAL_STRING) {
         free((void *)v.as.string);
@@ -131,6 +175,21 @@ void value_free(Value v) {
         // Don't free closure/body/params — they're owned by the AST
     } else if (v.type == VAL_NATIVE) {
         free((void *)v.as.native.name);
+    } else if (v.type == VAL_ARRAY) {
+        for (int i = 0; i < v.as.array.count; i++) {
+            value_free(v.as.array.items[i]);
+        }
+        free(v.as.array.items);
+    }
+}
+
+// Prints a value the way it should look when nested inside an array
+// (e.g. strings get quotes, like Python's repr inside a list).
+static void value_print_nested(Value v) {
+    if (v.type == VAL_STRING) {
+        printf("\"%s\"", v.as.string);
+    } else {
+        value_print(v);
     }
 }
 
@@ -158,6 +217,14 @@ void value_print(Value v) {
             break;
         case VAL_NATIVE:
             printf("<native %s>", v.as.native.name);
+            break;
+        case VAL_ARRAY:
+            printf("[");
+            for (int i = 0; i < v.as.array.count; i++) {
+                if (i > 0) printf(", ");
+                value_print_nested(v.as.array.items[i]);
+            }
+            printf("]");
             break;
     }
 }
@@ -194,7 +261,7 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
                 runtime_error(interp, node, "Undefined variable.");
                 return value_nil();
             }
-            return *v;
+            return value_copy(*v);
         }
 
         case AST_BINARY: {
@@ -387,6 +454,102 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
             return result;
         }
 
+        case AST_ARRAY: {
+            int count = 0;
+            for (AstNodeList *e = node->data.array_elements; e; e = e->next) count++;
+
+            Value *items = count > 0 ? malloc(sizeof(Value) * count) : NULL;
+            int i = 0;
+            for (AstNodeList *e = node->data.array_elements; e; e = e->next) {
+                items[i] = evaluate(interp, e->node, env);
+                if (interp->had_runtime_error) {
+                    // Free what we've built so far, then bail out
+                    for (int j = 0; j < i; j++) value_free(items[j]);
+                    free(items);
+                    return value_nil();
+                }
+                i++;
+            }
+            return value_array(items, count);
+        }
+
+        case AST_INDEX: {
+            Value obj = evaluate(interp, node->data.index_expr.object, env);
+            if (interp->had_runtime_error) return value_nil();
+
+            if (obj.type != VAL_ARRAY) {
+                runtime_error(interp, node, "Can only index into an array.");
+                value_free(obj);
+                return value_nil();
+            }
+
+            Value idx_val = evaluate(interp, node->data.index_expr.index, env);
+            if (interp->had_runtime_error) {
+                value_free(obj);
+                return value_nil();
+            }
+            if (idx_val.type != VAL_NUMBER) {
+                runtime_error(interp, node, "Array index must be a number.");
+                value_free(obj);
+                value_free(idx_val);
+                return value_nil();
+            }
+
+            int idx = (int)idx_val.as.number;
+            value_free(idx_val);
+
+            if (idx < 0 || idx >= obj.as.array.count) {
+                runtime_error(interp, node, "Array index out of bounds.");
+                value_free(obj);
+                return value_nil();
+            }
+
+            Value result = value_copy(obj.as.array.items[idx]);
+            value_free(obj);
+            return result;
+        }
+
+        case AST_INDEX_ASSIGN: {
+            if (node->data.index_assign.object->type != AST_IDENTIFIER) {
+                runtime_error(interp, node,
+                    "Can only assign into a simple array variable (e.g. arr[i] = x).");
+                return value_nil();
+            }
+
+            const char *name = node->data.index_assign.object->data.name;
+            Value *arr_ptr = env_get(env, name);
+            if (!arr_ptr) {
+                runtime_error(interp, node, "Undefined variable.");
+                return value_nil();
+            }
+            if (arr_ptr->type != VAL_ARRAY) {
+                runtime_error(interp, node, "Can only index-assign into an array.");
+                return value_nil();
+            }
+
+            Value idx_val = evaluate(interp, node->data.index_assign.index, env);
+            if (interp->had_runtime_error) return value_nil();
+            if (idx_val.type != VAL_NUMBER) {
+                runtime_error(interp, node, "Array index must be a number.");
+                value_free(idx_val);
+                return value_nil();
+            }
+            int idx = (int)idx_val.as.number;
+            value_free(idx_val);
+
+            if (idx < 0 || idx >= arr_ptr->as.array.count) {
+                runtime_error(interp, node, "Array index out of bounds.");
+                return value_nil();
+            }
+
+            Value new_val = evaluate(interp, node->data.index_assign.value, env);
+            if (interp->had_runtime_error) return value_nil();
+
+            value_free(arr_ptr->as.array.items[idx]);
+            arr_ptr->as.array.items[idx] = value_copy(new_val);
+            return new_val;
+        }
+
         default:
             runtime_error(interp, node, "Unexpected node type in expression.");
             return value_nil();
@@ -472,12 +635,37 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
             return result;
         }
 
+        case AST_FOR_STMT: {
+            Value iterable = evaluate(interp, node->data.for_stmt.for_iterable, env);
+            if (interp->had_runtime_error) return value_nil();
+
+            if (iterable.type != VAL_ARRAY) {
+                runtime_error(interp, node, "Can only iterate ('for ... in ...') over an array.");
+                value_free(iterable);
+                return value_nil();
+            }
+
+            Value result = value_nil();
+            for (int i = 0; i < iterable.as.array.count; i++) {
+                env_assign(env, node->data.for_stmt.for_var,
+                           value_copy(iterable.as.array.items[i]));
+
+                result = interpreter_execute(interp, node->data.for_stmt.for_body, env);
+                if (interp->had_runtime_error) {
+                    value_free(iterable);
+                    return value_nil();
+                }
+            }
+            value_free(iterable);
+            return result;
+        }
+
         case AST_FN_DECL: {
             // Capture current environment as closure
             Environment *closure = env_new(env->parent);
             // Copy current scope entries into closure
             for (int i = 0; i < env->count; i++) {
-                env_define(closure, env->entries[i].name, env->entries[i].value);
+                env_define(closure, env->entries[i].name, value_copy(env->entries[i].value));
             }
 
             Value fn = value_function(node->data.fn_decl.fn_name,

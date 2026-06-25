@@ -15,6 +15,8 @@ typedef enum {
     TOKEN_IF,
     TOKEN_ELSE,
     TOKEN_WHILE,
+    TOKEN_FOR,
+    TOKEN_IN,
     TOKEN_RETURN,
     TOKEN_TRUE,
     TOKEN_FALSE,
@@ -33,6 +35,7 @@ typedef enum {
 
     // Punctuation
     TOKEN_LPAREN, TOKEN_RPAREN,
+    TOKEN_LBRACKET, TOKEN_RBRACKET,
     TOKEN_COLON,
     TOKEN_COMMA,
     TOKEN_DOT,

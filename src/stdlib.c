@@ -98,6 +98,7 @@ static void fn_type(Value *result, Interpreter *interp, int argc, Value *args) {
         case VAL_NIL:      *result = value_string("nil"); return;
         case VAL_FUNCTION: *result = value_string("function"); return;
         case VAL_NATIVE:   *result = value_string("native"); return;
+        case VAL_ARRAY:    *result = value_string("array"); return;
     }
     *result = value_string("unknown");
 }
@@ -111,6 +112,10 @@ static void fn_len(Value *result, Interpreter *interp, int argc, Value *args) {
         *result = value_number((double)strlen(args[0].as.string));
         return;
     }
+    if (args[0].type == VAL_ARRAY) {
+        *result = value_number((double)args[0].as.array.count);
+        return;
+    }
     if (args[0].type == VAL_NUMBER) {
         char buf[64];
         if (args[0].as.number == (long long)args[0].as.number) {
@@ -121,7 +126,7 @@ static void fn_len(Value *result, Interpreter *interp, int argc, Value *args) {
         *result = value_number((double)strlen(buf));
         return;
     }
-    fprintf(stderr, "Runtime error: len() argument must be a string or number\n");
+    fprintf(stderr, "Runtime error: len() argument must be a string, number, or array\n");
     interp->had_runtime_error = 1;
     *result = value_nil();
 }
@@ -204,21 +209,90 @@ static void fn_split(Value *result, Interpreter *interp, int argc, Value *args) 
     if (!expect_string(interp, "split", 0, args[0], &s)) { *result = value_nil(); return; }
     if (!expect_string(interp, "split", 1, args[1], &delim)) { *result = value_nil(); return; }
 
-    if (strlen(delim) == 0) { *result = value_string(s); return; }
-    const char *pos = strstr(s, delim);
-    if (!pos) { *result = value_string(s); return; }
+    size_t delim_len = strlen(delim);
+    if (delim_len == 0) {
+        // No delimiter: return the whole string as a single-element array
+        Value *items = malloc(sizeof(Value));
+        items[0] = value_string(s);
+        *result = value_array(items, 1);
+        return;
+    }
 
-    int len = (int)(pos - s);
-    char *tmp = malloc(len + 1);
-    strncpy(tmp, s, len);
-    tmp[len] = '\0';
-    *result = value_string(tmp);
-    free(tmp);
+    // First pass: count how many parts we'll produce
+    int count = 1;
+    for (const char *p = s; (p = strstr(p, delim)) != NULL; p += delim_len) {
+        count++;
+    }
+
+    Value *items = malloc(sizeof(Value) * count);
+    int i = 0;
+    const char *seg_start = s;
+    const char *pos;
+    while ((pos = strstr(seg_start, delim)) != NULL) {
+        int seg_len = (int)(pos - seg_start);
+        char *tmp = malloc(seg_len + 1);
+        memcpy(tmp, seg_start, seg_len);
+        tmp[seg_len] = '\0';
+        items[i++] = value_string(tmp);
+        free(tmp);
+        seg_start = pos + delim_len;
+    }
+    // Final remaining segment
+    items[i++] = value_string(seg_start);
+
+    *result = value_array(items, count);
 }
 
 // ===========================================================================
-// Math functions
+// Array functions
 // ===========================================================================
+// push(arr, value) -> returns a NEW array with value appended.
+// Arrays in Khan are value types (deep-copied), so this can't mutate the
+// caller's array in place — the idiom is: arr = push(arr, x)
+static void fn_push(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "push", 2, argc)) { *result = value_nil(); return; }
+    if (args[0].type != VAL_ARRAY) {
+        fprintf(stderr, "Runtime error: push() first argument must be an array\n");
+        interp->had_runtime_error = 1;
+        *result = value_nil();
+        return;
+    }
+    int old_count = args[0].as.array.count;
+    Value *items = malloc(sizeof(Value) * (old_count + 1));
+    for (int i = 0; i < old_count; i++) {
+        items[i] = value_copy(args[0].as.array.items[i]);
+    }
+    items[old_count] = value_copy(args[1]);
+    *result = value_array(items, old_count + 1);
+}
+
+// range(n) -> [0, 1, ..., n-1]
+// range(start, end) -> [start, start+1, ..., end-1]
+static void fn_range(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (argc != 1 && argc != 2) {
+        fprintf(stderr, "Runtime error: range() expects 1 or 2 arguments, got %d\n", argc);
+        interp->had_runtime_error = 1;
+        *result = value_nil();
+        return;
+    }
+    double start = 0, end;
+    if (argc == 1) {
+        if (!expect_number(interp, "range", 0, args[0], &end)) { *result = value_nil(); return; }
+    } else {
+        if (!expect_number(interp, "range", 0, args[0], &start)) { *result = value_nil(); return; }
+        if (!expect_number(interp, "range", 1, args[1], &end)) { *result = value_nil(); return; }
+    }
+
+    int istart = (int)start, iend = (int)end;
+    int count = iend > istart ? iend - istart : 0;
+    Value *items = count > 0 ? malloc(sizeof(Value) * count) : NULL;
+    for (int i = 0; i < count; i++) {
+        items[i] = value_number(istart + i);
+    }
+    *result = value_array(items, count);
+}
+
+
 static void fn_abs(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "abs", 1, argc)) { *result = value_nil(); return; }
     double n;
@@ -403,6 +477,10 @@ void stdlib_register_all(Environment *env) {
     env_define(env, "contains", value_native("contains", fn_contains));
     env_define(env, "trim", value_native("trim", fn_trim));
     env_define(env, "split", value_native("split", fn_split));
+
+    // Array functions
+    env_define(env, "push", value_native("push", fn_push));
+    env_define(env, "range", value_native("range", fn_range));
 
     // Math functions
     env_define(env, "abs", value_native("abs", fn_abs));

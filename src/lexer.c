@@ -78,7 +78,7 @@ static TokenType keyword_type(const char *start, int length) {
     struct { const char *word; TokenType type; } keywords[] = {
         {"let", TOKEN_LET}, {"fn", TOKEN_FN}, {"print", TOKEN_PRINT},
         {"import", TOKEN_IMPORT}, {"if", TOKEN_IF}, {"else", TOKEN_ELSE},
-        {"while", TOKEN_WHILE}, {"return", TOKEN_RETURN},
+        {"while", TOKEN_WHILE}, {"for", TOKEN_FOR}, {"in", TOKEN_IN}, {"return", TOKEN_RETURN},
         {"true", TOKEN_TRUE}, {"false", TOKEN_FALSE}, {"nil", TOKEN_NIL},
         {"and", TOKEN_AND}, {"or", TOKEN_OR}, {"not", TOKEN_NOT},
     };
@@ -202,6 +202,8 @@ Token lexer_next_token(Lexer *lexer) {
         case '"': return string_literal(lexer);
         case '(': return make_token(lexer, TOKEN_LPAREN);
         case ')': return make_token(lexer, TOKEN_RPAREN);
+        case '[': return make_token(lexer, TOKEN_LBRACKET);
+        case ']': return make_token(lexer, TOKEN_RBRACKET);
         case ':': return make_token(lexer, TOKEN_COLON);
         case ',': return make_token(lexer, TOKEN_COMMA);
         case '.': return make_token(lexer, TOKEN_DOT);
@@ -236,6 +238,8 @@ const char *token_type_name(TokenType type) {
         case TOKEN_IF: return "IF";
         case TOKEN_ELSE: return "ELSE";
         case TOKEN_WHILE: return "WHILE";
+        case TOKEN_FOR: return "FOR";
+        case TOKEN_IN: return "IN";
         case TOKEN_RETURN: return "RETURN";
         case TOKEN_TRUE: return "TRUE";
         case TOKEN_FALSE: return "FALSE";
@@ -257,6 +261,8 @@ const char *token_type_name(TokenType type) {
         case TOKEN_GREATER_EQUAL: return "GREATER_EQUAL";
         case TOKEN_LPAREN: return "LPAREN";
         case TOKEN_RPAREN: return "RPAREN";
+        case TOKEN_LBRACKET: return "LBRACKET";
+        case TOKEN_RBRACKET: return "RBRACKET";
         case TOKEN_COLON: return "COLON";
         case TOKEN_COMMA: return "COMMA";
         case TOKEN_DOT: return "DOT";

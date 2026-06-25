@@ -22,6 +22,9 @@ typedef enum {
     AST_GROUPING,
     AST_ASSIGNMENT,
     AST_CALL,
+    AST_ARRAY,
+    AST_INDEX,
+    AST_INDEX_ASSIGN,
 
     // Statements
     AST_EXPR_STMT,
@@ -29,6 +32,7 @@ typedef enum {
     AST_LET_STMT,
     AST_IF_STMT,
     AST_WHILE_STMT,
+    AST_FOR_STMT,
     AST_BLOCK,
     AST_FN_DECL,
     AST_RETURN_STMT,
@@ -104,6 +108,22 @@ struct AstNode {
             AstNodeList *arguments;
         } call;
 
+        // AST_ARRAY — list of element expression nodes
+        AstNodeList *array_elements;
+
+        // AST_INDEX
+        struct {
+            AstNode *object;
+            AstNode *index;
+        } index_expr;
+
+        // AST_INDEX_ASSIGN — object[index] = value
+        struct {
+            AstNode *object;
+            AstNode *index;
+            AstNode *value;
+        } index_assign;
+
         // AST_PRINT_STMT / AST_RETURN_STMT / AST_EXPR_STMT
         AstNode *expr;
 
@@ -125,6 +145,13 @@ struct AstNode {
             AstNode *while_condition;
             AstNode *while_body;
         } while_stmt;
+
+        // AST_FOR_STMT — for <var> in <iterable>: <body>
+        struct {
+            const char *for_var;
+            AstNode *for_iterable;
+            AstNode *for_body;
+        } for_stmt;
 
         // AST_BLOCK
         AstNodeList *statements;
@@ -156,11 +183,15 @@ AstNode *ast_new_unary(AstOp op, AstNode *right, int line);
 AstNode *ast_new_grouping(AstNode *expr, int line);
 AstNode *ast_new_assignment(const char *name, AstNode *value, int line);
 AstNode *ast_new_call(const char *callee, AstNodeList *args, int line);
+AstNode *ast_new_array(AstNodeList *elements, int line);
+AstNode *ast_new_index(AstNode *object, AstNode *index, int line);
+AstNode *ast_new_index_assign(AstNode *object, AstNode *index, AstNode *value, int line);
 AstNode *ast_new_expr_stmt(AstNode *expr, int line);
 AstNode *ast_new_print_stmt(AstNode *expr, int line);
 AstNode *ast_new_let_stmt(const char *name, AstNode *initializer, int line);
 AstNode *ast_new_if_stmt(AstNode *cond, AstNode *then_branch, AstNode *else_branch, int line);
 AstNode *ast_new_while_stmt(AstNode *cond, AstNode *body, int line);
+AstNode *ast_new_for_stmt(const char *var_name, AstNode *iterable, AstNode *body, int line);
 AstNode *ast_new_block(AstNodeList *stmts, int line);
 AstNode *ast_new_fn_decl(const char *name, AstNodeList *params, AstNode *body, int line);
 AstNode *ast_new_return_stmt(AstNode *value, int line);

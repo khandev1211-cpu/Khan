@@ -76,6 +76,27 @@ AstNode *ast_new_call(const char *callee, AstNodeList *args, int line) {
     return node;
 }
 
+AstNode *ast_new_array(AstNodeList *elements, int line) {
+    AstNode *node = ast_new_node(AST_ARRAY, line);
+    node->data.array_elements = elements;
+    return node;
+}
+
+AstNode *ast_new_index(AstNode *object, AstNode *index, int line) {
+    AstNode *node = ast_new_node(AST_INDEX, line);
+    node->data.index_expr.object = object;
+    node->data.index_expr.index = index;
+    return node;
+}
+
+AstNode *ast_new_index_assign(AstNode *object, AstNode *index, AstNode *value, int line) {
+    AstNode *node = ast_new_node(AST_INDEX_ASSIGN, line);
+    node->data.index_assign.object = object;
+    node->data.index_assign.index = index;
+    node->data.index_assign.value = value;
+    return node;
+}
+
 AstNode *ast_new_expr_stmt(AstNode *expr, int line) {
     AstNode *node = ast_new_node(AST_EXPR_STMT, line);
     node->data.expr = expr;
@@ -107,6 +128,14 @@ AstNode *ast_new_while_stmt(AstNode *cond, AstNode *body, int line) {
     AstNode *node = ast_new_node(AST_WHILE_STMT, line);
     node->data.while_stmt.while_condition = cond;
     node->data.while_stmt.while_body = body;
+    return node;
+}
+
+AstNode *ast_new_for_stmt(const char *var_name, AstNode *iterable, AstNode *body, int line) {
+    AstNode *node = ast_new_node(AST_FOR_STMT, line);
+    node->data.for_stmt.for_var = strdup(var_name);
+    node->data.for_stmt.for_iterable = iterable;
+    node->data.for_stmt.for_body = body;
     return node;
 }
 
@@ -197,6 +226,18 @@ void ast_free(AstNode *node) {
             free((void *)node->data.call.callee);
             ast_free_list(node->data.call.arguments);
             break;
+        case AST_ARRAY:
+            ast_free_list(node->data.array_elements);
+            break;
+        case AST_INDEX:
+            ast_free(node->data.index_expr.object);
+            ast_free(node->data.index_expr.index);
+            break;
+        case AST_INDEX_ASSIGN:
+            ast_free(node->data.index_assign.object);
+            ast_free(node->data.index_assign.index);
+            ast_free(node->data.index_assign.value);
+            break;
         case AST_EXPR_STMT:
         case AST_PRINT_STMT:
         case AST_RETURN_STMT:
@@ -214,6 +255,11 @@ void ast_free(AstNode *node) {
         case AST_WHILE_STMT:
             ast_free(node->data.while_stmt.while_condition);
             ast_free(node->data.while_stmt.while_body);
+            break;
+        case AST_FOR_STMT:
+            free((void *)node->data.for_stmt.for_var);
+            ast_free(node->data.for_stmt.for_iterable);
+            ast_free(node->data.for_stmt.for_body);
             break;
         case AST_BLOCK:
             ast_free_list(node->data.statements);
@@ -305,6 +351,24 @@ void ast_print(AstNode *node, int indent) {
             ast_print_list(node->data.call.arguments, indent + 1);
             print_indent(indent); printf(")\n");
             break;
+        case AST_ARRAY:
+            printf("(array\n");
+            ast_print_list(node->data.array_elements, indent + 1);
+            print_indent(indent); printf(")\n");
+            break;
+        case AST_INDEX:
+            printf("(index\n");
+            ast_print(node->data.index_expr.object, indent + 1);
+            ast_print(node->data.index_expr.index, indent + 1);
+            print_indent(indent); printf(")\n");
+            break;
+        case AST_INDEX_ASSIGN:
+            printf("(index-assign\n");
+            ast_print(node->data.index_assign.object, indent + 1);
+            ast_print(node->data.index_assign.index, indent + 1);
+            ast_print(node->data.index_assign.value, indent + 1);
+            print_indent(indent); printf(")\n");
+            break;
         case AST_EXPR_STMT:
             printf("(expr-stmt\n");
             ast_print(node->data.expr, indent + 1);
@@ -335,6 +399,12 @@ void ast_print(AstNode *node, int indent) {
             printf("(while\n");
             ast_print(node->data.while_stmt.while_condition, indent + 1);
             ast_print(node->data.while_stmt.while_body, indent + 1);
+            print_indent(indent); printf(")\n");
+            break;
+        case AST_FOR_STMT:
+            printf("(for %s\n", node->data.for_stmt.for_var);
+            ast_print(node->data.for_stmt.for_iterable, indent + 1);
+            ast_print(node->data.for_stmt.for_body, indent + 1);
             print_indent(indent); printf(")\n");
             break;
         case AST_BLOCK:

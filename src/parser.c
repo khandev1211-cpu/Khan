@@ -103,10 +103,11 @@ static AstNode *block(Parser *parser) {
     AstNodeList *stmts = NULL;
     while (!check(parser, TOKEN_DEDENT) && !check(parser, TOKEN_EOF)) {
         stmts = ast_list_append(stmts, declaration(parser));
-        // Expect a NEWLINE after each statement (except the last before DEDENT)
-        if (!check(parser, TOKEN_DEDENT) && !check(parser, TOKEN_EOF)) {
-            consume(parser, TOKEN_NEWLINE, "Expected newline after statement.");
-        }
+        // Statement separator: zero or more NEWLINEs. Compound statements
+        // (if/while/for/fn) already consumed their own closing DEDENT while
+        // parsing their nested block, so the token right after them is the
+        // next statement directly — there's no NEWLINE token to require.
+        while (check(parser, TOKEN_NEWLINE)) advance(parser);
     }
     consume(parser, TOKEN_DEDENT, "Expected dedent to close block.");
     return ast_new_block(stmts, line);
@@ -152,6 +153,19 @@ static AstNode *while_statement(Parser *parser) {
     consume(parser, TOKEN_COLON, "Expected ':' after while condition.");
     AstNode *body = block(parser);
     return ast_new_while_stmt(cond, body, line);
+}
+
+static AstNode *for_statement(Parser *parser) {
+    int line = parser->previous.line;
+    consume(parser, TOKEN_IDENTIFIER, "Expected loop variable name after 'for'.");
+    const char *var_name = strndup(parser->previous.start, parser->previous.length);
+    consume(parser, TOKEN_IN, "Expected 'in' after loop variable.");
+    AstNode *iterable = expression(parser);
+    consume(parser, TOKEN_COLON, "Expected ':' after for-loop iterable.");
+    AstNode *body = block(parser);
+    AstNode *node = ast_new_for_stmt(var_name, iterable, body, line);
+    free((void *)var_name); // ast_new_for_stmt strdup'd it
+    return node;
 }
 
 static AstNode *fn_declaration(Parser *parser) {
@@ -200,6 +214,7 @@ static AstNode *statement(Parser *parser) {
     if (match(parser, TOKEN_PRINT))  return print_statement(parser);
     if (match(parser, TOKEN_IF))     return if_statement(parser);
     if (match(parser, TOKEN_WHILE))  return while_statement(parser);
+    if (match(parser, TOKEN_FOR))    return for_statement(parser);
     if (match(parser, TOKEN_RETURN)) return return_statement(parser);
 
     // Expression statement
@@ -219,6 +234,14 @@ static AstNode *assignment(Parser *parser) {
     AstNode *left = logic_or(parser);
 
     if (match(parser, TOKEN_EQUAL)) {
+        if (left->type == AST_INDEX) {
+            AstNode *value = assignment(parser);
+            AstNode *object = left->data.index_expr.object;
+            AstNode *index = left->data.index_expr.index;
+            int line = left->line;
+            free(left); // shell only — children reused, not freed
+            return ast_new_index_assign(object, index, value, line);
+        }
         if (left->type != AST_IDENTIFIER) {
             error(parser, "Left-hand side of assignment must be a variable.");
             // Discard the right-hand side
@@ -348,12 +371,20 @@ static AstNode *finish_call(Parser *parser, AstNode *callee) {
     return call_node;
 }
 
+static AstNode *finish_index(Parser *parser, AstNode *object) {
+    AstNode *index = expression(parser);
+    consume(parser, TOKEN_RBRACKET, "Expected ']' after index.");
+    return ast_new_index(object, index, parser->previous.line);
+}
+
 static AstNode *call(Parser *parser) {
     AstNode *left = primary(parser);
 
     for (;;) {
         if (match(parser, TOKEN_LPAREN)) {
             left = finish_call(parser, left);
+        } else if (match(parser, TOKEN_LBRACKET)) {
+            left = finish_index(parser, left);
         } else {
             break;
         }
@@ -401,6 +432,18 @@ static AstNode *primary(Parser *parser) {
         AstNode *expr = expression(parser);
         consume(parser, TOKEN_RPAREN, "Expected ')' after expression.");
         return ast_new_grouping(expr, parser->previous.line);
+    }
+
+    if (match(parser, TOKEN_LBRACKET)) {
+        int line = parser->previous.line;
+        AstNodeList *elements = NULL;
+        if (!check(parser, TOKEN_RBRACKET)) {
+            do {
+                elements = ast_list_append(elements, expression(parser));
+            } while (match(parser, TOKEN_COMMA));
+        }
+        consume(parser, TOKEN_RBRACKET, "Expected ']' after array elements.");
+        return ast_new_array(elements, line);
     }
 
     // Error: unexpected token

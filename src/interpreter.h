@@ -22,6 +22,7 @@ typedef enum {
     VAL_NIL,
     VAL_FUNCTION,
     VAL_NATIVE,
+    VAL_ARRAY,
 } ValueType;
 
 // Forward-declare Value struct for the native function pointer
@@ -47,6 +48,11 @@ struct Value {
             const char *name;
             NativeFn function;
         } native;
+        struct {
+            struct Value *items;
+            int count;
+            int capacity;
+        } array;
     } as;
 };
 
@@ -82,6 +88,8 @@ Value value_nil(void);
 Value value_function(const char *name, Environment *closure,
                      AstNode *body, AstNodeList *params);
 Value value_native(const char *name, NativeFn fn);
+Value value_array(Value *items, int count);
+Value value_copy(Value v);
 void value_free(Value v);
 void value_print(Value v);
 
