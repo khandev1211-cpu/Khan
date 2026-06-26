@@ -446,6 +446,21 @@ static AstNode *primary(Parser *parser) {
         return ast_new_array(elements, line);
     }
 
+    if (match(parser, TOKEN_LBRACE)) {
+        int line = parser->previous.line;
+        AstNodeList *entries = NULL;
+        if (!check(parser, TOKEN_RBRACE)) {
+            do {
+                AstNode *key = expression(parser);
+                consume(parser, TOKEN_COLON, "Expected ':' after map key.");
+                AstNode *value = expression(parser);
+                entries = ast_list_append(entries, ast_new_map_entry(key, value, line));
+            } while (match(parser, TOKEN_COMMA));
+        }
+        consume(parser, TOKEN_RBRACE, "Expected '}' after map entries.");
+        return ast_new_map(entries, line);
+    }
+
     // Error: unexpected token
     error_at_current(parser, "Expected expression.");
     // Advance past it to avoid infinite loops

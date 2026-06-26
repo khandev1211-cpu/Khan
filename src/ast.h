@@ -25,6 +25,8 @@ typedef enum {
     AST_ARRAY,
     AST_INDEX,
     AST_INDEX_ASSIGN,
+    AST_MAP,
+    AST_MAP_ENTRY,
 
     // Statements
     AST_EXPR_STMT,
@@ -124,6 +126,15 @@ struct AstNode {
             AstNode *value;
         } index_assign;
 
+        // AST_MAP — list of AST_MAP_ENTRY nodes
+        AstNodeList *map_entries;
+
+        // AST_MAP_ENTRY — one "key: value" pair inside a map literal
+        struct {
+            AstNode *key;
+            AstNode *value;
+        } map_entry;
+
         // AST_PRINT_STMT / AST_RETURN_STMT / AST_EXPR_STMT
         AstNode *expr;
 
@@ -186,6 +197,8 @@ AstNode *ast_new_call(const char *callee, AstNodeList *args, int line);
 AstNode *ast_new_array(AstNodeList *elements, int line);
 AstNode *ast_new_index(AstNode *object, AstNode *index, int line);
 AstNode *ast_new_index_assign(AstNode *object, AstNode *index, AstNode *value, int line);
+AstNode *ast_new_map(AstNodeList *entries, int line);
+AstNode *ast_new_map_entry(AstNode *key, AstNode *value, int line);
 AstNode *ast_new_expr_stmt(AstNode *expr, int line);
 AstNode *ast_new_print_stmt(AstNode *expr, int line);
 AstNode *ast_new_let_stmt(const char *name, AstNode *initializer, int line);

@@ -23,10 +23,12 @@ typedef enum {
     VAL_FUNCTION,
     VAL_NATIVE,
     VAL_ARRAY,
+    VAL_MAP,
 } ValueType;
 
 // Forward-declare Value struct for the native function pointer
 struct Value;
+typedef struct MapEntry MapEntry;
 
 // Native function signature
 typedef void (*NativeFn)(struct Value *result, Interpreter *interp, int argc, struct Value *args);
@@ -53,11 +55,23 @@ struct Value {
             int count;
             int capacity;
         } array;
+        struct {
+            MapEntry *entries;
+            int count;
+            int capacity;
+        } map;
     } as;
 };
 
 // Typedef for convenience
 typedef struct Value Value;
+
+// One key-value pair inside a map. Defined here (after Value) since each
+// entry owns a full Value, not just a pointer to one.
+struct MapEntry {
+    const char *key;
+    Value value;
+};
 
 // ---------------------------------------------------------------------------
 // Environment (scope chain)
@@ -89,6 +103,12 @@ Value value_function(const char *name, Environment *closure,
                      AstNode *body, AstNodeList *params);
 Value value_native(const char *name, NativeFn fn);
 Value value_array(Value *items, int count);
+Value value_map_empty(void);
+// Sets key to value in the map (overwrites if key already exists). Takes
+// ownership of `value` — pass a value_copy() if the caller still needs it.
+void map_set(Value *map, const char *key, Value value);
+// Returns a pointer to the stored Value for `key`, or NULL if not present.
+Value *map_get(Value *map, const char *key);
 Value value_copy(Value v);
 void value_free(Value v);
 void value_print(Value v);

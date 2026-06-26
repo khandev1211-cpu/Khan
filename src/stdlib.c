@@ -99,6 +99,7 @@ static void fn_type(Value *result, Interpreter *interp, int argc, Value *args) {
         case VAL_FUNCTION: *result = value_string("function"); return;
         case VAL_NATIVE:   *result = value_string("native"); return;
         case VAL_ARRAY:    *result = value_string("array"); return;
+        case VAL_MAP:      *result = value_string("map"); return;
     }
     *result = value_string("unknown");
 }
@@ -116,6 +117,10 @@ static void fn_len(Value *result, Interpreter *interp, int argc, Value *args) {
         *result = value_number((double)args[0].as.array.count);
         return;
     }
+    if (args[0].type == VAL_MAP) {
+        *result = value_number((double)args[0].as.map.count);
+        return;
+    }
     if (args[0].type == VAL_NUMBER) {
         char buf[64];
         if (args[0].as.number == (long long)args[0].as.number) {
@@ -126,7 +131,7 @@ static void fn_len(Value *result, Interpreter *interp, int argc, Value *args) {
         *result = value_number((double)strlen(buf));
         return;
     }
-    fprintf(stderr, "Runtime error: len() argument must be a string, number, or array\n");
+    fprintf(stderr, "Runtime error: len() argument must be a string, number, array, or map\n");
     interp->had_runtime_error = 1;
     *result = value_nil();
 }
@@ -459,6 +464,40 @@ static void fn_exit(Value *result, Interpreter *interp, int argc, Value *args) {
 }
 
 // ===========================================================================
+// Map functions
+// ===========================================================================
+// keys(map) -> array of all keys in the map (as strings)
+static void fn_keys(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "keys", 1, argc)) { *result = value_nil(); return; }
+    if (args[0].type != VAL_MAP) {
+        fprintf(stderr, "Runtime error: keys() argument must be a map\n");
+        interp->had_runtime_error = 1;
+        *result = value_nil();
+        return;
+    }
+    int count = args[0].as.map.count;
+    Value *items = count > 0 ? malloc(sizeof(Value) * count) : NULL;
+    for (int i = 0; i < count; i++) {
+        items[i] = value_string(args[0].as.map.entries[i].key);
+    }
+    *result = value_array(items, count);
+}
+
+// has(map, key) -> true/false depending on whether key exists
+static void fn_has(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "has", 2, argc)) { *result = value_nil(); return; }
+    if (args[0].type != VAL_MAP) {
+        fprintf(stderr, "Runtime error: has() first argument must be a map\n");
+        interp->had_runtime_error = 1;
+        *result = value_nil();
+        return;
+    }
+    const char *key;
+    if (!expect_string(interp, "has", 1, args[1], &key)) { *result = value_nil(); return; }
+    *result = value_bool(map_get(&args[0], key) != NULL);
+}
+
+// ===========================================================================
 // Registration
 // ===========================================================================
 void stdlib_register_all(Environment *env) {
@@ -481,6 +520,10 @@ void stdlib_register_all(Environment *env) {
     // Array functions
     env_define(env, "push", value_native("push", fn_push));
     env_define(env, "range", value_native("range", fn_range));
+
+    // Map functions
+    env_define(env, "keys", value_native("keys", fn_keys));
+    env_define(env, "has", value_native("has", fn_has));
 
     // Math functions
     env_define(env, "abs", value_native("abs", fn_abs));

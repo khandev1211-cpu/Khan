@@ -134,6 +134,47 @@ Value value_array(Value *items, int count) {
     return v;
 }
 
+Value value_map_empty(void) {
+    Value v;
+    v.type = VAL_MAP;
+    v.as.map.entries = NULL;
+    v.as.map.count = 0;
+    v.as.map.capacity = 0;
+    return v;
+}
+
+// Sets key -> value, overwriting if the key already exists. Takes ownership
+// of `value` (caller should pass value_copy(...) if it still needs its own
+// copy afterwards) — same ownership convention as everywhere else here.
+void map_set(Value *map, const char *key, Value value) {
+    for (int i = 0; i < map->as.map.count; i++) {
+        if (strcmp(map->as.map.entries[i].key, key) == 0) {
+            value_free(map->as.map.entries[i].value);
+            map->as.map.entries[i].value = value;
+            return;
+        }
+    }
+    if (map->as.map.count == map->as.map.capacity) {
+        int new_cap = map->as.map.capacity == 0 ? 4 : map->as.map.capacity * 2;
+        map->as.map.entries = realloc(map->as.map.entries, sizeof(MapEntry) * new_cap);
+        map->as.map.capacity = new_cap;
+    }
+    map->as.map.entries[map->as.map.count].key = strdup(key);
+    map->as.map.entries[map->as.map.count].value = value;
+    map->as.map.count++;
+}
+
+// Returns a pointer to the stored value for `key`, or NULL if absent.
+// Simple linear search — fine for the small maps this language deals with.
+Value *map_get(Value *map, const char *key) {
+    for (int i = 0; i < map->as.map.count; i++) {
+        if (strcmp(map->as.map.entries[i].key, key) == 0) {
+            return &map->as.map.entries[i].value;
+        }
+    }
+    return NULL;
+}
+
 // Deep-copies a value so the result owns fully independent memory from the
 // original. MUST be used any time a value is read out of a variable and
 // might end up stored somewhere else (another variable, a function arg,
@@ -161,6 +202,17 @@ Value value_copy(Value v) {
             copy.as.array.capacity = count;
             break;
         }
+        case VAL_MAP: {
+            int count = v.as.map.count;
+            MapEntry *entries = count > 0 ? malloc(sizeof(MapEntry) * count) : NULL;
+            for (int i = 0; i < count; i++) {
+                entries[i].key = strdup(v.as.map.entries[i].key);
+                entries[i].value = value_copy(v.as.map.entries[i].value);
+            }
+            copy.as.map.entries = entries;
+            copy.as.map.capacity = count;
+            break;
+        }
         default:
             break; // numbers, bools, nil have no owned memory
     }
@@ -180,6 +232,12 @@ void value_free(Value v) {
             value_free(v.as.array.items[i]);
         }
         free(v.as.array.items);
+    } else if (v.type == VAL_MAP) {
+        for (int i = 0; i < v.as.map.count; i++) {
+            free((void *)v.as.map.entries[i].key);
+            value_free(v.as.map.entries[i].value);
+        }
+        free(v.as.map.entries);
     }
 }
 
@@ -225,6 +283,15 @@ void value_print(Value v) {
                 value_print_nested(v.as.array.items[i]);
             }
             printf("]");
+            break;
+        case VAL_MAP:
+            printf("{");
+            for (int i = 0; i < v.as.map.count; i++) {
+                if (i > 0) printf(", ");
+                printf("\"%s\": ", v.as.map.entries[i].key);
+                value_print_nested(v.as.map.entries[i].value);
+            }
+            printf("}");
             break;
     }
 }
@@ -473,12 +540,61 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
             return value_array(items, count);
         }
 
+        case AST_MAP: {
+            Value map = value_map_empty();
+            for (AstNodeList *e = node->data.map_entries; e; e = e->next) {
+                AstNode *entry = e->node; // AST_MAP_ENTRY
+
+                Value key_val = evaluate(interp, entry->data.map_entry.key, env);
+                if (interp->had_runtime_error) { value_free(map); return value_nil(); }
+                if (key_val.type != VAL_STRING) {
+                    runtime_error(interp, entry, "Map keys must be strings.");
+                    value_free(key_val);
+                    value_free(map);
+                    return value_nil();
+                }
+
+                Value val = evaluate(interp, entry->data.map_entry.value, env);
+                if (interp->had_runtime_error) {
+                    value_free(key_val);
+                    value_free(map);
+                    return value_nil();
+                }
+
+                map_set(&map, key_val.as.string, val); // map_set takes ownership of val
+                value_free(key_val); // map_set strdup'd the key internally
+            }
+            return map;
+        }
+
         case AST_INDEX: {
             Value obj = evaluate(interp, node->data.index_expr.object, env);
             if (interp->had_runtime_error) return value_nil();
 
+            if (obj.type == VAL_MAP) {
+                Value key_val = evaluate(interp, node->data.index_expr.index, env);
+                if (interp->had_runtime_error) { value_free(obj); return value_nil(); }
+                if (key_val.type != VAL_STRING) {
+                    runtime_error(interp, node, "Map key must be a string.");
+                    value_free(obj);
+                    value_free(key_val);
+                    return value_nil();
+                }
+                Value *found = map_get(&obj, key_val.as.string);
+                if (!found) {
+                    runtime_error(interp, node, "Key not found in map.");
+                    value_free(obj);
+                    value_free(key_val);
+                    return value_nil();
+                }
+                Value result = value_copy(*found);
+                value_free(key_val);
+                value_free(obj);
+                return result;
+            }
+
             if (obj.type != VAL_ARRAY) {
-                runtime_error(interp, node, "Can only index into an array.");
+                runtime_error(interp, node, "Can only index into an array or map.");
                 value_free(obj);
                 return value_nil();
             }
@@ -512,20 +628,39 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
         case AST_INDEX_ASSIGN: {
             if (node->data.index_assign.object->type != AST_IDENTIFIER) {
                 runtime_error(interp, node,
-                    "Can only assign into a simple array variable (e.g. arr[i] = x).");
+                    "Can only assign into a simple array/map variable (e.g. x[i] = v).");
                 return value_nil();
             }
 
             const char *name = node->data.index_assign.object->data.name;
-            Value *arr_ptr = env_get(env, name);
-            if (!arr_ptr) {
+            Value *target = env_get(env, name);
+            if (!target) {
                 runtime_error(interp, node, "Undefined variable.");
                 return value_nil();
             }
-            if (arr_ptr->type != VAL_ARRAY) {
-                runtime_error(interp, node, "Can only index-assign into an array.");
+
+            if (target->type == VAL_MAP) {
+                Value key_val = evaluate(interp, node->data.index_assign.index, env);
+                if (interp->had_runtime_error) return value_nil();
+                if (key_val.type != VAL_STRING) {
+                    runtime_error(interp, node, "Map key must be a string.");
+                    value_free(key_val);
+                    return value_nil();
+                }
+
+                Value new_val = evaluate(interp, node->data.index_assign.value, env);
+                if (interp->had_runtime_error) { value_free(key_val); return value_nil(); }
+
+                map_set(target, key_val.as.string, value_copy(new_val));
+                value_free(key_val);
+                return new_val;
+            }
+
+            if (target->type != VAL_ARRAY) {
+                runtime_error(interp, node, "Can only index-assign into an array or map.");
                 return value_nil();
             }
+            Value *arr_ptr = target;
 
             Value idx_val = evaluate(interp, node->data.index_assign.index, env);
             if (interp->had_runtime_error) return value_nil();

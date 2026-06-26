@@ -97,6 +97,19 @@ AstNode *ast_new_index_assign(AstNode *object, AstNode *index, AstNode *value, i
     return node;
 }
 
+AstNode *ast_new_map(AstNodeList *entries, int line) {
+    AstNode *node = ast_new_node(AST_MAP, line);
+    node->data.map_entries = entries;
+    return node;
+}
+
+AstNode *ast_new_map_entry(AstNode *key, AstNode *value, int line) {
+    AstNode *node = ast_new_node(AST_MAP_ENTRY, line);
+    node->data.map_entry.key = key;
+    node->data.map_entry.value = value;
+    return node;
+}
+
 AstNode *ast_new_expr_stmt(AstNode *expr, int line) {
     AstNode *node = ast_new_node(AST_EXPR_STMT, line);
     node->data.expr = expr;
@@ -238,6 +251,13 @@ void ast_free(AstNode *node) {
             ast_free(node->data.index_assign.index);
             ast_free(node->data.index_assign.value);
             break;
+        case AST_MAP:
+            ast_free_list(node->data.map_entries);
+            break;
+        case AST_MAP_ENTRY:
+            ast_free(node->data.map_entry.key);
+            ast_free(node->data.map_entry.value);
+            break;
         case AST_EXPR_STMT:
         case AST_PRINT_STMT:
         case AST_RETURN_STMT:
@@ -367,6 +387,17 @@ void ast_print(AstNode *node, int indent) {
             ast_print(node->data.index_assign.object, indent + 1);
             ast_print(node->data.index_assign.index, indent + 1);
             ast_print(node->data.index_assign.value, indent + 1);
+            print_indent(indent); printf(")\n");
+            break;
+        case AST_MAP:
+            printf("(map\n");
+            ast_print_list(node->data.map_entries, indent + 1);
+            print_indent(indent); printf(")\n");
+            break;
+        case AST_MAP_ENTRY:
+            printf("(entry\n");
+            ast_print(node->data.map_entry.key, indent + 1);
+            ast_print(node->data.map_entry.value, indent + 1);
             print_indent(indent); printf(")\n");
             break;
         case AST_EXPR_STMT:

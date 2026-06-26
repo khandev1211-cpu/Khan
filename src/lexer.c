@@ -204,6 +204,8 @@ Token lexer_next_token(Lexer *lexer) {
         case ')': return make_token(lexer, TOKEN_RPAREN);
         case '[': return make_token(lexer, TOKEN_LBRACKET);
         case ']': return make_token(lexer, TOKEN_RBRACKET);
+        case '{': return make_token(lexer, TOKEN_LBRACE);
+        case '}': return make_token(lexer, TOKEN_RBRACE);
         case ':': return make_token(lexer, TOKEN_COLON);
         case ',': return make_token(lexer, TOKEN_COMMA);
         case '.': return make_token(lexer, TOKEN_DOT);
@@ -263,6 +265,8 @@ const char *token_type_name(TokenType type) {
         case TOKEN_RPAREN: return "RPAREN";
         case TOKEN_LBRACKET: return "LBRACKET";
         case TOKEN_RBRACKET: return "RBRACKET";
+        case TOKEN_LBRACE: return "LBRACE";
+        case TOKEN_RBRACE: return "RBRACE";
         case TOKEN_COLON: return "COLON";
         case TOKEN_COMMA: return "COMMA";
         case TOKEN_DOT: return "DOT";
