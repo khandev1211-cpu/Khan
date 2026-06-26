@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "lexer.h"
 #include "parser.h"
 #include "ast.h"
@@ -51,9 +52,22 @@ int main(int argc, char *argv[]) {
         return 65;
     }
 
+    // Extract the directory path for import resolution
+    const char *base_path = NULL;
+    char path_buf[1024];
+    char *last_slash = strrchr(argv[1], '/');
+    char *last_backslash = strrchr(argv[1], '\\');
+    char *sep = last_slash > last_backslash ? last_slash : last_backslash;
+    if (sep) {
+        int len = (int)(sep - argv[1]);
+        memcpy(path_buf, argv[1], len);
+        path_buf[len] = '\0';
+        base_path = path_buf;
+    }
+
     // Set up global environment with standard library
     Interpreter interp;
-    interpreter_init(&interp);
+    interpreter_init(&interp, base_path);
 
     Environment *global = env_new(NULL);
     stdlib_register_all(global);

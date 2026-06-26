@@ -118,9 +118,10 @@ void value_print(Value v);
 // ---------------------------------------------------------------------------
 struct Interpreter {
     int had_runtime_error;
+    const char *base_path;  // directory of the main source file, for resolving imports
 };
 
-void interpreter_init(Interpreter *interp);
+void interpreter_init(Interpreter *interp, const char *base_path);
 Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env);
 
 #endif

@@ -184,6 +184,16 @@ Token lexer_next_token(Lexer *lexer) {
     lexer->start = lexer->current;
 
     if (is_at_end(lexer)) {
+        // Unwind any remaining indentation levels by queuing DEDENTs
+        if (lexer->indent_top > 0 && lexer->pending_dedents == 0) {
+            lexer->pending_dedents = lexer->indent_top;
+            lexer->indent_top = 0;
+        }
+        if (lexer->pending_dedents > 0) {
+            lexer->pending_dedents--;
+            lexer->start = lexer->current;
+            return make_token(lexer, TOKEN_DEDENT);
+        }
         return make_token(lexer, TOKEN_EOF);
     }
 

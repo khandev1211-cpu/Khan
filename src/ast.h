@@ -41,6 +41,7 @@ typedef enum {
 
     // Top-level
     AST_PROGRAM,
+    AST_IMPORT_STMT,
 } AstNodeType;
 
 // ---------------------------------------------------------------------------
@@ -174,8 +175,11 @@ struct AstNode {
             AstNode *fn_body;          // AST_BLOCK
         } fn_decl;
 
-        // AST_PROGRAM
-        AstNodeList *program_stmts;
+    // AST_PROGRAM
+    AstNodeList *program_stmts;
+
+        // AST_IMPORT_STMT
+        const char *import_path;
     } data;
 };
 
@@ -208,6 +212,7 @@ AstNode *ast_new_for_stmt(const char *var_name, AstNode *iterable, AstNode *body
 AstNode *ast_new_block(AstNodeList *stmts, int line);
 AstNode *ast_new_fn_decl(const char *name, AstNodeList *params, AstNode *body, int line);
 AstNode *ast_new_return_stmt(AstNode *value, int line);
+AstNode *ast_new_import_stmt(const char *path, int line);
 AstNode *ast_new_program(AstNodeList *stmts, int line);
 
 AstNodeList *ast_list_append(AstNodeList *list, AstNode *node);

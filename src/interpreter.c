@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "lexer.h"
+#include "parser.h"
 #include "interpreter.h"
 
 // ---------------------------------------------------------------------------
@@ -296,6 +298,10 @@ void value_print(Value v) {
     }
 }
 
+// Forward-declare the import executor so we can forward-reference it
+// without having main.c's read_file helper here. We'll read the file inline.
+static Value execute_import(Interpreter *interp, const char *path, Environment *env);
+
 // ---------------------------------------------------------------------------
 // Forward declarations
 // ---------------------------------------------------------------------------
@@ -445,6 +451,9 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
 
         case AST_GROUPING:
             return evaluate(interp, node->data.grouping, env);
+
+        case AST_IMPORT_STMT:
+            return execute_import(interp, node->data.import_path, env);
 
         case AST_ASSIGNMENT: {
             Value v = evaluate(interp, node->data.assignment.value, env);
@@ -834,8 +843,71 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
 }
 
 // ---------------------------------------------------------------------------
+// Import executor — reads a file, parses it, executes it in the given env
+// ---------------------------------------------------------------------------
+static Value execute_import(Interpreter *interp, const char *path, Environment *env) {
+    // Resolve the import path relative to the base path
+    char full_path[1024];
+    if (interp->base_path) {
+        snprintf(full_path, sizeof(full_path), "%s/%s", interp->base_path, path);
+    } else {
+        snprintf(full_path, sizeof(full_path), "%s", path);
+    }
+
+    FILE *file = fopen(full_path, "rb");
+    if (!file) {
+        // Try the path as-is as a fallback
+        file = fopen(path, "rb");
+    }
+    if (!file) {
+        fprintf(stderr, "[line 0] Runtime error: Could not open import '%s'.\n", full_path);
+        interp->had_runtime_error = 1;
+        return value_nil();
+    }
+
+    fseek(file, 0L, SEEK_END);
+    long size = ftell(file);
+    rewind(file);
+
+    char *source = malloc(size + 1);
+    if (!source) {
+        fprintf(stderr, "[line 0] Runtime error: Out of memory reading import '%s'.\n", full_path);
+        fclose(file);
+        interp->had_runtime_error = 1;
+        return value_nil();
+    }
+    fread(source, 1, size, file);
+    source[size] = '\0';
+    fclose(file);
+
+    // Lex, parse, and execute the imported file
+    Lexer lexer;
+    lexer_init(&lexer, source);
+
+    Parser parser;
+    parser_init(&parser, &lexer);
+
+    AstNode *program = parser_parse(&parser);
+
+    if (parser.had_error) {
+        fprintf(stderr, "[line 0] Runtime error: Syntax error(s) in import '%s'.\n", full_path);
+        free(source);
+        ast_free(program);
+        interp->had_runtime_error = 1;
+        return value_nil();
+    }
+
+    Value result = interpreter_execute(interp, program, env);
+
+    ast_free(program);
+    free(source);
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-void interpreter_init(Interpreter *interp) {
+void interpreter_init(Interpreter *interp, const char *base_path) {
     interp->had_runtime_error = 0;
+    interp->base_path = base_path;
 }

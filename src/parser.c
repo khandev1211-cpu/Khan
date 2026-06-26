@@ -199,12 +199,27 @@ static AstNode *return_statement(Parser *parser) {
     return ast_new_return_stmt(value, line);
 }
 
+static AstNode *import_statement(Parser *parser) {
+    int line = parser->previous.line;
+    consume(parser, TOKEN_STRING, "Expected a string literal after 'import'.");
+    // Strip surrounding quotes from the token
+    const char *raw = parser->previous.start;
+    int len = parser->previous.length;
+    char *path = malloc(len - 1);
+    strncpy(path, raw + 1, len - 2);
+    path[len - 2] = '\0';
+    AstNode *node = ast_new_import_stmt(path, line);
+    free(path);
+    return node;
+}
+
 // ---------------------------------------------------------------------------
 // Top-level declaration dispatcher
 // ---------------------------------------------------------------------------
 static AstNode *declaration(Parser *parser) {
     if (match(parser, TOKEN_LET))    return let_statement(parser);
     if (match(parser, TOKEN_FN))     return fn_declaration(parser);
+    if (match(parser, TOKEN_IMPORT)) return import_statement(parser);
 
     // Otherwise it's a statement
     return statement(parser);
