@@ -63,6 +63,7 @@ All major components are fully implemented and operational. The language can han
 | Maps / Dictionaries  | ✅ Complete |
 | Closures             | ✅ Complete |
 | File I/O             | ✅ Complete |
+| Import/Module System | ✅ Complete |
 
 ---
 
@@ -80,6 +81,7 @@ All major components are fully implemented and operational. The language can han
 - ✅ **Return statements** — `return expr` from functions
 - ✅ **Closures** — Functions capture their enclosing lexical scope
 - ✅ **Assignments** — `=` for reassignment; `x[i] = v` for index assignment
+- ✅ **Import/Module system** — `import "filename.kh"` to load and execute other source files
 
 ### Data Types
 
@@ -305,6 +307,19 @@ print substring("hello world", 0, 5)    # Output: hello
 let x = 10  # Inline comment
 ```
 
+### Imports / Modules
+
+```khan
+# Import another Khan source file — all its definitions become available
+import "lib_test.kh"
+
+# Use functions and variables defined in the imported file
+say_hello()          # Calls a function from the imported library
+print greeting       # Uses a variable from the imported library
+```
+
+Imported files share the same global environment as the importing file, so variables, functions, and all standard library functions defined in the imported file are available after the import statement. Paths are resolved relative to the location of the source file containing the `import` statement.
+
 ### Type Queries
 
 ```khan
@@ -412,7 +427,9 @@ Khan/
 │   ├── maps_test.kh          # Map/dictionary operations test
 │   ├── stdlib_test.kh        # Standard library function test
 │   ├── stdlib_arrays_test.kh # Array standard library test
-│   └── complex.kh            # Complex program test
+│   ├── complex.kh            # Complex program test
+│   ├── lib_test.kh           # Library file for import testing
+│   └── import_test.kh        # Import system test
 └── src/
     ├── main.c                # Entry point, file I/O, REPL driver
     ├── token.h               # Token type enum and Token struct
@@ -440,10 +457,10 @@ Khan/
 | `src/parser.h` | 21 | Parser struct with token lookahead and error state |
 | `src/parser.c` | 499 | Recursive descent parser with Pratt-style expression parsing |
 | `src/interpreter.h` | 126 | Value type system, Environment (scope), MapEntry, Interpreter structs |
-| `src/interpreter.c` | 841 | Tree-walk interpreter — evaluates all AST nodes, manages scope |
+| `src/interpreter.c` | 900+ | Tree-walk interpreter — evaluates all AST nodes, manages scope, handles imports |
+| `src/main.c` | 75 | Entry point, file reading, initialization pipeline, base path extraction for imports |
 | `src/stdlib.h` | 9 | Single function to register all built-in functions |
 | `src/stdlib.c` | 548 | 30+ native functions covering type conversion, strings, math, I/O, arrays, maps |
-| `src/main.c` | 70 | Entry point, file reading, initialization pipeline, exit codes |
 
 ---
 
@@ -922,7 +939,13 @@ The library is organized into categories:
 - [x] Deep copy value semantics
 - [x] Runtime error reporting with line numbers
 
-### Phase 4: Standard Library ✅ (Complete)
+### Phase 4: Import/Module System ✅ (Complete)
+- [x] `import "filename.kh"` parsing
+- [x] Import execution (lex, parse, run imported file in shared environment)
+- [x] Relative path resolution based on source file directory
+- [x] EOF indentation unwind fix to support imports reliably
+
+### Phase 5: Standard Library ✅ (Complete)
 - [x] Type conversion functions (num, str, type)
 - [x] String manipulation (len, substring, upper, lower, contains, trim, split)
 - [x] Array operations (push, range)
@@ -931,11 +954,10 @@ The library is organized into categories:
 - [x] I/O operations (input, read_file, write_file)
 - [x] Utility functions (sleep, clock, exit)
 
-### Phase 5: Advanced Features 🔲 (Planned)
+### Phase 6: Advanced Features 🔲 (Planned)
 - [ ] Garbage collection or arena allocation
 - [ ] Bytecode compiler with instruction set
 - [ ] Virtual machine for faster execution
-- [ ] Module/import system
 - [ ] Error handling with try/catch
 - [ ] Pattern matching
 - [ ] Self-hosting compiler (Khan written in Khan)

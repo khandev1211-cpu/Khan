@@ -44,6 +44,20 @@ void env_free(Environment *env) {
 }
 
 void env_define(Environment *env, const char *name, Value value) {
+    // If `name` already exists in THIS exact scope, overwrite it instead of
+    // appending a duplicate entry. This matters a lot in practice: Khan
+    // doesn't create a new scope per loop iteration, so `let x = ...`
+    // re-declared inside a while/for body would otherwise pile up duplicate
+    // entries every iteration — and env_get() scans from index 0 upward, so
+    // it would always return the OLDEST entry, leaving `x` permanently
+    // stuck at its first-ever value no matter how many times the loop runs.
+    for (int i = 0; i < env->count; i++) {
+        if (strcmp(env->entries[i].name, name) == 0) {
+            value_free(env->entries[i].value);
+            env->entries[i].value = value;
+            return;
+        }
+    }
     env_grow(env);
     env->entries[env->count].name = strdup(name);
     env->entries[env->count].value = value;
@@ -899,8 +913,13 @@ static Value execute_import(Interpreter *interp, const char *path, Environment *
 
     Value result = interpreter_execute(interp, program, env);
 
-    ast_free(program);
-    free(source);
+    // NOTE: We deliberately do NOT free `program` or `source` here.
+    // Functions declared in the imported file hold raw pointers into this
+    // AST (body/params aren't copied — see value_function/value_free).
+    // Freeing it now would leave any imported function with a dangling
+    // body pointer the moment it's called later in the importing script.
+    // This matches how the main script's own AST is kept alive for the
+    // whole process (see main.c) — a small intentional leak, not a crash.
     return result;
 }
 

@@ -19,6 +19,37 @@ static char *local_strndup(const char *s, size_t n) {
 #define strndup local_strndup
 #endif
 
+// Processes backslash escape sequences in a string literal's raw content
+// (the text between the quotes, before any unescaping). Supported escapes:
+// \n \t \r \\ \" — anything else (including a lone trailing backslash) is
+// passed through literally rather than erroring, so unexpected sequences
+// degrade gracefully instead of corrupting the program.
+static char *unescape_string(const char *raw, int len) {
+    char *out = malloc(len + 1); // unescaped result is never longer than input
+    int j = 0;
+    for (int i = 0; i < len; i++) {
+        if (raw[i] == '\\' && i + 1 < len) {
+            char next = raw[i + 1];
+            switch (next) {
+                case 'n':  out[j++] = '\n'; i++; break;
+                case 't':  out[j++] = '\t'; i++; break;
+                case 'r':  out[j++] = '\r'; i++; break;
+                case '\\': out[j++] = '\\'; i++; break;
+                case '"':  out[j++] = '"';  i++; break;
+                case '0':  out[j++] = '\0'; i++; break;
+                default:
+                    // Unknown escape — keep the backslash literally
+                    out[j++] = raw[i];
+                    break;
+            }
+        } else {
+            out[j++] = raw[i];
+        }
+    }
+    out[j] = '\0';
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Error reporting
 // ---------------------------------------------------------------------------
@@ -415,12 +446,10 @@ static AstNode *primary(Parser *parser) {
     }
 
     if (match(parser, TOKEN_STRING)) {
-        // Strip surrounding quotes
+        // Strip surrounding quotes, then process escape sequences (\n, \t, etc.)
         const char *raw = parser->previous.start;
         int len = parser->previous.length;
-        char *str = malloc(len - 1);  // -2 for quotes +1 for null = len-1
-        strncpy(str, raw + 1, len - 2);
-        str[len - 2] = '\0';
+        char *str = unescape_string(raw + 1, len - 2); // exclude the quotes
         AstNode *node = ast_new_string(str, parser->previous.line);
         free(str);
         return node;

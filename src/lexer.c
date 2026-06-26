@@ -110,6 +110,14 @@ static Token number(Lexer *lexer) {
 
 static Token string_literal(Lexer *lexer) {
     while (peek(lexer) != '"' && !is_at_end(lexer)) {
+        if (peek(lexer) == '\\' && peek_next(lexer) != '\0') {
+            // Skip the escaped character too, so \" doesn't end the string
+            // and \\ doesn't leave a dangling unescaped backslash.
+            advance(lexer);
+            if (peek(lexer) == '\n') lexer->line++;
+            advance(lexer);
+            continue;
+        }
         if (peek(lexer) == '\n') lexer->line++;
         advance(lexer);
     }
