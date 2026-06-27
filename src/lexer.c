@@ -38,7 +38,7 @@ static int match(Lexer *lexer, char expected) {
     return 1;
 }
 
-static Token make_token(Lexer *lexer, TokenType type) {
+static Token make_token(Lexer *lexer, TokenKind type) {
     Token token;
     token.type = type;
     token.start = lexer->start;
@@ -74,11 +74,13 @@ static int is_alpha(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
 
-static TokenType keyword_type(const char *start, int length) {
-    struct { const char *word; TokenType type; } keywords[] = {
+static TokenKind keyword_type(const char *start, int length) {
+    struct { const char *word; TokenKind type; } keywords[] = {
         {"let", TOKEN_LET}, {"fn", TOKEN_FN}, {"print", TOKEN_PRINT},
-        {"import", TOKEN_IMPORT}, {"if", TOKEN_IF}, {"else", TOKEN_ELSE},
-        {"while", TOKEN_WHILE}, {"for", TOKEN_FOR}, {"in", TOKEN_IN}, {"return", TOKEN_RETURN},
+        {"import", TOKEN_IMPORT}, {"if", TOKEN_IF}, {"elif", TOKEN_ELIF},
+        {"else", TOKEN_ELSE}, {"while", TOKEN_WHILE}, {"for", TOKEN_FOR},
+        {"in", TOKEN_IN}, {"return", TOKEN_RETURN},
+        {"break", TOKEN_BREAK}, {"continue", TOKEN_CONTINUE},
         {"true", TOKEN_TRUE}, {"false", TOKEN_FALSE}, {"nil", TOKEN_NIL},
         {"and", TOKEN_AND}, {"or", TOKEN_OR}, {"not", TOKEN_NOT},
     };
@@ -95,7 +97,7 @@ static TokenType keyword_type(const char *start, int length) {
 static Token identifier(Lexer *lexer) {
     while (is_alpha(peek(lexer)) || is_digit(peek(lexer))) advance(lexer);
     int length = (int)(lexer->current - lexer->start);
-    TokenType type = keyword_type(lexer->start, length);
+    TokenKind type = keyword_type(lexer->start, length);
     return make_token(lexer, type);
 }
 
@@ -258,7 +260,7 @@ Token lexer_next_token(Lexer *lexer) {
     return error_token(lexer, "Unexpected character.");
 }
 
-const char *token_type_name(TokenType type) {
+const char *token_type_name(TokenKind type) {
     switch (type) {
         case TOKEN_IDENTIFIER: return "IDENTIFIER";
         case TOKEN_NUMBER: return "NUMBER";
@@ -272,7 +274,10 @@ const char *token_type_name(TokenType type) {
         case TOKEN_WHILE: return "WHILE";
         case TOKEN_FOR: return "FOR";
         case TOKEN_IN: return "IN";
-        case TOKEN_RETURN: return "RETURN";
+        case TOKEN_RETURN:   return "RETURN";
+        case TOKEN_BREAK:    return "BREAK";
+        case TOKEN_CONTINUE: return "CONTINUE";
+        case TOKEN_ELIF:     return "ELIF";
         case TOKEN_TRUE: return "TRUE";
         case TOKEN_FALSE: return "FALSE";
         case TOKEN_NIL: return "NIL";

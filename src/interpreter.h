@@ -128,6 +128,8 @@ struct Interpreter {
     // function call, instead of just stopping the innermost block.
     int is_returning;
     Value return_value;
+    int is_breaking;
+    int is_continuing;
 };
 
 void interpreter_init(Interpreter *interp, const char *base_path);

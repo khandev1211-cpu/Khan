@@ -87,17 +87,17 @@ static void advance(Parser *parser) {
     }
 }
 
-static int check(Parser *parser, TokenType type) {
+static int check(Parser *parser, TokenKind type) {
     return parser->current.type == type;
 }
 
-static int match(Parser *parser, TokenType type) {
+static int match(Parser *parser, TokenKind type) {
     if (!check(parser, type)) return 0;
     advance(parser);
     return 1;
 }
 
-static void consume(Parser *parser, TokenType type, const char *message) {
+static void consume(Parser *parser, TokenKind type, const char *message) {
     if (check(parser, type)) {
         advance(parser);
         return;
@@ -171,7 +171,10 @@ static AstNode *if_statement(Parser *parser) {
     AstNode *then_branch = block(parser);
 
     AstNode *else_branch = NULL;
-    if (match(parser, TOKEN_ELSE)) {
+    if (match(parser, TOKEN_ELIF)) {
+        // elif becomes a nested if in the else branch
+        else_branch = if_statement(parser);
+    } else if (match(parser, TOKEN_ELSE)) {
         consume(parser, TOKEN_COLON, "Expected ':' after else.");
         else_branch = block(parser);
     }
@@ -257,11 +260,21 @@ static AstNode *declaration(Parser *parser) {
 }
 
 static AstNode *statement(Parser *parser) {
-    if (match(parser, TOKEN_PRINT))  return print_statement(parser);
-    if (match(parser, TOKEN_IF))     return if_statement(parser);
-    if (match(parser, TOKEN_WHILE))  return while_statement(parser);
-    if (match(parser, TOKEN_FOR))    return for_statement(parser);
-    if (match(parser, TOKEN_RETURN)) return return_statement(parser);
+    if (match(parser, TOKEN_PRINT))    return print_statement(parser);
+    if (match(parser, TOKEN_IF))       return if_statement(parser);
+    if (match(parser, TOKEN_WHILE))    return while_statement(parser);
+    if (match(parser, TOKEN_FOR))      return for_statement(parser);
+    if (match(parser, TOKEN_RETURN))   return return_statement(parser);
+    if (match(parser, TOKEN_BREAK)) {
+        int line = parser->previous.line;
+        while (match(parser, TOKEN_NEWLINE)) {}
+        return ast_new_break_stmt(line);
+    }
+    if (match(parser, TOKEN_CONTINUE)) {
+        int line = parser->previous.line;
+        while (match(parser, TOKEN_NEWLINE)) {}
+        return ast_new_continue_stmt(line);
+    }
 
     // Expression statement
     int line = parser->current.line;

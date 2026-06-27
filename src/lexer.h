@@ -17,6 +17,6 @@ typedef struct {
 
 void lexer_init(Lexer *lexer, const char *source);
 Token lexer_next_token(Lexer *lexer);
-const char *token_type_name(TokenType type);
+const char *token_type_name(TokenKind type);
 
 #endif

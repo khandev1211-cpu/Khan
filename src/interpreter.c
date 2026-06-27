@@ -733,7 +733,8 @@ static Value execute_block(Interpreter *interp, AstNodeList *stmts,
                            Environment *env) {
     Value result = value_nil();
     for (AstNodeList *cur = stmts;
-         cur && !interp->had_runtime_error && !interp->is_returning;
+         cur && !interp->had_runtime_error && !interp->is_returning
+             && !interp->is_breaking && !interp->is_continuing;
          cur = cur->next) {
         result = interpreter_execute(interp, cur->node, env);
     }
@@ -803,6 +804,8 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
                 result = interpreter_execute(interp, node->data.while_stmt.while_body, env);
                 if (interp->had_runtime_error) return value_nil();
                 if (interp->is_returning) break;
+                if (interp->is_breaking) { interp->is_breaking = 0; break; }
+                if (interp->is_continuing) { interp->is_continuing = 0; continue; }
             }
             return result;
         }
@@ -828,6 +831,8 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
                     return value_nil();
                 }
                 if (interp->is_returning) break;
+                if (interp->is_breaking) { interp->is_breaking = 0; break; }
+                if (interp->is_continuing) { interp->is_continuing = 0; continue; }
             }
             value_free(iterable);
             return result;
@@ -845,6 +850,8 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
                                       closure,
                                       node->data.fn_decl.fn_body,
                                       node->data.fn_decl.params);
+            // Inject the function into its own closure so recursive calls work
+            env_define(closure, node->data.fn_decl.fn_name, value_copy(fn));
             env_define(env, node->data.fn_decl.fn_name, fn);
             return value_nil();
         }
@@ -859,6 +866,14 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
             }
             return v;
         }
+
+        case AST_BREAK_STMT:
+            interp->is_breaking = 1;
+            return value_nil();
+
+        case AST_CONTINUE_STMT:
+            interp->is_continuing = 1;
+            return value_nil();
 
         case AST_ASSIGNMENT: {
             Value v = evaluate(interp, node->data.assignment.value, env);
@@ -959,5 +974,7 @@ void interpreter_init(Interpreter *interp, const char *base_path) {
     interp->had_runtime_error = 0;
     interp->base_path = base_path;
     interp->is_returning = 0;
+    interp->is_breaking = 0;
+    interp->is_continuing = 0;
     interp->return_value = value_nil();
 }

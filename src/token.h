@@ -13,11 +13,14 @@ typedef enum {
     TOKEN_PRINT,
     TOKEN_IMPORT,
     TOKEN_IF,
+    TOKEN_ELIF,
     TOKEN_ELSE,
     TOKEN_WHILE,
     TOKEN_FOR,
     TOKEN_IN,
     TOKEN_RETURN,
+    TOKEN_BREAK,
+    TOKEN_CONTINUE,
     TOKEN_TRUE,
     TOKEN_FALSE,
     TOKEN_NIL,
@@ -48,10 +51,10 @@ typedef enum {
     TOKEN_EOF,
 
     TOKEN_ERROR
-} TokenType;
+} TokenKind;
 
 typedef struct {
-    TokenType type;
+    TokenKind type;
     const char *start;   // pointer into source
     int length;
     int line;

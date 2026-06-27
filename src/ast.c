@@ -172,6 +172,14 @@ AstNode *ast_new_return_stmt(AstNode *value, int line) {
     return node;
 }
 
+AstNode *ast_new_break_stmt(int line) {
+    return ast_new_node(AST_BREAK_STMT, line);
+}
+
+AstNode *ast_new_continue_stmt(int line) {
+    return ast_new_node(AST_CONTINUE_STMT, line);
+}
+
 AstNode *ast_new_import_stmt(const char *path, int line) {
     AstNode *node = ast_new_node(AST_IMPORT_STMT, line);
     node->data.import_path = strdup(path);
@@ -268,6 +276,9 @@ void ast_free(AstNode *node) {
         case AST_PRINT_STMT:
         case AST_RETURN_STMT:
             ast_free(node->data.expr);
+            break;
+        case AST_BREAK_STMT:
+        case AST_CONTINUE_STMT:
             break;
         case AST_LET_STMT:
             free((void *)node->data.let_decl.let_name);
@@ -466,6 +477,12 @@ void ast_print(AstNode *node, int indent) {
             printf("(return\n");
             ast_print(node->data.expr, indent + 1);
             print_indent(indent); printf(")\n");
+            break;
+        case AST_BREAK_STMT:
+            print_indent(indent); printf("(break)\n");
+            break;
+        case AST_CONTINUE_STMT:
+            print_indent(indent); printf("(continue)\n");
             break;
         case AST_PROGRAM:
             printf("(program\n");

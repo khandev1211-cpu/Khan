@@ -38,6 +38,8 @@ typedef enum {
     AST_BLOCK,
     AST_FN_DECL,
     AST_RETURN_STMT,
+    AST_BREAK_STMT,
+    AST_CONTINUE_STMT,
 
     // Top-level
     AST_PROGRAM,
@@ -212,6 +214,8 @@ AstNode *ast_new_for_stmt(const char *var_name, AstNode *iterable, AstNode *body
 AstNode *ast_new_block(AstNodeList *stmts, int line);
 AstNode *ast_new_fn_decl(const char *name, AstNodeList *params, AstNode *body, int line);
 AstNode *ast_new_return_stmt(AstNode *value, int line);
+AstNode *ast_new_break_stmt(int line);
+AstNode *ast_new_continue_stmt(int line);
 AstNode *ast_new_import_stmt(const char *path, int line);
 AstNode *ast_new_program(AstNodeList *stmts, int line);
 

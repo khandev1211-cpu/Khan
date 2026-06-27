@@ -6,6 +6,9 @@
 #include "ast.h"
 #include "interpreter.h"
 #include "stdlib.h"
+#include "json_lib.h"
+#include "datetime_lib.h"
+#include "requests_lib.h"
 
 static char *read_file(const char *path) {
     FILE *file = fopen(path, "rb");
@@ -71,6 +74,9 @@ int main(int argc, char *argv[]) {
 
     Environment *global = env_new(NULL);
     stdlib_register_all(global);
+    json_register_all(global);
+    datetime_register_all(global);
+    requests_register_all(global);
 
     // Execute the program
     interpreter_execute(&interp, program, global);
