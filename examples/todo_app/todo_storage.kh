@@ -20,8 +20,14 @@ fn save_todos(todos, path):
 
 # Load todos array from a file
 fn load_todos(path):
-    let raw = read_file(path)
     let todos = []
+
+    # First run / no save file yet - just start with an empty list
+    # instead of crashing.
+    if not file_exists(path):
+        return todos
+
+    let raw = read_file(path)
     
     # Parse each line
     let lines = split(raw, "\n")

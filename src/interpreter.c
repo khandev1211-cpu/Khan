@@ -540,6 +540,18 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
             Value result = execute_block(interp,
                 callee->as.function.body->data.statements, call_env);
 
+            // If a `return` fired anywhere inside the body (even nested
+            // inside if/while/for), use its value explicitly, then clear
+            // the signal — it's now been "handled" by this call, and must
+            // not keep propagating into whatever loop/block called this
+            // function in the first place.
+            if (interp->is_returning) {
+                value_free(result);
+                result = interp->return_value;
+                interp->is_returning = 0;
+                interp->return_value = value_nil();
+            }
+
             env_free(call_env);
             return result;
         }
@@ -720,7 +732,8 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
 static Value execute_block(Interpreter *interp, AstNodeList *stmts,
                            Environment *env) {
     Value result = value_nil();
-    for (AstNodeList *cur = stmts; cur && !interp->had_runtime_error;
+    for (AstNodeList *cur = stmts;
+         cur && !interp->had_runtime_error && !interp->is_returning;
          cur = cur->next) {
         result = interpreter_execute(interp, cur->node, env);
     }
@@ -789,6 +802,7 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
 
                 result = interpreter_execute(interp, node->data.while_stmt.while_body, env);
                 if (interp->had_runtime_error) return value_nil();
+                if (interp->is_returning) break;
             }
             return result;
         }
@@ -813,6 +827,7 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
                     value_free(iterable);
                     return value_nil();
                 }
+                if (interp->is_returning) break;
             }
             value_free(iterable);
             return result;
@@ -835,10 +850,14 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
         }
 
         case AST_RETURN_STMT: {
-            if (node->data.expr) {
-                return evaluate(interp, node->data.expr, env);
+            Value v = node->data.expr
+                ? evaluate(interp, node->data.expr, env)
+                : value_nil();
+            if (!interp->had_runtime_error) {
+                interp->is_returning = 1;
+                interp->return_value = value_copy(v);
             }
-            return value_nil();
+            return v;
         }
 
         case AST_ASSIGNMENT: {
@@ -913,6 +932,16 @@ static Value execute_import(Interpreter *interp, const char *path, Environment *
 
     Value result = interpreter_execute(interp, program, env);
 
+    // A top-level `return` in an imported file's own code (rare, but
+    // possible) is meaningless once we're back in the importing script —
+    // it shouldn't be left set, or it would incorrectly cut short whatever
+    // loop/block the `import` statement itself happens to be inside.
+    if (interp->is_returning) {
+        interp->is_returning = 0;
+        value_free(interp->return_value);
+        interp->return_value = value_nil();
+    }
+
     // NOTE: We deliberately do NOT free `program` or `source` here.
     // Functions declared in the imported file hold raw pointers into this
     // AST (body/params aren't copied — see value_function/value_free).
@@ -929,4 +958,6 @@ static Value execute_import(Interpreter *interp, const char *path, Environment *
 void interpreter_init(Interpreter *interp, const char *base_path) {
     interp->had_runtime_error = 0;
     interp->base_path = base_path;
+    interp->is_returning = 0;
+    interp->return_value = value_nil();
 }

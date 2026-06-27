@@ -436,6 +436,22 @@ static void fn_write_file(Value *result, Interpreter *interp, int argc, Value *a
     *result = value_number((double)strlen(content));
 }
 
+// file_exists(path) -> true/false, without raising an error either way.
+// Useful for "first run" cases — e.g. a save file that doesn't exist yet.
+static void fn_file_exists(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "file_exists", 1, argc)) { *result = value_nil(); return; }
+    const char *path;
+    if (!expect_string(interp, "file_exists", 0, args[0], &path)) { *result = value_nil(); return; }
+
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        fclose(f);
+        *result = value_bool(1);
+    } else {
+        *result = value_bool(0);
+    }
+}
+
 // ===========================================================================
 // Utility functions
 // ===========================================================================
@@ -540,6 +556,7 @@ void stdlib_register_all(Environment *env) {
     env_define(env, "input", value_native("input", fn_input));
     env_define(env, "read_file", value_native("read_file", fn_read_file));
     env_define(env, "write_file", value_native("write_file", fn_write_file));
+    env_define(env, "file_exists", value_native("file_exists", fn_file_exists));
 
     // Utility
     env_define(env, "sleep", value_native("sleep", fn_sleep));

@@ -119,6 +119,15 @@ void value_print(Value v);
 struct Interpreter {
     int had_runtime_error;
     const char *base_path;  // directory of the main source file, for resolving imports
+
+    // Early-return signaling. When a `return` statement executes, it sets
+    // is_returning and stashes its value here. Every block-executing
+    // function (execute_block, if/while/for bodies) must check this flag
+    // after running each statement and stop immediately if it's set, so
+    // the signal correctly unwinds all the way out to the enclosing
+    // function call, instead of just stopping the innermost block.
+    int is_returning;
+    Value return_value;
 };
 
 void interpreter_init(Interpreter *interp, const char *base_path);

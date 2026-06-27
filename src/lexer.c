@@ -135,9 +135,21 @@ static int measure_indentation(Lexer *lexer, Token *out) {
         while (peek(lexer) == ' ') { spaces++; advance(lexer); }
 
         if (peek(lexer) == '#') {
-            while (peek(lexer) != '\n' && !is_at_end(lexer)) advance(lexer);
+            while (peek(lexer) != '\n' && peek(lexer) != '\r' && !is_at_end(lexer)) advance(lexer);
         }
 
+        // Treat \r\n (Windows) and a lone \r the same as \n: a blank or
+        // comment-only line, not a real line at whatever indent level the
+        // leading spaces happened to add up to. Without this, a blank line
+        // with trailing spaces before \r\n (common from Windows editors)
+        // gets misread as a real code line and corrupts the indent stack
+        // for the rest of the file.
+        if (peek(lexer) == '\r') {
+            advance(lexer);
+            if (peek(lexer) == '\n') advance(lexer);
+            lexer->line++;
+            continue;
+        }
         if (peek(lexer) == '\n') {
             advance(lexer);
             lexer->line++;
