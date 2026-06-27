@@ -17,6 +17,7 @@
 - [Current Status](#current-status)
 - [Language Features](#language-features)
 - [Syntax & Examples](#syntax--examples)
+- [Todo App (Complete Application)](#todo-app-complete-application)
 - [Standard Library](#standard-library)
 - [Project Structure](#project-structure)
 - [Building from Source](#building-from-source)
@@ -64,6 +65,8 @@ All major components are fully implemented and operational. The language can han
 | Closures             | ✅ Complete |
 | File I/O             | ✅ Complete |
 | Import/Module System | ✅ Complete |
+| String Escape Sequences | ✅ Complete |
+| Todo Application Demo   | ✅ Complete |
 
 ---
 
@@ -82,11 +85,13 @@ All major components are fully implemented and operational. The language can han
 - ✅ **Closures** — Functions capture their enclosing lexical scope
 - ✅ **Assignments** — `=` for reassignment; `x[i] = v` for index assignment
 - ✅ **Import/Module system** — `import "filename.kh"` to load and execute other source files
+- ✅ **String escape sequences** — `\n`, `\t`, `\r`, `\\`, `\"`, `\0` within string literals
+- ✅ **Number truthiness** — `0` and empty strings evaluate as falsy in conditionals
 
 ### Data Types
 
 - ✅ **Numbers** — Integers and floating-point (double precision)
-- ✅ **Strings** — Double-quoted string literals
+- ✅ **Strings** — Double-quoted string literals with escape sequence support
 - ✅ **Booleans** — `true` / `false` literals
 - ✅ **Nil** — `nil` literal (null/void value)
 - ✅ **Arrays** — Ordered collections `[1, 2, 3]` with zero-based indexing
@@ -129,6 +134,15 @@ print message
 
 # Reassignment
 message = "New message"
+```
+
+### String Escape Sequences
+
+```khan
+print "Hello\nWorld"    # Output: Hello<newline>World
+print "Tab\there"       # Output: Tab	here
+print "Quote: \"Hi\""   # Output: Quote: "Hi"
+print "Backslash: \\"   # Output: Backslash: \
 ```
 
 ### Arithmetic & Expressions
@@ -274,7 +288,7 @@ let matrix = [[1, 2], [3, 4]]
 print matrix[0][1]          # Output: 2
 ```
 
-### Boolean Logic
+### Boolean Logic & Truthiness
 
 ```khan
 print true and false        # Output: false
@@ -286,6 +300,11 @@ if 0:
     print "won't print"
 else:
     print "0 is falsy"      # This prints
+
+if "":
+    print "won't print"
+else:
+    print "empty string is falsy"  # This prints
 ```
 
 ### String Operations
@@ -298,6 +317,7 @@ print lower("HELLO")        # Output: hello
 print contains("hello world", "world")  # Output: true
 print trim("  hello  ")    # Output: hello
 print substring("hello world", 0, 5)    # Output: hello
+print split("a,b,c", ",")   # Output: ["a", "b", "c"]
 ```
 
 ### Comments
@@ -333,7 +353,58 @@ print type({"a": 1})        # Output: "map"
 print str(42)               # Output: "42"
 print str(true)             # Output: "true"
 print num("3.14")           # Output: 3.14
+
+# File existence check
+print file_exists("data.txt")   # Output: true or false
 ```
+
+---
+
+## Todo App (Complete Application)
+
+Khan includes a fully-functional **Todo List Application** built entirely in Khan itself, demonstrating the language's practical capabilities. It lives in the `examples/todo_app/` directory and features:
+
+### Structure
+
+| File | Purpose |
+|------|---------|
+| `todo_core.kh` | Data model and CRUD operations (create, read, update, delete) |
+| `todo_storage.kh` | File I/O for saving/loading todos from disk |
+| `todo_ui.kh` | Menu system and user interface |
+| `main.kh` | Entry point that ties everything together |
+
+### Architecture
+
+The todo app demonstrates Khan's **import/module system** in action — each file is a self-contained module that exports functions and is imported by `main.kh`. All files share the global environment, so `main.kh` can call functions from `todo_core.kh`, `todo_storage.kh`, and `todo_ui.kh` seamlessly.
+
+### Data Model
+
+Each todo item is a **map** with:
+
+```khan
+{"id": 1, "title": "Buy groceries", "done": false}
+```
+
+Todos are stored as an **array of maps**, manipulated via `push()`, filtered with loops, and persisted to disk as JSON-like text using `write_file()` / `read_file()`.
+
+### Running the Todo App
+
+```bash
+khan examples/todo_app/main.kh
+```
+
+The application presents a menu:
+```
+=== TODO APP ===
+Loaded N tasks
+1. Add task
+2. List tasks
+3. Mark task as done
+4. Delete task
+5. Save and exit
+```
+
+This demonstrates Khan's practical utility: file I/O, data structures (arrays of maps), user input handling, loops, conditionals, and modular code organization — all working together in a real application.
 
 ---
 
@@ -353,7 +424,7 @@ Khan includes a comprehensive standard library with 30+ native functions registe
 
 | Function | Description | Example |
 |----------|-------------|---------|
-| `len(s)` | Get length of string/array/map | `len("hello")` → `5` |
+| `len(s)` | Get length of string/array/map/number | `len("hello")` → `5` |
 | `substring(s, start, len)` | Extract substring | `substring("hello", 0, 3)` → `"hel"` |
 | `upper(s)` | Convert to uppercase | `upper("hello")` → `"HELLO"` |
 | `lower(s)` | Convert to lowercase | `lower("HELLO")` → `"hello"` |
@@ -399,6 +470,7 @@ Khan includes a comprehensive standard library with 30+ native functions registe
 | `input(prompt)` | Show prompt and read line | `input("Enter name: ")` |
 | `read_file(path)` | Read entire file as string | `read_file("data.txt")` |
 | `write_file(path, content)` | Write string to file | `write_file("out.txt", "hello")` |
+| `file_exists(path)` | Check if a file exists (no error on missing) | `file_exists("save.dat")` → `false` |
 
 ### Utility Functions
 
@@ -417,6 +489,7 @@ Khan/
 ├── khan.exe                  # Compiled binary (Windows)
 ├── makefile                  # Build configuration
 ├── README.md                 # This file
+├── todos.dat                 # Data file used by the Todo App
 ├── examples/
 │   ├── hello.kh              # Hello World example
 │   ├── funcs.kh              # Function definition example
@@ -429,20 +502,29 @@ Khan/
 │   ├── stdlib_arrays_test.kh # Array standard library test
 │   ├── complex.kh            # Complex program test
 │   ├── lib_test.kh           # Library file for import testing
-│   └── import_test.kh        # Import system test
+│   ├── import_test.kh        # Import system test
+│   └── todo_app/
+│       ├── main.kh           # Todo app entry point
+│       ├── todo_core.kh      # Todo CRUD operations (create, mark, delete)
+│       ├── todo_storage.kh   # File-based save/load for todos
+│       ├── todo_ui.kh        # Menu and display components
+│       ├── test.kh           # Todo app unit tests
+│       ├── test2.kh          # Additional tests
+│       ├── debug.kh          # Debug utilities
+│       └── debug2.kh         # Additional debug utilities
 └── src/
-    ├── main.c                # Entry point, file I/O, REPL driver
-    ├── token.h               # Token type enum and Token struct
-    ├── lexer.h               # Lexer struct definitions
-    ├── lexer.c               # Lexer implementation (280 lines)
-    ├── ast.h                 # AST node types, struct, function declarations
-    ├── ast.c                 # AST node constructors, free, debug print (473 lines)
-    ├── parser.h              # Parser struct and public API
-    ├── parser.c              # Recursive descent parser (499 lines)
-    ├── interpreter.h         # Value types, Environment, Interpreter struct
-    ├── interpreter.c         # Tree-walk interpreter (841 lines)
-    ├── stdlib.h              # Standard library registration header
-    └── stdlib.c              # 30+ built-in native functions (548 lines)
+    ├── main.c                # Entry point, file I/O, REPL driver (84 lines)
+    ├── token.h               # Token type enum and Token struct (60 lines)
+    ├── lexer.h               # Lexer struct definitions (22 lines)
+    ├── lexer.c               # Lexer implementation — character scanning, indentation (310 lines)
+    ├── ast.h                 # AST node types, struct, function declarations (224 lines)
+    ├── ast.c                 # AST node constructors, free, debug print (485 lines)
+    ├── parser.h              # Parser struct and public API (21 lines)
+    ├── parser.c              # Recursive descent parser with Pratt expression parsing (543 lines)
+    ├── interpreter.h         # Value types, Environment, Interpreter struct (136 lines)
+    ├── interpreter.c         # Tree-walk interpreter — evaluates all AST nodes (963 lines)
+    ├── stdlib.h              # Standard library registration header (9 lines)
+    └── stdlib.c              # 30+ built-in native C functions (565 lines)
 ```
 
 ### File Descriptions
@@ -451,16 +533,20 @@ Khan/
 |------|-------|---------|
 | `src/token.h` | 60 | Defines `TokenType` enum (46 token types) and `Token` struct |
 | `src/lexer.h` | 22 | Defines `Lexer` struct with source pointers, line tracking, indentation stack |
-| `src/lexer.c` | 280 | Full lexer — character scanning, indentation handling, keyword matching |
-| `src/ast.h` | 219 | Defines `AstNode` struct with tagged union for 30+ node types |
-| `src/ast.c` | 473 | AST constructors, deep-free, and tree-structured debug printing |
+| `src/lexer.c` | 310 | Full lexer — character scanning, indentation handling, keyword matching, escape-aware string scanning |
+| `src/ast.h` | 224 | Defines `AstNode` struct with tagged union for 30+ node types |
+| `src/ast.c` | 485 | AST constructors, deep-free, and tree-structured debug printing |
 | `src/parser.h` | 21 | Parser struct with token lookahead and error state |
-| `src/parser.c` | 499 | Recursive descent parser with Pratt-style expression parsing |
-| `src/interpreter.h` | 126 | Value type system, Environment (scope), MapEntry, Interpreter structs |
-| `src/interpreter.c` | 900+ | Tree-walk interpreter — evaluates all AST nodes, manages scope, handles imports |
-| `src/main.c` | 75 | Entry point, file reading, initialization pipeline, base path extraction for imports |
+| `src/parser.c` | 543 | Recursive descent parser with Pratt-style expression parsing, string unescaping |
+| `src/interpreter.h` | 136 | Value type system, Environment (scope), MapEntry, Interpreter structs |
+| `src/interpreter.c` | 963 | Tree-walk interpreter — evaluates all AST nodes, manages scope, handles imports, deep copy semantics |
+| `src/main.c` | 84 | Entry point, file reading, initialization pipeline, base path extraction for imports |
 | `src/stdlib.h` | 9 | Single function to register all built-in functions |
-| `src/stdlib.c` | 548 | 30+ native functions covering type conversion, strings, math, I/O, arrays, maps |
+| `src/stdlib.c` | 565 | 30+ native functions covering type conversion, strings, math, I/O, arrays, maps, file utilities |
+
+### Total Source
+
+The language implementation comprises approximately **3,500+ lines of C code** across 12 source files, plus **~900+ lines of Khan example programs**.
 
 ---
 
@@ -471,6 +557,7 @@ Khan/
 - **C compiler**: GCC (C11 compatible) — MinGW on Windows, or any POSIX GCC
 - **Build tool**: GNU Make
 - **Standard**: C11
+- **Libraries**: Link with `-lm` (math library)
 
 ### Build Instructions
 
@@ -495,16 +582,17 @@ The `makefile` uses:
 - **Standard**: `-std=c11`
 - **Warnings**: `-Wall -Wextra`
 - **Debug symbols**: `-g`
-- **All C files in `src/`** are automatically discovered and compiled
+- **Link**: `-lm` (math library for `sqrt`, `pow`, `fmod`, etc.)
+- **All C files in `src/`** are compiled individually into object files
 
 ```makefile
 # From makefile
 CC = gcc
 CFLAGS = -std=c11 -Wall -Wextra -g
-SRC = $(wildcard src/*.c)
+SRC = src/main.c src/lexer.c src/ast.c src/parser.c src/interpreter.c src/stdlib.c
 OBJ = $(SRC:.c=.o)
-khan.exe: $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^
+khan: $(OBJ)
+	$(CC) $(CFLAGS) -o $@ $^ -lm
 ```
 
 ---
@@ -517,6 +605,9 @@ khan.exe: $(OBJ)
 
 # Or on Windows
 khan examples/hello.kh
+
+# Run the Todo App
+khan examples/todo_app/main.kh
 ```
 
 The program reads the source file, lexes it, parses it into an AST, and executes it via the tree-walk interpreter, producing output directly to stdout:
@@ -591,6 +682,7 @@ Khan uses Python-style indentation to define block structure. The lexer maintain
 - When a new line starts with fewer spaces → emits one or more `TOKEN_DEDENT` tokens
 - Blank lines and comment-only lines are skipped without affecting indentation
 - Structural tokens (INDENT/DEDENT) carry the current position (not whitespace text) as their source pointer
+- **Windows line endings (`\r\n`)** are handled transparently — `\r` followed by `\n` on blank/comment-only lines is treated as a blank line, preventing trailing whitespace from corrupting the indent stack
 
 #### 2. Token Recognition Pipeline
 
@@ -601,15 +693,28 @@ Source Code → Character-by-character scan → Token construction → Token str
 The lexer processes tokens in this order:
 1. **Start-of-line handling** — Check pending DEDENTs, then measure indentation
 2. **Inline whitespace skipping** — Spaces, tabs, carriage returns, comments
-3. **End-of-file** — Emit EOF token
+3. **End-of-file** — Emit EOF token (after unwinding any remaining indentation levels)
 4. **Newlines** — Increment line counter, emit NEWLINE token, set line-start flag
 5. **Identifiers/Keywords** — Alpha/underscore starts identifier; keyword table lookup
 6. **Numbers** — Digits start number scanning (supports decimal point)
-7. **Strings** — Double-quote starts string scanning (supports multi-line)
+7. **Strings** — Double-quote starts string scanning (supports escape sequences and multi-line strings)
 8. **Single-character tokens** — Operators and punctuation
 9. **Multi-character operators** — `==`, `!=`, `<=`, `>=` via single-character lookahead
 
-#### 3. Data Structures
+#### 3. String Scanning
+
+String literals support escape sequences:
+- `\n` — newline
+- `\t` — tab
+- `\r` — carriage return
+- `\\` — literal backslash
+- `\"` — literal double-quote (prevents string termination)
+- `\0` — null byte
+- Unknown escapes are passed through literally
+
+Multi-line strings are supported (newlines inside strings increment the line counter).
+
+#### 4. Data Structures
 
 **Token** (defined in `token.h`):
 ```c
@@ -634,7 +739,7 @@ typedef struct {
 } Lexer;
 ```
 
-#### 4. Error Handling
+#### 5. Error Handling
 
 The lexer produces `TOKEN_ERROR` tokens for:
 - Unterminated string literals
@@ -670,10 +775,14 @@ The AST has ~31 node types covering:
 - **Literals**: `AST_NUMBER`, `AST_STRING`, `AST_BOOL`, `AST_NIL`
 - **Identifiers**: `AST_IDENTIFIER`
 - **Expressions**: `AST_BINARY`, `AST_UNARY`, `AST_GROUPING`, `AST_ASSIGNMENT`, `AST_CALL`, `AST_ARRAY`, `AST_INDEX`, `AST_INDEX_ASSIGN`, `AST_MAP`, `AST_MAP_ENTRY`
-- **Statements**: `AST_EXPR_STMT`, `AST_PRINT_STMT`, `AST_LET_STMT`, `AST_IF_STMT`, `AST_WHILE_STMT`, `AST_FOR_STMT`, `AST_BLOCK`, `AST_FN_DECL`, `AST_RETURN_STMT`
+- **Statements**: `AST_EXPR_STMT`, `AST_PRINT_STMT`, `AST_LET_STMT`, `AST_IF_STMT`, `AST_WHILE_STMT`, `AST_FOR_STMT`, `AST_BLOCK`, `AST_FN_DECL`, `AST_RETURN_STMT`, `AST_IMPORT_STMT`
 - **Top-Level**: `AST_PROGRAM`
 
 The AST uses a **tagged union** (C11 anonymous union) where each node type overlays its data fields in the same memory — efficient and typesafe.
+
+#### String Unescaping
+
+When parsing string literals, the parser strips the surrounding quotes and processes escape sequences (`\n`, `\t`, `\r`, `\\`, `\"`, `\0`) into their actual character representations. This is done via the `unescape_string()` function, which allocates a new buffer no longer than the input and performs a single pass.
 
 #### Block Parsing
 
@@ -727,6 +836,8 @@ The interpreter uses a **linked-list of environments** (lexical scoping):
 - Function closures capture the current environment chain at definition time
 - Closures are created with a deep copy of the current scope's entries
 
+**Important detail**: If `let` re-declares a name already defined in the same scope, `env_define()` overwrites it instead of creating a duplicate entry. This prevents bugs in loop bodies where `let x = ...` would otherwise accumulate stale entries every iteration.
+
 #### Deep Copy Semantics
 
 Values are **deep-copied** when:
@@ -743,6 +854,18 @@ b[0] = 99           # a remains unchanged
 print a[0]          # Output: 1
 ```
 
+#### Return Signal Propagation
+
+The interpreter uses a **return signal** (`is_returning` / `return_value`) that propagates through nested blocks. When a `return` statement executes:
+
+1. It evaluates its expression and stores the result in `interp->return_value`
+2. It sets `interp->is_returning = 1`
+3. Every block-executing function (block, if, while, for bodies) checks this flag after each statement
+4. When the flag is set, execution stops immediately and unwinds to the enclosing function call
+5. The function call handler captures the return value and clears the signal
+
+This design ensures `return` works correctly from any nesting depth (nested if/while/for inside a function).
+
 #### Function Calls
 
 Function calls follow this pipeline:
@@ -751,11 +874,11 @@ Function calls follow this pipeline:
 3. If native: call C function pointer directly
 4. If user-defined: create new environment with closure as parent, bind parameters to argument values, execute body block, return result
 5. Argument count is checked against parameter count
-6. Return values propagate up the call chain
+6. Return values propagate up the call chain via the return signal mechanism
 
 #### Runtime Error Handling
 
-All runtime errors include the source line number and stop execution immediately (with an option to return a partial result). Error categories:
+All runtime errors include the source line number and stop execution immediately. Error categories:
 - Undefined variable/function
 - Type mismatch (e.g., arithmetic on non-numbers)
 - Division by zero
@@ -763,6 +886,7 @@ All runtime errors include the source line number and stop execution immediately
 - Map key not found
 - Argument count mismatch
 - Iteration over non-array
+- Index assignment into non-variable
 
 ---
 
@@ -783,7 +907,7 @@ The library is organized into categories:
 - **Array operations** — `push()`, `range()`
 - **Map operations** — `keys()`, `has()`
 - **Math** — `abs()`, `min()`, `max()`, `sqrt()`, `round()`, `floor()`, `ceil()`, `random()`, `pow()`
-- **I/O** — `input()`, `read_file()`, `write_file()`
+- **I/O** — `input()`, `read_file()`, `write_file()`, `file_exists()`
 - **Utilities** — `sleep()`, `clock()`, `exit()`
 
 ---
@@ -796,7 +920,7 @@ The library is organized into categories:
 |-------|-------------|
 | `IDENTIFIER` | Variable/function names (alphanumeric + underscore) |
 | `NUMBER` | Integer or floating-point literal |
-| `STRING` | Double-quoted string literal |
+| `STRING` | Double-quoted string literal (supports escape sequences) |
 
 ### Keywords
 
@@ -867,13 +991,19 @@ The library is organized into categories:
 | Type | Description | Examples |
 |------|-------------|---------|
 | `number` | Double-precision floating point | `42`, `3.14`, `-1.0` |
-| `string` | Immutable text (double-quoted) | `"hello"`, `"42"` |
+| `string` | Immutable text (double-quoted) | `"hello"`, `"42"`, `"line1\nline2"` |
 | `bool` | Boolean value | `true`, `false` |
 | `nil` | Null/void value | `nil` |
 | `array` | Ordered, zero-indexed collection | `[1, 2, 3]`, `["a", "b"]` |
 | `map` | Key-value dictionary (string keys) | `{"key": value}` |
 | `function` | User-defined function | `fn add(a, b): ...` |
 | `native` | Built-in C function | `print`, `len`, `type` |
+
+### Truthiness Rules
+
+When used in conditionals (`if`, `while`) or with `not`, values are considered:
+- **Falsy**: `false`, `nil`, `0` (number zero), `""` (empty string)
+- **Truthy**: Everything else (non-zero numbers, non-empty strings, `true`, arrays, maps, functions)
 
 ---
 
@@ -889,18 +1019,24 @@ The library is organized into categories:
 - **No semicolons** — Line-based parsing with NEWLINE tokens as statement terminators
 - **Deep copy semantics** — Values are deep-copied on assignment, preventing aliasing bugs at the cost of performance
 - **Dynamic typing** — Type checking happens at runtime, enabling flexible, concise code
+- **Escape sequences** — Standard `\n`, `\t`, `\r`, `\\`, `\"`, `\0` in string literals
+- **Number truthiness** — `0` is falsy (like C/Python), enabling concise numeric conditionals
 
 ### Implementation Notes
 
 - The lexer uses **raw pointers into the source buffer** rather than copying substrings, making it memory-efficient
 - The **indentation stack** has a fixed maximum depth of 64 levels, sufficient for practical programs
 - **Blank lines** and **comment-only lines** are transparent to the indentation system
+- **Windows line endings (`\r\n`)** are properly handled — blank lines with trailing carriage returns don't corrupt indentation
 - The lexer is a **single-pass scanner** with lazy tokenization via `lexer_next_token()`
 - The AST uses a **tagged union** with zero-initialization for safe default field values
 - The parser implements **Pratt parsing** with straightforward precedence climbing functions
+- The parser includes a **local `strndup`** implementation for platforms like MinGW that lack it
 - The interpreter uses **recursive evaluation** with deep copying to maintain value semantics
 - **Memory management** is explicit — all allocations are tracked and freed via `ast_free()` and `value_free()`
+- Imported file ASTs are intentionally leaked to avoid dangling pointers in closures (documented design trade-off)
 - The standard library uses **native C function pointers** with a uniform calling convention
+- `srand()` is seeded once during `stdlib_register_all()` for pseudo-random number generation
 
 ---
 
@@ -911,9 +1047,11 @@ The library is organized into categories:
 - [x] Indentation tracking (INDENT/DEDENT)
 - [x] All token types defined (46 tokens)
 - [x] String, number, identifier literals
+- [x] String escape sequences (\n, \t, \r, \\, \", \0)
 - [x] Keyword recognition (16 keywords)
 - [x] Comment handling
 - [x] Error reporting with line numbers
+- [x] Windows line ending (\r\n) support
 
 ### Phase 2: Parser ✅ (Complete)
 - [x] Recursive descent parser with Pratt-style expression parsing
@@ -925,12 +1063,14 @@ The library is organized into categories:
 - [x] Function calls with argument lists
 - [x] Array and map literal parsing
 - [x] Index expression and index assignment parsing
+- [x] String unescaping in the parser
 
 ### Phase 3: Interpreter ✅ (Complete)
 - [x] Tree-walk interpreter with recursive evaluation
 - [x] Environment/scope management (lexical scoping with closures)
 - [x] Variable assignment and lookup
 - [x] Function calls with parameter binding and stack frames
+- [x] Return signal propagation through nested blocks
 - [x] Control flow (if/else, while, for-in)
 - [x] Boolean and logical operations
 - [x] String concatenation
@@ -938,12 +1078,14 @@ The library is organized into categories:
 - [x] Indexing and index assignment
 - [x] Deep copy value semantics
 - [x] Runtime error reporting with line numbers
+- [x] Truthiness rules (0, empty string falsy)
 
 ### Phase 4: Import/Module System ✅ (Complete)
 - [x] `import "filename.kh"` parsing
 - [x] Import execution (lex, parse, run imported file in shared environment)
 - [x] Relative path resolution based on source file directory
 - [x] EOF indentation unwind fix to support imports reliably
+- [x] Multi-file application support (Todo App demonstrates 4-file modular structure)
 
 ### Phase 5: Standard Library ✅ (Complete)
 - [x] Type conversion functions (num, str, type)
@@ -951,10 +1093,17 @@ The library is organized into categories:
 - [x] Array operations (push, range)
 - [x] Map operations (keys, has)
 - [x] Math functions (abs, min, max, sqrt, round, floor, ceil, random, pow)
-- [x] I/O operations (input, read_file, write_file)
+- [x] I/O operations (input, read_file, write_file, file_exists)
 - [x] Utility functions (sleep, clock, exit)
 
-### Phase 6: Advanced Features 🔲 (Planned)
+### Phase 6: Real-World Applications ✅ (Complete)
+- [x] Todo List Application with CRUD operations
+- [x] File persistence (save/load todos to disk)
+- [x] Modular application design (core, storage, UI separation)
+- [x] Unit tests for the todo app
+- [x] Demonstrates practical use of arrays, maps, file I/O, and imports
+
+### Phase 7: Advanced Features 🔲 (Planned)
 - [ ] Garbage collection or arena allocation
 - [ ] Bytecode compiler with instruction set
 - [ ] Virtual machine for faster execution
@@ -990,6 +1139,7 @@ git checkout -b feature/your-feature
 # Build and test
 make
 ./khan examples/full_test.kh
+./khan examples/todo_app/main.kh
 
 # Commit and push
 git commit -m "Add your feature"
