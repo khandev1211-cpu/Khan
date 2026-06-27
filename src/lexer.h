@@ -13,6 +13,12 @@ typedef struct {
     int indent_top;
     int at_line_start;
     int pending_dedents;
+
+    // Tracks nesting depth inside (), [], {}. While > 0, newlines are
+    // treated as insignificant whitespace instead of statement separators
+    // — this is what lets a map/array literal (or a call's argument list)
+    // span multiple physical lines.
+    int bracket_depth;
 } Lexer;
 
 void lexer_init(Lexer *lexer, const char *source);

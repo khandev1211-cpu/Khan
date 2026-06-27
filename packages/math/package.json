@@ -1,0 +1,8 @@
+{
+  "name": "math",
+  "version": "1.0.0",
+  "description": "Advanced math functions: sqrt, pow, floor, ceil, abs, trig, log",
+  "author": "khandev1211-cpu",
+  "main": "math.kh",
+  "files": ["math.kh"]
+}

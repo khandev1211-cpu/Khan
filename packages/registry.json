@@ -1,0 +1,26 @@
+{
+  "version": "1",
+  "packages": [
+    {
+      "name": "math",
+      "version": "1.0.0",
+      "description": "Advanced math functions: sqrt, pow, floor, ceil, abs, log, gcd, primes",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/math/math.kh"
+    },
+    {
+      "name": "strings",
+      "version": "1.0.0",
+      "description": "String utilities: split, trim, replace, pad, repeat, contains, join",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/strings/strings.kh"
+    },
+    {
+      "name": "colors",
+      "version": "1.0.0",
+      "description": "Terminal color output using ANSI codes: red, green, bold, boxes, etc.",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/colors/colors.kh"
+    }
+  ]
+}

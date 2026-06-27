@@ -1,7 +1,7 @@
 # HTTP Requests library test
 # Requires internet access.  Run: khan examples/requests_test.kh
 
-let res = http_get("https://jsonplaceholder.typicode.com/todos/2")
+let res = http_get("https://jsonplaceholder.typicode.com/todos/1")
 print "Status: " + str(res["status"])
 print "Success: " + str(res["success"])
 

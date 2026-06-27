@@ -1,0 +1,115 @@
+# Khan math package v1.0.0
+# Usage: import "math"
+# Note: floor() and ceil() are built-in to Khan — this package wraps them
+#       and adds many more functions.
+
+fn math_sqrt(n):
+    if n < 0:
+        return nil
+    if n == 0:
+        return 0
+    let guess = n / 2.0
+    let i = 0
+    while i < 60:
+        guess = (guess + n / guess) / 2.0
+        i = i + 1
+    return guess
+
+fn math_pow(base, exp):
+    if exp == 0:
+        return 1
+    if exp < 0:
+        return 1.0 / math_pow(base, 0 - exp)
+    let result = 1
+    let i = 0
+    while i < exp:
+        result = result * base
+        i = i + 1
+    return result
+
+fn math_abs(n):
+    if n < 0:
+        return 0 - n
+    return n
+
+fn math_floor(n):
+    return floor(n)
+
+fn math_ceil(n):
+    return ceil(n)
+
+fn math_round(n):
+    return floor(n + 0.5)
+
+fn math_max(a, b):
+    if a > b:
+        return a
+    return b
+
+fn math_min(a, b):
+    if a < b:
+        return a
+    return b
+
+fn math_clamp(val, lo, hi):
+    return math_max(lo, math_min(hi, val))
+
+fn math_sign(n):
+    if n > 0:
+        return 1
+    elif n < 0:
+        return -1
+    return 0
+
+fn math_gcd(a, b):
+    a = math_abs(a)
+    b = math_abs(b)
+    while b != 0:
+        let t = b
+        b = a - (floor(a / b) * b)
+        a = t
+    return a
+
+fn math_lcm(a, b):
+    return math_abs(a * b) / math_gcd(a, b)
+
+fn math_is_prime(n):
+    if n < 2:
+        return false
+    if n == 2:
+        return true
+    if n % 2 == 0:
+        return false
+    let i = 3
+    while i * i <= n:
+        if n % i == 0:
+            return false
+        i = i + 2
+    return true
+
+fn math_sum(arr):
+    let total = 0
+    for v in arr:
+        total = total + v
+    return total
+
+fn math_mean(arr):
+    if len(arr) == 0:
+        return nil
+    return math_sum(arr) / len(arr)
+
+fn math_factorial(n):
+    if n <= 1:
+        return 1
+    return n * math_factorial(n - 1)
+
+fn math_range(start, stop, step):
+    let arr = []
+    let i = start
+    while i < stop:
+        arr = push(arr, i)
+        i = i + step
+    return arr
+
+let PI = 3.141592653589793
+let E  = 2.718281828459045

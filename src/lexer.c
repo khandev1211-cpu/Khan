@@ -11,6 +11,7 @@ void lexer_init(Lexer *lexer, const char *source) {
     lexer->indent_top = 0;
     lexer->at_line_start = 1;
     lexer->pending_dedents = 0;
+    lexer->bracket_depth = 0;
 }
 
 static int is_at_end(Lexer *lexer) {
@@ -63,6 +64,12 @@ static void skip_inline_whitespace(Lexer *lexer) {
             advance(lexer);
         } else if (c == '#') {
             while (peek(lexer) != '\n' && !is_at_end(lexer)) advance(lexer);
+        } else if (lexer->bracket_depth > 0 && c == '\n') {
+            // Inside (), [], or {} — a newline is just whitespace, not a
+            // statement separator. This is what lets a map/array literal
+            // (or a call's argument list) span multiple physical lines.
+            advance(lexer);
+            lexer->line++;
         } else {
             break;
         }
@@ -187,13 +194,13 @@ static int measure_indentation(Lexer *lexer, Token *out) {
 }
 
 Token lexer_next_token(Lexer *lexer) {
-    if (lexer->pending_dedents > 0) {
+    if (lexer->bracket_depth == 0 && lexer->pending_dedents > 0) {
         lexer->pending_dedents--;
         lexer->start = lexer->current;
         return make_token(lexer, TOKEN_DEDENT);
     }
 
-    if (lexer->at_line_start) {
+    if (lexer->bracket_depth == 0 && lexer->at_line_start) {
         Token structural;
         if (measure_indentation(lexer, &structural)) {
             lexer->at_line_start = 0;
@@ -232,12 +239,18 @@ Token lexer_next_token(Lexer *lexer) {
 
     switch (c) {
         case '"': return string_literal(lexer);
-        case '(': return make_token(lexer, TOKEN_LPAREN);
-        case ')': return make_token(lexer, TOKEN_RPAREN);
-        case '[': return make_token(lexer, TOKEN_LBRACKET);
-        case ']': return make_token(lexer, TOKEN_RBRACKET);
-        case '{': return make_token(lexer, TOKEN_LBRACE);
-        case '}': return make_token(lexer, TOKEN_RBRACE);
+        case '(': lexer->bracket_depth++; return make_token(lexer, TOKEN_LPAREN);
+        case ')':
+            if (lexer->bracket_depth > 0) lexer->bracket_depth--;
+            return make_token(lexer, TOKEN_RPAREN);
+        case '[': lexer->bracket_depth++; return make_token(lexer, TOKEN_LBRACKET);
+        case ']':
+            if (lexer->bracket_depth > 0) lexer->bracket_depth--;
+            return make_token(lexer, TOKEN_RBRACKET);
+        case '{': lexer->bracket_depth++; return make_token(lexer, TOKEN_LBRACE);
+        case '}':
+            if (lexer->bracket_depth > 0) lexer->bracket_depth--;
+            return make_token(lexer, TOKEN_RBRACE);
         case ':': return make_token(lexer, TOKEN_COLON);
         case ',': return make_token(lexer, TOKEN_COMMA);
         case '.': return make_token(lexer, TOKEN_DOT);

@@ -904,11 +904,41 @@ static Value execute_import(Interpreter *interp, const char *path, Environment *
 
     FILE *file = fopen(full_path, "rb");
     if (!file) {
-        // Try the path as-is as a fallback
+        // Try path as-is
         file = fopen(path, "rb");
     }
     if (!file) {
-        fprintf(stderr, "[line 0] Runtime error: Could not open import '%s'.\n", full_path);
+        // Try as a package name: ~/.khan/packages/<name>/<name>.kh
+        // Bare package name: no path separators, no .kh extension
+        int is_pkg_name = 1;
+        for (const char *p = path; *p; p++) {
+            if (*p == '/' || *p == '\\' || *p == '.') { is_pkg_name = 0; break; }
+        }
+        if (is_pkg_name) {
+            char pkg_path[1024];
+            const char *home = NULL;
+#ifdef _WIN32
+            home = getenv("USERPROFILE");
+            if (!home) home = "C:\\Users\\Default";
+            snprintf(pkg_path, sizeof(pkg_path),
+                     "%s\\.khan\\packages\\%s\\%s.kh", home, path, path);
+#else
+            home = getenv("HOME");
+            if (!home) home = "/tmp";
+            snprintf(pkg_path, sizeof(pkg_path),
+                     "%s/.khan/packages/%s/%s.kh", home, path, path);
+#endif
+            file = fopen(pkg_path, "rb");
+            if (file) {
+                strncpy(full_path, pkg_path, sizeof(full_path) - 1);
+                full_path[sizeof(full_path) - 1] = '\0';
+            }
+        }
+    }
+    if (!file) {
+        fprintf(stderr, "[line 0] Runtime error: Could not open import '%s'.\n"
+                        "  Tip: if \"%s\" is a package, run: kh install %s\n",
+                full_path, path, path);
         interp->had_runtime_error = 1;
         return value_nil();
     }
