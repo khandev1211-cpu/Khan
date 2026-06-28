@@ -1,15 +1,9 @@
-import "math"
-import "strings"
-import "colors"
-import "requests"
+import "postman"
 
-print math_sqrt(110)
-print str_trim("  hello  ")
-print red("it works!")
+let pm = pm_new_with_base("https://api.example.com")
 
-let res = get("https://api.example.com/users")
-if ok(res):
-    let users = json(res)
-    print users[0]["name"]
-else:
-    raise_for_status(res)
+pm = pm_get(pm, "health check", "/health")
+pm = pm_post_json(pm, "create user", "/users", {"name": "Irfan"})
+pm = pm_assert(pm, "2+2=4", 2 + 2 == 4)
+
+pm_run(pm)

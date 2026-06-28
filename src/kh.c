@@ -468,21 +468,23 @@ static int cmd_info(const char *name) {
         return 1;
     }
 
-    char *version = json_get_string(pkg, "version");
-    char *desc    = json_get_string(pkg, "description");
-    char *author  = json_get_string(pkg, "author");
-    char *url     = json_get_string(pkg, "url");
+    char *version   = json_get_string(pkg, "version");
+    char *desc      = json_get_string(pkg, "description");
+    char *author    = json_get_string(pkg, "author");
+    char *developer = json_get_string(pkg, "developer");
+    char *url       = json_get_string(pkg, "url");
     free(pkg);
 
     print_header("\nPackage Info");
     printf("  \033[1mName:\033[0m        %s\n", name);
-    printf("  \033[1mVersion:\033[0m     %s\n", version ? version : "?");
-    printf("  \033[1mAuthor:\033[0m      %s\n", author  ? author  : "?");
-    printf("  \033[1mDescription:\033[0m %s\n", desc    ? desc    : "?");
-    printf("  \033[1mURL:\033[0m         %s\n", url     ? url     : "?");
+    printf("  \033[1mVersion:\033[0m     %s\n", version   ? version   : "?");
+    printf("  \033[1mDeveloper:\033[0m   %s\n", developer ? developer : "?");
+    printf("  \033[1mAuthor:\033[0m      %s\n", author    ? author    : "?");
+    printf("  \033[1mDescription:\033[0m %s\n", desc      ? desc      : "?");
+    printf("  \033[1mURL:\033[0m         %s\n", url       ? url       : "?");
     printf("\n  Install with: \033[1mkh install %s\033[0m\n", name);
 
-    free(version); free(desc); free(author); free(url);
+    free(version); free(desc); free(author); free(developer); free(url);
     return 0;
 }
 

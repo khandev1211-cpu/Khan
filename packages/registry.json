@@ -4,13 +4,15 @@
     {
       "name": "math",
       "version": "1.0.0",
-      "description": "Advanced math functions: sqrt, pow, floor, ceil, abs, log, gcd, primes",
+      "developer": "Irfan Khan",
+      "description": "Advanced math functions: sqrt, pow, gcd, primes, factorial, mean",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/math/math.kh"
     },
     {
       "name": "strings",
       "version": "1.0.0",
+      "developer": "Irfan Khan",
       "description": "String utilities: split, trim, replace, pad, repeat, contains, join",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/strings/strings.kh"
@@ -18,6 +20,7 @@
     {
       "name": "colors",
       "version": "1.0.0",
+      "developer": "Irfan Khan",
       "description": "Terminal color output using ANSI codes: red, green, bold, boxes, etc.",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/colors/colors.kh"
@@ -25,9 +28,18 @@
     {
       "name": "requests",
       "version": "1.0.0",
+      "developer": "Irfan Khan",
       "description": "HTTP client: get, post, post_json, put, delete with auto JSON decode",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/requests/requests.kh"
+    },
+    {
+      "name": "postman",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "API testing toolkit: send requests, assert responses, run test suites",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/postman/postman.kh"
     }
   ]
 }
