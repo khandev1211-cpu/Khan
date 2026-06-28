@@ -1,7 +1,15 @@
 import "math"
 import "strings"
 import "colors"
+import "requests"
 
 print math_sqrt(110)
 print str_trim("  hello  ")
 print red("it works!")
+
+let res = get("https://api.example.com/users")
+if ok(res):
+    let users = json(res)
+    print users[0]["name"]
+else:
+    raise_for_status(res)

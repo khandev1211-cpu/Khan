@@ -1,0 +1,98 @@
+# Khan requests package v1.0.0
+# Usage: import "requests"
+#
+# Built on top of Khan's native http_get / http_post / http_post_json /
+# http_put / http_delete builtins (added in v2).
+#
+# Every function returns a response map:
+#   res["status"]  -> number  (HTTP status code, e.g. 200)
+#   res["body"]    -> string  (raw response body)
+#   res["success"] -> bool    (true if status 200-299)
+#   res["json"]    -> map/array (decoded JSON, or nil if body is not JSON)
+
+# ---------------------------------------------------------------------------
+# Internal: try to decode body as JSON, attach as res["json"]
+# ---------------------------------------------------------------------------
+fn _req_attach_json(res):
+    let body = res["body"]
+    if len(body) == 0:
+        res["json"] = nil
+        return res
+    let first = substring(body, 0, 1)
+    if first == "{" or first == "[":
+        res["json"] = json_decode(body)
+    else:
+        res["json"] = nil
+    return res
+
+# ---------------------------------------------------------------------------
+# get(url) -> response map
+# ---------------------------------------------------------------------------
+fn get(url):
+    let res = http_get(url)
+    return _req_attach_json(res)
+
+# ---------------------------------------------------------------------------
+# post(url, body) -> response map
+# body is a form-encoded string e.g. "name=Irfan&age=25"
+# ---------------------------------------------------------------------------
+fn post(url, body):
+    let res = http_post(url, body)
+    return _req_attach_json(res)
+
+# ---------------------------------------------------------------------------
+# post_json(url, data) -> response map
+# data is a Khan map or array — auto-encoded to JSON
+# ---------------------------------------------------------------------------
+fn post_json(url, data):
+    let res = http_post_json(url, data)
+    return _req_attach_json(res)
+
+# ---------------------------------------------------------------------------
+# put(url, body) -> response map
+# ---------------------------------------------------------------------------
+fn put(url, body):
+    let res = http_put(url, body)
+    return _req_attach_json(res)
+
+# ---------------------------------------------------------------------------
+# delete(url) -> response map
+# ---------------------------------------------------------------------------
+fn delete(url):
+    let res = http_delete(url)
+    return _req_attach_json(res)
+
+# ---------------------------------------------------------------------------
+# ok(res) -> bool
+# Quick check: did the request succeed?
+# ---------------------------------------------------------------------------
+fn ok(res):
+    return res["success"]
+
+# ---------------------------------------------------------------------------
+# status(res) -> number
+# ---------------------------------------------------------------------------
+fn status(res):
+    return res["status"]
+
+# ---------------------------------------------------------------------------
+# body(res) -> string
+# ---------------------------------------------------------------------------
+fn body(res):
+    return res["body"]
+
+# ---------------------------------------------------------------------------
+# json(res) -> map/array/nil
+# Returns the decoded JSON body (nil if not JSON or decode failed)
+# ---------------------------------------------------------------------------
+fn json(res):
+    return res["json"]
+
+# ---------------------------------------------------------------------------
+# raise_for_status(res) -> res or prints error
+# Prints an error message if request failed, returns res either way
+# ---------------------------------------------------------------------------
+fn raise_for_status(res):
+    if not res["success"]:
+        print "HTTP Error: " + str(res["status"]) + " — " + res["body"]
+    return res

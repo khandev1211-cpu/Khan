@@ -21,6 +21,13 @@
       "description": "Terminal color output using ANSI codes: red, green, bold, boxes, etc.",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/colors/colors.kh"
+    },
+    {
+      "name": "requests",
+      "version": "1.0.0",
+      "description": "HTTP client: get, post, post_json, put, delete with auto JSON decode",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/requests/requests.kh"
     }
   ]
 }

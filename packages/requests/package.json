@@ -1,0 +1,8 @@
+{
+  "name": "requests",
+  "version": "1.0.0",
+  "description": "HTTP client: get, post, post_json, put, delete with helpers",
+  "author": "khandev1211-cpu",
+  "main": "requests.kh",
+  "files": ["requests.kh"]
+}
