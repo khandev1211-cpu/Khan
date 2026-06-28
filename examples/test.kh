@@ -1,0 +1,7 @@
+import "math"
+import "strings"
+import "colors"
+
+print math_sqrt(110)
+print str_trim("  hello  ")
+print red("it works!")

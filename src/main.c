@@ -1,3 +1,17 @@
+#ifdef _WIN32
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+static void enable_ansi(void) {
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD mode = 0;
+    if (GetConsoleMode(h, &mode))
+        SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    SetConsoleOutputCP(CP_UTF8);
+}
+#else
+static void enable_ansi(void) {}
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +47,7 @@ static char *read_file(const char *path) {
 }
 
 int main(int argc, char *argv[]) {
+    enable_ansi();
     if (argc != 2) {
         fprintf(stderr, "Usage: khan <script.kh>\n");
         return 64;

@@ -1,25 +1,27 @@
 // ===========================================================================
 // kh — Khan Package Manager
-// Usage:
-//   kh install <name>    Download a package from the registry
-//   kh remove  <name>    Remove an installed package
-//   kh list              List all packages in the registry
-//   kh installed         List locally installed packages
-//   kh info <name>       Show info about a package
 // ===========================================================================
 
-// Windows headers must come before everything else to avoid TokenType conflict
+// Windows headers FIRST to avoid TokenType conflict with our token.h
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
-#  include <shlobj.h>       // SHGetFolderPathA
-#  include <direct.h>       // _mkdir
+#  include <shlobj.h>
+#  include <direct.h>
 #  define MKDIR(p) _mkdir(p)
+static void enable_ansi(void) {
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD mode = 0;
+    if (GetConsoleMode(h, &mode))
+        SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    SetConsoleOutputCP(CP_UTF8);
+}
 #else
 #  define _POSIX_C_SOURCE 200809L
 #  include <sys/stat.h>
 #  include <unistd.h>
 #  define MKDIR(p) mkdir(p, 0755)
+static void enable_ansi(void) {}
 #endif
 
 #include <stdio.h>
@@ -488,6 +490,7 @@ static int cmd_info(const char *name) {
 // Main
 // ---------------------------------------------------------------------------
 int main(int argc, char *argv[]) {
+    enable_ansi();
     if (argc < 2) {
         print_header("kh — Khan Package Manager");
         printf("\nUsage:\n");
