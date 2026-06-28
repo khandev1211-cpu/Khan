@@ -21,9 +21,7 @@ static char *local_strndup(const char *s, size_t n) {
 
 // Processes backslash escape sequences in a string literal's raw content
 // (the text between the quotes, before any unescaping). Supported escapes:
-// \n \t \r \\ \" — anything else (including a lone trailing backslash) is
-// passed through literally rather than erroring, so unexpected sequences
-// degrade gracefully instead of corrupting the program.
+// \n \t \r \\ \" \0 \xHH — anything else is passed through literally.
 static char *unescape_string(const char *raw, int len) {
     char *out = malloc(len + 1); // unescaped result is never longer than input
     int j = 0;
@@ -37,6 +35,27 @@ static char *unescape_string(const char *raw, int len) {
                 case '\\': out[j++] = '\\'; i++; break;
                 case '"':  out[j++] = '"';  i++; break;
                 case '0':  out[j++] = '\0'; i++; break;
+                case 'x': {
+                    // \xHH — two hex digits
+                    if (i + 3 < len) {
+                        char hex[3] = { raw[i+2], raw[i+3], '\0' };
+                        // validate both are hex digits
+                        int valid = 1;
+                        for (int k = 0; k < 2; k++) {
+                            char c = hex[k];
+                            if (!((c>='0'&&c<='9')||(c>='a'&&c<='f')||(c>='A'&&c<='F')))
+                                valid = 0;
+                        }
+                        if (valid) {
+                            out[j++] = (char)strtol(hex, NULL, 16);
+                            i += 3;
+                            break;
+                        }
+                    }
+                    // fallthrough if invalid
+                    out[j++] = raw[i];
+                    break;
+                }
                 default:
                     // Unknown escape — keep the backslash literally
                     out[j++] = raw[i];
