@@ -1,0 +1,714 @@
+# Khan webi package v1.0.0
+# Usage: import "webi"
+#
+# webi is a lightweight web framework for Khan — inspired by Flask.
+# It lets you define routes, handle requests, build responses, and
+# run an HTTP server, all from .kh scripts.
+#
+# Quick start:
+#
+#   import "webi"
+#
+#   let app = webi_app()
+#
+#   app = route(app, "GET", "/", fn_index)
+#   app = route(app, "GET", "/hello", fn_hello)
+#   app = route(app, "POST", "/echo", fn_echo)
+#
+#   fn fn_index(req):
+#       return res_html("<h1>Welcome to webi!</h1>")
+#
+#   fn fn_hello(req):
+#       let name = query_get(req, "name", "World")
+#       return res_text("Hello, " + name + "!")
+#
+#   fn fn_echo(req):
+#       return res_json(req["body_json"])
+#
+#   webi_run(app, 8080)
+#
+# ---------------------------------------------------------------------------
+# Core concepts:
+#
+#   app  — the application context (map):
+#             app["routes"]     list of {method, path, handler} maps
+#             app["host"]       bind address (default "0.0.0.0")
+#             app["port"]       port number
+#             app["debug"]      bool
+#             app["middlewares"] list of middleware fn references
+#             app["not_found"]  custom 404 handler fn (optional)
+#             app["error"]      custom 500 handler fn (optional)
+#
+#   req  — incoming request map (built by webi from raw HTTP):
+#             req["method"]      "GET", "POST", etc.
+#             req["path"]        "/hello"
+#             req["query"]       map of query params  {"name": "Irfan"}
+#             req["headers"]     map of request headers
+#             req["body"]        raw body string
+#             req["body_json"]   decoded JSON body (or nil)
+#             req["params"]      map of URL params from path pattern e.g. /users/:id
+#             req["ip"]          client IP string
+#
+#   res  — response map (returned by route handlers):
+#             res["status"]      number  (default 200)
+#             res["body"]        string
+#             res["content_type"] string
+#             res["headers"]     map of extra headers
+# ---------------------------------------------------------------------------
+
+# ===========================================================================
+# APP CONTEXT
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# webi_app() -> app map
+# Create a new webi application instance
+# ---------------------------------------------------------------------------
+fn webi_app():
+    return {
+        "routes":      [],
+        "middlewares": [],
+        "host":        "0.0.0.0",
+        "port":        8080,
+        "debug":       false,
+        "not_found":   nil,
+        "error":       nil,
+        "name":        "webi"
+    }
+
+# ---------------------------------------------------------------------------
+# webi_debug(app, enabled) -> app
+# Enable or disable debug mode (verbose logging)
+# ---------------------------------------------------------------------------
+fn webi_debug(app, enabled):
+    app["debug"] = enabled
+    return app
+
+# ---------------------------------------------------------------------------
+# webi_name(app, name) -> app
+# Set the application name (shown in logs)
+# ---------------------------------------------------------------------------
+fn webi_name(app, name):
+    app["name"] = name
+    return app
+
+# ===========================================================================
+# ROUTING
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# route(app, method, path, handler) -> app
+# Register a route handler.
+# handler is a Khan function: fn my_handler(req) -> res
+#
+# Path patterns:
+#   "/users"        exact match
+#   "/users/:id"    URL param  — req["params"]["id"] will be set
+#   "/files/*"      wildcard   — matches anything after /files/
+#
+# Example:
+#   fn handle_user(req):
+#       let id = req["params"]["id"]
+#       return res_json({"id": id, "name": "Irfan"})
+#
+#   app = route(app, "GET", "/users/:id", handle_user)
+# ---------------------------------------------------------------------------
+fn route(app, method, path, handler):
+    let r = {
+        "method":  method,
+        "path":    path,
+        "handler": handler
+    }
+    app["routes"] = push(app["routes"], r)
+    return app
+
+# Shortcut helpers
+fn get_route(app, path, handler):
+    return route(app, "GET", path, handler)
+
+fn post_route(app, path, handler):
+    return route(app, "POST", path, handler)
+
+fn put_route(app, path, handler):
+    return route(app, "PUT", path, handler)
+
+fn patch_route(app, path, handler):
+    return route(app, "PATCH", path, handler)
+
+fn delete_route(app, path, handler):
+    return route(app, "DELETE", path, handler)
+
+# ---------------------------------------------------------------------------
+# webi_not_found(app, handler) -> app
+# Set a custom 404 handler. handler(req) -> res
+# ---------------------------------------------------------------------------
+fn webi_not_found(app, handler):
+    app["not_found"] = handler
+    return app
+
+# ---------------------------------------------------------------------------
+# webi_error(app, handler) -> app
+# Set a custom 500 error handler. handler(req) -> res
+# ---------------------------------------------------------------------------
+fn webi_error(app, handler):
+    app["error"] = handler
+    return app
+
+# ===========================================================================
+# MIDDLEWARE
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# use(app, middleware_fn) -> app
+# Add a middleware function. Middlewares run before every route handler.
+# middleware signature:  fn my_middleware(req) -> req
+# Return the (possibly modified) req map to pass it along.
+#
+# Example — CORS middleware:
+#   fn cors_middleware(req):
+#       print "Request: " + req["method"] + " " + req["path"]
+#       return req
+#   app = use(app, cors_middleware)
+# ---------------------------------------------------------------------------
+fn use(app, middleware_fn):
+    app["middlewares"] = push(app["middlewares"], middleware_fn)
+    return app
+
+# ---------------------------------------------------------------------------
+# Internal: run all middlewares on a request
+# ---------------------------------------------------------------------------
+fn _webi_run_middlewares(app, req):
+    let mws = app["middlewares"]
+    let i = 0
+    while i < len(mws):
+        req = mws[i](req)
+        i = i + 1
+    return req
+
+# ===========================================================================
+# ROUTE MATCHING
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Internal: check if a path segment is a param (starts with :)
+# ---------------------------------------------------------------------------
+fn _is_param_seg(seg):
+    if len(seg) == 0:
+        return false
+    return substring(seg, 0, 1) == ":"
+
+# ---------------------------------------------------------------------------
+# Internal: split a path string by "/" into array of segments
+# Returns ["", "users", "123"] for "/users/123"
+# ---------------------------------------------------------------------------
+fn _split_path(path):
+    return split(path, "/")
+
+# ---------------------------------------------------------------------------
+# Internal: match a route pattern against an actual path.
+# Returns a map {"matched": bool, "params": {}} 
+# ---------------------------------------------------------------------------
+fn _match_route(pattern, actual):
+    let p_segs = _split_path(pattern)
+    let a_segs = _split_path(actual)
+
+    # Wildcard: pattern ends with /*
+    let is_wildcard = false
+    if len(p_segs) > 0:
+        let last = p_segs[len(p_segs) - 1]
+        if last == "*":
+            is_wildcard = true
+
+    if not is_wildcard and len(p_segs) != len(a_segs):
+        return {"matched": false, "params": {}}
+
+    let params = {}
+    let i = 0
+    while i < len(p_segs):
+        let ps = p_segs[i]
+        if ps == "*":
+            return {"matched": true, "params": params}
+        if i >= len(a_segs):
+            return {"matched": false, "params": {}}
+        let as = a_segs[i]
+        if _is_param_seg(ps):
+            let param_name = substring(ps, 1, len(ps) - 1)
+            params[param_name] = as
+        elif ps != as:
+            return {"matched": false, "params": {}}
+        i = i + 1
+
+    return {"matched": true, "params": params}
+
+# ---------------------------------------------------------------------------
+# Internal: find matching route for method + path
+# Returns the route entry + populated params, or nil
+# ---------------------------------------------------------------------------
+fn _webi_find_route(app, method, path):
+    let routes = app["routes"]
+    let i = 0
+    while i < len(routes):
+        let r = routes[i]
+        if r["method"] == method or r["method"] == "*":
+            let m = _match_route(r["path"], path)
+            if m["matched"]:
+                return {
+                    "handler": r["handler"],
+                    "params":  m["params"]
+                }
+        i = i + 1
+    return nil
+
+# ===========================================================================
+# REQUEST HELPERS
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# query_get(req, key, default) -> string
+# Get a query parameter, returning default if not present
+# ---------------------------------------------------------------------------
+fn query_get(req, key, default):
+    let q = req["query"]
+    if has(q, key):
+        return q[key]
+    return default
+
+# ---------------------------------------------------------------------------
+# header_get(req, key, default) -> string
+# Get a request header value (case-sensitive key)
+# ---------------------------------------------------------------------------
+fn header_get(req, key, default):
+    let h = req["headers"]
+    if has(h, key):
+        return h[key]
+    return default
+
+# ---------------------------------------------------------------------------
+# param_get(req, key, default) -> string
+# Get a URL param from route pattern e.g. /users/:id
+# ---------------------------------------------------------------------------
+fn param_get(req, key, default):
+    let p = req["params"]
+    if has(p, key):
+        return p[key]
+    return default
+
+# ---------------------------------------------------------------------------
+# body_json(req) -> map/array/nil
+# Get the parsed JSON body
+# ---------------------------------------------------------------------------
+fn body_json(req):
+    return req["body_json"]
+
+# ---------------------------------------------------------------------------
+# form_get(req, key, default) -> string
+# Parse application/x-www-form-urlencoded body and get a field
+# body looks like "name=Irfan&age=25"
+# ---------------------------------------------------------------------------
+fn form_get(req, key, default):
+    let body = req["body"]
+    if len(body) == 0:
+        return default
+    let pairs = split(body, "&")
+    let i = 0
+    while i < len(pairs):
+        let pair = pairs[i]
+        let kv = split(pair, "=")
+        if len(kv) >= 2 and kv[0] == key:
+            return kv[1]
+        i = i + 1
+    return default
+
+# ---------------------------------------------------------------------------
+# is_get(req) / is_post(req) / is_json_req(req) — quick checks
+# ---------------------------------------------------------------------------
+fn is_get(req):
+    return req["method"] == "GET"
+
+fn is_post(req):
+    return req["method"] == "POST"
+
+fn is_put(req):
+    return req["method"] == "PUT"
+
+fn is_patch(req):
+    return req["method"] == "PATCH"
+
+fn is_delete(req):
+    return req["method"] == "DELETE"
+
+fn is_json_req(req):
+    let ct = header_get(req, "Content-Type", "")
+    return contains(ct, "application/json")
+
+# ===========================================================================
+# RESPONSE BUILDERS
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Internal: build a base response map
+# ---------------------------------------------------------------------------
+fn _res_base(status, body, content_type):
+    return {
+        "status":       status,
+        "body":         body,
+        "content_type": content_type,
+        "headers":      {}
+    }
+
+# ---------------------------------------------------------------------------
+# res_text(text) -> response
+# Plain text response (200)
+# ---------------------------------------------------------------------------
+fn res_text(text):
+    return _res_base(200, text, "text/plain; charset=utf-8")
+
+# ---------------------------------------------------------------------------
+# res_html(html) -> response
+# HTML response (200)
+# ---------------------------------------------------------------------------
+fn res_html(html):
+    return _res_base(200, html, "text/html; charset=utf-8")
+
+# ---------------------------------------------------------------------------
+# res_json(data) -> response
+# JSON response (200) — auto-encodes a Khan map/array
+# ---------------------------------------------------------------------------
+fn res_json(data):
+    return _res_base(200, json_encode(data), "application/json")
+
+# ---------------------------------------------------------------------------
+# res_json_str(str) -> response
+# JSON response from a raw string (already serialized)
+# ---------------------------------------------------------------------------
+fn res_json_str(s):
+    return _res_base(200, s, "application/json")
+
+# ---------------------------------------------------------------------------
+# res_status(status, body) -> response
+# Response with a custom status code
+# ---------------------------------------------------------------------------
+fn res_status(status, body):
+    return _res_base(status, body, "text/plain; charset=utf-8")
+
+# ---------------------------------------------------------------------------
+# res_redirect(url) -> response
+# HTTP 302 redirect
+# ---------------------------------------------------------------------------
+fn res_redirect(url):
+    let r = _res_base(302, "", "text/plain")
+    r["headers"]["Location"] = url
+    return r
+
+# ---------------------------------------------------------------------------
+# res_redirect_permanent(url) -> response
+# HTTP 301 permanent redirect
+# ---------------------------------------------------------------------------
+fn res_redirect_permanent(url):
+    let r = _res_base(301, "", "text/plain")
+    r["headers"]["Location"] = url
+    return r
+
+# ---------------------------------------------------------------------------
+# res_not_found(message) -> response
+# 404 response
+# ---------------------------------------------------------------------------
+fn res_not_found(message):
+    return _res_base(404, message, "text/plain; charset=utf-8")
+
+# ---------------------------------------------------------------------------
+# res_bad_request(message) -> response
+# 400 response
+# ---------------------------------------------------------------------------
+fn res_bad_request(message):
+    return _res_base(400, message, "text/plain; charset=utf-8")
+
+# ---------------------------------------------------------------------------
+# res_unauthorized(message) -> response
+# 401 response
+# ---------------------------------------------------------------------------
+fn res_unauthorized(message):
+    return _res_base(401, message, "text/plain; charset=utf-8")
+
+# ---------------------------------------------------------------------------
+# res_forbidden(message) -> response
+# 403 response
+# ---------------------------------------------------------------------------
+fn res_forbidden(message):
+    return _res_base(403, message, "text/plain; charset=utf-8")
+
+# ---------------------------------------------------------------------------
+# res_server_error(message) -> response
+# 500 response
+# ---------------------------------------------------------------------------
+fn res_server_error(message):
+    return _res_base(500, message, "text/plain; charset=utf-8")
+
+# ---------------------------------------------------------------------------
+# res_created(data) -> response
+# 201 Created — typically used after POST creates a resource
+# ---------------------------------------------------------------------------
+fn res_created(data):
+    return _res_base(201, json_encode(data), "application/json")
+
+# ---------------------------------------------------------------------------
+# res_no_content() -> response
+# 204 No Content — typically used after DELETE
+# ---------------------------------------------------------------------------
+fn res_no_content():
+    return _res_base(204, "", "text/plain")
+
+# ---------------------------------------------------------------------------
+# res_with_header(res, key, value) -> response
+# Add a custom header to an existing response
+# ---------------------------------------------------------------------------
+fn res_with_header(res, key, value):
+    res["headers"][key] = value
+    return res
+
+# ---------------------------------------------------------------------------
+# res_with_cookie(res, name, value) -> response
+# Set a response cookie
+# ---------------------------------------------------------------------------
+fn res_with_cookie(res, name, value):
+    res["headers"]["Set-Cookie"] = name + "=" + value + "; Path=/"
+    return res
+
+# ---------------------------------------------------------------------------
+# res_cors(res) -> response
+# Add CORS headers to allow cross-origin requests
+# ---------------------------------------------------------------------------
+fn res_cors(res):
+    res["headers"]["Access-Control-Allow-Origin"] = "*"
+    res["headers"]["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    res["headers"]["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    return res
+
+# ===========================================================================
+# SERVER ENGINE
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Internal: build a default 404 response
+# ---------------------------------------------------------------------------
+fn _webi_default_404(req):
+    let msg = "404 Not Found: " + req["path"]
+    return res_not_found(msg)
+
+# ---------------------------------------------------------------------------
+# Internal: build a default 500 response
+# ---------------------------------------------------------------------------
+fn _webi_default_500(req):
+    return res_server_error("500 Internal Server Error")
+
+# ---------------------------------------------------------------------------
+# Internal: dispatch a parsed request through the app
+# Returns a response map
+# ---------------------------------------------------------------------------
+fn _webi_dispatch(app, req):
+    req = _webi_run_middlewares(app, req)
+
+    let match = _webi_find_route(app, req["method"], req["path"])
+    if match == nil:
+        if app["not_found"] != nil:
+            return app["not_found"](req)
+        return _webi_default_404(req)
+
+    req["params"] = match["params"]
+    return match["handler"](req)
+
+# ---------------------------------------------------------------------------
+# Internal: log a request (only in debug mode)
+# ---------------------------------------------------------------------------
+fn _webi_log(app, req, res):
+    if app["debug"]:
+        print "[webi] " + req["method"] + " " + req["path"] + " -> " + str(res["status"])
+
+# ---------------------------------------------------------------------------
+# webi_handle(app, method, path, query, headers, body) -> response map
+#
+# This is the BRIDGE FUNCTION — called by the native C server loop.
+# It accepts a raw request as individual strings and returns a response map.
+#
+# The native webi server calls this once per incoming HTTP request.
+# You normally don't call this directly — use webi_run() instead.
+# ---------------------------------------------------------------------------
+fn webi_handle(app, method, path, query_str, headers_str, body):
+    # Build query params map from "key=val&key2=val2"
+    let query = {}
+    if len(query_str) > 0:
+        let pairs = split(query_str, "&")
+        let i = 0
+        while i < len(pairs):
+            let pair = pairs[i]
+            let kv = split(pair, "=")
+            if len(kv) >= 2:
+                query[kv[0]] = kv[1]
+            i = i + 1
+
+    # Build headers map from "Key: Value\r\nKey2: Value2"
+    let headers = {}
+    if len(headers_str) > 0:
+        let lines = split(headers_str, "\n")
+        let j = 0
+        while j < len(lines):
+            let line = trim(lines[j])
+            if contains(line, ":"):
+                let colon_pos = 0
+                let k = 0
+                while k < len(line):
+                    if substring(line, k, 1) == ":":
+                        colon_pos = k
+                        k = len(line)
+                    k = k + 1
+                if colon_pos > 0:
+                    let hk = trim(substring(line, 0, colon_pos))
+                    let hv = trim(substring(line, colon_pos + 1, len(line) - colon_pos - 1))
+                    headers[hk] = hv
+            j = j + 1
+
+    # Decode JSON body if content-type is JSON
+    let body_json = nil
+    if len(body) > 0:
+        let first = substring(body, 0, 1)
+        if first == "{" or first == "[":
+            body_json = json_decode(body)
+
+    let req = {
+        "method":    method,
+        "path":      path,
+        "query":     query,
+        "headers":   headers,
+        "body":      body,
+        "body_json": body_json,
+        "params":    {},
+        "ip":        ""
+    }
+
+    let res = _webi_dispatch(app, req)
+    _webi_log(app, req, res)
+    return res
+
+# ---------------------------------------------------------------------------
+# webi_run(app, port) -> never (starts the server)
+#
+# Starts the HTTP server on the given port.
+# Calls the native http_serve(port, app, webi_handle) builtin.
+#
+# The native C implementation accepts connections in a loop, parses each
+# HTTP request, calls webi_handle(app, method, path, ...) and writes
+# the returned response map back to the socket.
+# ---------------------------------------------------------------------------
+fn webi_run(app, port):
+    app["port"] = port
+    print "[webi] " + app["name"] + " starting on http://" + app["host"] + ":" + str(port)
+    if app["debug"]:
+        print "[webi] Debug mode ON"
+        let routes = app["routes"]
+        let i = 0
+        while i < len(routes):
+            let r = routes[i]
+            print "  " + r["method"] + " " + r["path"]
+            i = i + 1
+    http_serve(port, app)
+
+# ---------------------------------------------------------------------------
+# webi_run_host(app, host, port) -> never
+# Start on a specific host:port
+# ---------------------------------------------------------------------------
+fn webi_run_host(app, host, port):
+    app["host"] = host
+    webi_run(app, port)
+
+# ===========================================================================
+# TEMPLATE HELPERS
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# render(template, vars) -> string
+# Simple string template renderer.
+# Replace {{key}} placeholders with values from vars map.
+#
+# Example:
+#   let html = render("<h1>Hello, {{name}}!</h1>", {"name": "Irfan"})
+# ---------------------------------------------------------------------------
+fn render(template, vars):
+    let result = template
+    let ks = keys(vars)
+    let i = 0
+    while i < len(ks):
+        let k = ks[i]
+        let placeholder = "{{" + k + "}}"
+        let v = str(vars[k])
+        result = str_replace(result, placeholder, v)
+        i = i + 1
+    return result
+
+# ---------------------------------------------------------------------------
+# html_escape(str) -> string
+# Escape HTML special characters to prevent XSS
+# ---------------------------------------------------------------------------
+fn html_escape(s):
+    s = str_replace(s, "&", "&amp;")
+    s = str_replace(s, "<", "&lt;")
+    s = str_replace(s, ">", "&gt;")
+    s = str_replace(s, "\"", "&quot;")
+    s = str_replace(s, "'", "&#39;")
+    return s
+
+# ===========================================================================
+# BUILT-IN MIDDLEWARE
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# mw_logger(req) -> req
+# Logs every incoming request to stdout
+# ---------------------------------------------------------------------------
+fn mw_logger(req):
+    print "[webi] " + req["method"] + " " + req["path"]
+    return req
+
+# ---------------------------------------------------------------------------
+# mw_cors(req) -> req
+# Adds CORS support by passing through OPTIONS preflight automatically.
+# Add as first middleware: app = use(app, mw_cors)
+# Note: actual CORS headers are added on responses via res_cors()
+# ---------------------------------------------------------------------------
+fn mw_cors(req):
+    return req
+
+# ---------------------------------------------------------------------------
+# mw_json_only(req) -> req
+# Mark non-JSON POST/PUT/PATCH requests for easy detection.
+# Sets req["_json_only_rejected"] if content type is wrong.
+# ---------------------------------------------------------------------------
+fn mw_json_only(req):
+    let method = req["method"]
+    if method == "POST" or method == "PUT" or method == "PATCH":
+        if not is_json_req(req):
+            req["_json_only_rejected"] = true
+    return req
+
+# ===========================================================================
+# UTILITY
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# webi_version() -> string
+# ---------------------------------------------------------------------------
+fn webi_version():
+    return "webi/1.0.0 (Khan)"
+
+# ---------------------------------------------------------------------------
+# webi_routes(app) -> array of route info strings
+# List all registered routes (useful for debugging)
+# ---------------------------------------------------------------------------
+fn webi_routes(app):
+    let routes = app["routes"]
+    let result = []
+    let i = 0
+    while i < len(routes):
+        let r = routes[i]
+        result = push(result, r["method"] + " " + r["path"])
+        i = i + 1
+    return result

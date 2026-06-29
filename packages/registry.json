@@ -27,7 +27,7 @@
     },
     {
       "name": "requests",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "developer": "Irfan Khan",
       "description": "HTTP client: get, post, post_json, put, delete with auto JSON decode",
       "author": "khandev1211-cpu",
@@ -96,6 +96,14 @@
       "description": "Unique ID generation: uuid_v4, short IDs, named entity IDs, sequential counters",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/uuid/uuid.kh"
+    },
+    {
+      "name": "webi",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "its a web framework for khan engine. It provides a simple and easy-to-use interface for building web applications using the Khan engine.",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/webi/webi.kh"
     }
   ]
 }
