@@ -26,9 +26,6 @@ static void enable_ansi(void) {}
 
 #include <stdio.h>
 #include <stdlib.h>
-#ifdef _WIN32
-extern __declspec(dllimport) char * __cdecl getenv(const char *);
-#endif
 #include <string.h>
 #include <ctype.h>
 
@@ -50,11 +47,16 @@ static char *get_packages_dir(void) {
 
 #ifdef _WIN32
     char appdata[MAX_PATH];
+    char userprofile_buf[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, appdata))) {
         base = appdata;
     } else {
-        base = getenv("USERPROFILE");
-        if (!base) base = "C:\\Users\\Default";
+        /* Use GetEnvironmentVariableA instead of getenv to avoid Win32 conflicts */
+        if (GetEnvironmentVariableA("USERPROFILE", userprofile_buf, MAX_PATH) > 0) {
+            base = userprofile_buf;
+        } else {
+            base = "C:\\Users\\Default";
+        }
     }
     size_t len = strlen(base) + 32;
     char *dir = malloc(len);
@@ -272,7 +274,7 @@ static int cmd_install(const char *name) {
     }
 
     // Write a local package.json
-    char meta_path[1024];
+    char meta_path[2048];
     snprintf(meta_path, sizeof(meta_path), "%s/package.json", pkg_dir);
     FILE *mf = fopen(meta_path, "w");
     if (mf) {
