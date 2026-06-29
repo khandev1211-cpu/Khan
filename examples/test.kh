@@ -1,9 +1,12 @@
 import "postman"
 
-let pm = pm_new_with_base("https://api.example.com")
+let pm = pm_new_with_base("https://jsonplaceholder.typicode.com")
 
-pm = pm_get(pm, "health check", "/health")
-pm = pm_post_json(pm, "create user", "/users", {"name": "Irfan"})
-pm = pm_assert(pm, "2+2=4", 2 + 2 == 4)
+pm = pm_get(pm, "GET todo #1",   "/todos/1")
+pm = pm_get(pm, "GET user #1",   "/users/1")
+pm = pm_post_json(pm, "POST todo", "/todos", {"title": "Learn Khan", "completed": false, "userId": 1})
+
+pm = pm_assert(pm, "2+2=4",       2 + 2 == 4)
+pm = pm_assert(pm, "strings work", "khan" == "khan")
 
 pm_run(pm)
