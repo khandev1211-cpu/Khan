@@ -1,41 +1,64 @@
-CC     = gcc
-CFLAGS = -std=c11 -Wall -Wextra -g
+# ─────────────────────────────────────────────────────────────
+#  Khan Language — Makefile (VM edition)
+# ─────────────────────────────────────────────────────────────
+
+CC      = gcc
+CFLAGS  = -std=c11 -Wall -Wextra -O2 -Isrc \
+          -D_POSIX_C_SOURCE=200809L \
+          -Wno-implicit-function-declaration \
+          -Wno-builtin-declaration-mismatch \
+          -Wno-cast-function-type
 
 ifeq ($(OS),Windows_NT)
-    LIBS_KHAN = -lm -lwinhttp
-    LIBS_KH   = -lm -lshell32
-    KHAN_EXE  = khan.exe
-    KH_EXE    = kh.exe
-    RM        = del /Q /F
-    FIXPATH   = $(subst /,\,$1)
+    LDFLAGS  = -lm -lwinhttp -lshell32
+    EXT      = .exe
 else
-    LIBS_KHAN = -lm
-    LIBS_KH   = -lm
-    KHAN_EXE  = khan
-    KH_EXE    = kh
-    RM        = rm -f
-    FIXPATH   = $1
+    LDFLAGS  = -lm
+    EXT      =
 endif
 
-KHAN_SRC = src/main.c src/lexer.c src/ast.c src/parser.c src/interpreter.c \
-           src/stdlib.c src/json_lib.c src/datetime_lib.c src/requests_lib.c
+# Shared (lexer/parser/AST unchanged)
+COMMON_SRCS = \
+    src/lexer.c         \
+    src/parser.c        \
+    src/ast.c
 
-KH_SRC   = src/kh.c
+# Old interpreter + stdlib needed by native libs (json, datetime, requests)
+INTERP_SRCS = \
+    src/interpreter.c   \
+    src/stdlib.c
 
-KHAN_OBJ = $(KHAN_SRC:.c=.o)
-KH_OBJ   = $(KH_SRC:.c=.o)
+# New stack VM
+VM_SRCS = \
+    src/value.c         \
+    src/chunk.c         \
+    src/compiler.c      \
+    src/vm.c
 
-all: $(KHAN_EXE) $(KH_EXE)
+# Native C libraries (use interpreter.h Value / Environment API)
+NATIVE_SRCS = \
+    src/json_lib.c      \
+    src/datetime_lib.c  \
+    src/requests_lib.c
 
-$(KHAN_EXE): $(KHAN_OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_KHAN)
+MAIN_VM = src/main.c
+KH_SRCS = src/kh.c
 
-$(KH_EXE): $(KH_OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ $(LIBS_KH)
+.PHONY: all khan kh clean
+
+all: khan$(EXT) kh$(EXT)
+
+khan$(EXT): $(COMMON_SRCS) $(INTERP_SRCS) $(VM_SRCS) $(NATIVE_SRCS) $(MAIN_VM)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	@echo "  Built $@"
+
+kh$(EXT): $(KH_SRCS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	@echo "  Built $@"
 
 clean:
 ifeq ($(OS),Windows_NT)
-	-del /Q /F $(call FIXPATH,$(KHAN_OBJ)) $(call FIXPATH,$(KH_OBJ)) khan.exe kh.exe 2>nul
+	-del /Q /F src\*.o khan.exe kh.exe 2>nul
 else
-	rm -f $(KHAN_OBJ) $(KH_OBJ) khan kh
+	rm -f src/*.o khan kh
 endif

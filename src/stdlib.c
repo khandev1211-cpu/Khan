@@ -356,6 +356,9 @@ static void fn_ceil(Value *result, Interpreter *interp, int argc, Value *args) {
 }
 
 static void fn_random(Value *result, Interpreter *interp, int argc, Value *args) {
+#ifndef RAND_MAX
+#  define RAND_MAX 32767
+#endif
     if (argc == 0) {
         *result = value_number((double)rand() / RAND_MAX);
         return;
@@ -377,6 +380,7 @@ static void fn_pow(Value *result, Interpreter *interp, int argc, Value *args) {
 // I/O functions
 // ===========================================================================
 static void fn_input(Value *result, Interpreter *interp, int argc, Value *args) {
+    (void)interp;
     if (argc > 0 && args[0].type == VAL_STRING) {
         printf("%s", args[0].as.string);
     }
@@ -466,11 +470,13 @@ static void fn_sleep(Value *result, Interpreter *interp, int argc, Value *args) 
 }
 
 static void fn_clock(Value *result, Interpreter *interp, int argc, Value *args) {
+    (void)args;
     if (!check_arg_count(interp, "clock", 0, argc)) { *result = value_nil(); return; }
     *result = value_number((double)clock() / CLOCKS_PER_SEC);
 }
 
 static void fn_exit(Value *result, Interpreter *interp, int argc, Value *args) {
+    (void)interp;
     int code = 0;
     if (argc > 0 && args[0].type == VAL_NUMBER) {
         code = (int)args[0].as.number;

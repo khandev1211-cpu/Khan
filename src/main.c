@@ -1,3 +1,12 @@
+/*
+ * main_vm.c — Khan entry point using the new stack-based VM
+ *
+ * Drop this file into src/ and rename it main.c (replacing the old one),
+ * or compile with -DUSE_VM and let the Makefile choose.
+ *
+ * The lexer, parser, and AST are completely unchanged.
+ */
+
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
@@ -15,15 +24,15 @@ static void enable_ansi(void) {}
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include "lexer.h"
 #include "parser.h"
 #include "ast.h"
-#include "interpreter.h"
-#include "stdlib.h"
-#include "json_lib.h"
-#include "datetime_lib.h"
-#include "requests_lib.h"
+#include "chunk.h"
+#include "compiler.h"
+#include "vm.h"
 
+/* ── Read entire file into a heap-allocated string ── */
 static char *read_file(const char *path) {
     FILE *file = fopen(path, "rb");
     if (!file) {
@@ -35,32 +44,32 @@ static char *read_file(const char *path) {
     rewind(file);
 
     char *buffer = malloc(size + 1);
-    if (!buffer) {
-        fprintf(stderr, "Out of memory.\n");
-        exit(74);
-    }
-    fread(buffer, 1, size, file);
-    buffer[size] = '\0';
-
+    if (!buffer) { fprintf(stderr, "Out of memory.\n"); exit(74); }
+    size_t n = fread(buffer, 1, size, file);
+    buffer[n] = '\0';
     fclose(file);
     return buffer;
 }
 
+/* ── Main ── */
 int main(int argc, char *argv[]) {
     enable_ansi();
+
     if (argc != 2) {
         fprintf(stderr, "Usage: khan <script.kh>\n");
         return 64;
     }
 
+    /* 1. Read source */
     char *source = read_file(argv[1]);
 
+    /* 2. Lex */
     Lexer lexer;
     lexer_init(&lexer, source);
 
+    /* 3. Parse → AST (unchanged) */
     Parser parser;
     parser_init(&parser, &lexer);
-
     AstNode *program = parser_parse(&parser);
 
     if (parser.had_error) {
@@ -70,36 +79,34 @@ int main(int argc, char *argv[]) {
         return 65;
     }
 
-    // Extract the directory path for import resolution
-    const char *base_path = NULL;
-    char path_buf[1024];
-    char *last_slash = strrchr(argv[1], '/');
-    char *last_backslash = strrchr(argv[1], '\\');
-    char *sep = last_slash > last_backslash ? last_slash : last_backslash;
-    if (sep) {
-        int len = (int)(sep - argv[1]);
-        memcpy(path_buf, argv[1], len);
-        path_buf[len] = '\0';
-        base_path = path_buf;
+    /* 4. Compile AST → bytecode */
+    KhanFunction *script = compile(program);
+    ast_free(program);   /* AST no longer needed after compilation */
+
+    if (!script) {
+        fprintf(stderr, "Compilation failed.\n");
+        free(source);
+        return 65;
     }
 
-    // Set up global environment with standard library
-    Interpreter interp;
-    interpreter_init(&interp, base_path);
+    /* 5. Execute on the VM */
+    VM *vm = malloc(sizeof(VM));
+    if (!vm) { fprintf(stderr, "Out of memory\n"); return 70; }
+    vm_init(vm);
+    vm_register_builtins(vm);
 
-    Environment *global = env_new(NULL);
-    stdlib_register_all(global);
-    json_register_all(global);
-    datetime_register_all(global);
-    requests_register_all(global);
+    InterpretResult result = vm_run(vm, script);
 
-    // Execute the program
-    interpreter_execute(&interp, program, global);
-
-    int exit_code = interp.had_runtime_error ? 70 : 0;
-
-    env_free(global);
-    ast_free(program);
+    /* 6. Clean up */
+    vm_free(vm);
+    free(vm);
+    khanfn_free(script);
     free(source);
-    return exit_code;
+
+    switch (result) {
+        case INTERPRET_OK:            return 0;
+        case INTERPRET_COMPILE_ERROR: return 65;
+        case INTERPRET_RUNTIME_ERROR: return 70;
+        default:                      return 70;
+    }
 }

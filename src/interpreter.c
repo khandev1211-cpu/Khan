@@ -1,6 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
+#ifndef __cplusplus
+#ifdef _WIN32
+extern __declspec(dllimport) char * __cdecl getenv(const char *);
+#endif
+#endif
 #include <string.h>
 #include <math.h>
 #include "lexer.h"
@@ -916,7 +921,7 @@ static Value execute_import(Interpreter *interp, const char *path, Environment *
         }
         if (is_pkg_name) {
             char pkg_path[1024];
-            const char *home = NULL;
+            char *home = NULL;
 #ifdef _WIN32
             home = getenv("USERPROFILE");
             if (!home) home = "C:\\Users\\Default";

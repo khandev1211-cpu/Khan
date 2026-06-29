@@ -40,6 +40,14 @@
       "description": "API testing toolkit: send requests, assert responses, run test suites",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/postman/postman.kh"
+    },
+    {
+      "name": "collections",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Functional array helpers: sort, filter, map_each, reduce, find, unique, chunk, zip, sort_by",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/collections/collections.kh"
     }
   ]
 }

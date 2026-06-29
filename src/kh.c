@@ -26,6 +26,9 @@ static void enable_ansi(void) {}
 
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef _WIN32
+extern __declspec(dllimport) char * __cdecl getenv(const char *);
+#endif
 #include <string.h>
 #include <ctype.h>
 
