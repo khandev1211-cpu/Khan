@@ -1,9 +1,0 @@
-#ifndef KHAN_STDLIB_H
-#define KHAN_STDLIB_H
-
-#include "interpreter.h"
-
-// Register all standard library functions into the global environment.
-void stdlib_register_all(Environment *env);
-
-#endif
