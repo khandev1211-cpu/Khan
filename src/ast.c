@@ -72,9 +72,19 @@ AstNode *ast_new_assignment(const char *name, AstNode *value, int line) {
 AstNode *ast_new_call(const char *callee, AstNodeList *args, int line) {
     AstNode *node = ast_new_node(AST_CALL, line);
     node->data.call.callee = strdup(callee);
+    node->data.call.callee_expr = NULL;
     node->data.call.arguments = args;
     return node;
 }
+
+AstNode *ast_new_call_expr(AstNode *callee_expr, AstNodeList *args, int line) {
+    AstNode *node = ast_new_node(AST_CALL, line);
+    node->data.call.callee = NULL;
+    node->data.call.callee_expr = callee_expr;
+    node->data.call.arguments = args;
+    return node;
+}
+
 
 AstNode *ast_new_array(AstNodeList *elements, int line) {
     AstNode *node = ast_new_node(AST_ARRAY, line);
@@ -250,7 +260,10 @@ void ast_free(AstNode *node) {
             ast_free(node->data.assignment.value);
             break;
         case AST_CALL:
-            free((void *)node->data.call.callee);
+            if (node->data.call.callee)
+                free((void *)node->data.call.callee);
+            if (node->data.call.callee_expr)
+                ast_free(node->data.call.callee_expr);
             ast_free_list(node->data.call.arguments);
             break;
         case AST_ARRAY:
@@ -387,7 +400,12 @@ void ast_print(AstNode *node, int indent) {
             print_indent(indent); printf(")\n");
             break;
         case AST_CALL:
-            printf("(call %s\n", node->data.call.callee);
+            if (node->data.call.callee) {
+                printf("(call %s\n", node->data.call.callee);
+            } else {
+                printf("(call <expr>\n");
+                ast_print(node->data.call.callee_expr, indent + 1);
+            }
             ast_print_list(node->data.call.arguments, indent + 1);
             print_indent(indent); printf(")\n");
             break;

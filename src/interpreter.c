@@ -483,11 +483,24 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
         }
 
         case AST_CALL: {
-            // Look up the function
-            Value *callee = env_get(env, node->data.call.callee);
-            if (!callee) {
-                runtime_error(interp, node, "Undefined function.");
-                return value_nil();
+            // Look up the function — either by name (fast path) or by
+            // evaluating an arbitrary expression (e.g. arr[i], map["fn"]).
+            Value callee_storage;   // holds the evaluated value when callee_expr is used
+            Value *callee;
+
+            if (node->data.call.callee) {
+                callee = env_get(env, node->data.call.callee);
+                if (!callee) {
+                    runtime_error(interp, node, "Undefined function.");
+                    return value_nil();
+                }
+            } else {
+                callee_storage = evaluate(interp, node->data.call.callee_expr, env);
+                if (interp->had_runtime_error) {
+                    value_free(callee_storage);
+                    return value_nil();
+                }
+                callee = &callee_storage;
             }
 
             // Evaluate arguments
@@ -1012,4 +1025,61 @@ void interpreter_init(Interpreter *interp, const char *base_path) {
     interp->is_breaking = 0;
     interp->is_continuing = 0;
     interp->return_value = value_nil();
+    interp->base_env = NULL;
+}
+// ---------------------------------------------------------------------------
+// khan_call_fn — call a named Khan function from C native code
+// ---------------------------------------------------------------------------
+Value khan_call_fn(Interpreter *interp, Environment *env,
+                   const char *fn_name, int argc, Value *argv) {
+    // Look up the function in the environment
+    Value *fn_val = env_get(env, fn_name);
+    if (!fn_val) {
+        fprintf(stderr, "[webi] khan_call_fn: function '%s' not found\n", fn_name);
+        interp->had_runtime_error = 1;
+        return value_nil();
+    }
+
+    if (fn_val->type == VAL_NATIVE) {
+        // Native C function — call directly
+        Value result;
+        fn_val->as.native.function(&result, interp, argc, argv);
+        return result;
+    }
+
+    if (fn_val->type != VAL_FUNCTION) {
+        fprintf(stderr, "[webi] khan_call_fn: '%s' is not a function\n", fn_name);
+        interp->had_runtime_error = 1;
+        return value_nil();
+    }
+
+    // Khan function — bind params and execute body
+    int param_count = 0;
+    for (AstNodeList *p = fn_val->as.function.params; p; p = p->next)
+        param_count++;
+
+    if (argc != param_count) {
+        fprintf(stderr, "[webi] khan_call_fn: '%s' expects %d args, got %d\n",
+                fn_name, param_count, argc);
+        interp->had_runtime_error = 1;
+        return value_nil();
+    }
+
+    Environment *call_env = env_new(fn_val->as.function.closure);
+    AstNodeList *p = fn_val->as.function.params;
+    for (int i = 0; i < argc; i++, p = p->next)
+        env_define(call_env, p->node->data.name, argv[i]);
+
+    Value result = execute_block(interp,
+        fn_val->as.function.body->data.statements, call_env);
+
+    if (interp->is_returning) {
+        value_free(result);
+        result = interp->return_value;
+        interp->is_returning = 0;
+        interp->return_value = value_nil();
+    }
+
+    env_free(call_env);
+    return result;
 }

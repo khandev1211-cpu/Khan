@@ -424,17 +424,6 @@ static AstNode *unary(Parser *parser) {
 // Call and primary
 // ---------------------------------------------------------------------------
 static AstNode *finish_call(Parser *parser, AstNode *callee) {
-    // callee must be an identifier
-    if (callee->type != AST_IDENTIFIER) {
-        error(parser, "Can only call functions.");
-        // Skip to matching ')'
-        while (!check(parser, TOKEN_RPAREN) && !check(parser, TOKEN_EOF)) advance(parser);
-        if (check(parser, TOKEN_RPAREN)) advance(parser);
-        return callee;
-    }
-
-    // strdup the name BEFORE freeing the callee node
-    const char *callee_name = strdup(callee->data.name);
     AstNodeList *args = NULL;
 
     if (!check(parser, TOKEN_RPAREN)) {
@@ -443,10 +432,20 @@ static AstNode *finish_call(Parser *parser, AstNode *callee) {
         } while (match(parser, TOKEN_COMMA));
     }
     consume(parser, TOKEN_RPAREN, "Expected ')' after arguments.");
-    ast_free(callee);  // Don't need the identifier node anymore
-    AstNode *call_node = ast_new_call(callee_name, args, parser->previous.line);
-    free((void *)callee_name);  // ast_new_call strdup'd it again
-    return call_node;
+
+    // Fast path: callee is a bare identifier, e.g. foo(x) — store by name.
+    if (callee->type == AST_IDENTIFIER) {
+        const char *callee_name = strdup(callee->data.name);
+        ast_free(callee);  // Don't need the identifier node anymore
+        AstNode *call_node = ast_new_call(callee_name, args, parser->previous.line);
+        free((void *)callee_name);  // ast_new_call strdup'd it again
+        return call_node;
+    }
+
+    // General path: callee is any other expression, e.g. arr[i](x),
+    // obj["fn"](x), or a chained call's result. Store the expression
+    // itself; the interpreter evaluates it at call time.
+    return ast_new_call_expr(callee, args, parser->previous.line);
 }
 
 static AstNode *finish_index(Parser *parser, AstNode *object) {

@@ -109,7 +109,9 @@ struct AstNode {
 
         // AST_CALL
         struct {
-            const char *callee;
+            const char *callee;       // set when callee is a bare identifier (fast path)
+            AstNode    *callee_expr;  // set when callee is a general expression (e.g. arr[i], obj["fn"])
+                                       // exactly one of callee / callee_expr is non-NULL
             AstNodeList *arguments;
         } call;
 
@@ -200,6 +202,7 @@ AstNode *ast_new_unary(AstOp op, AstNode *right, int line);
 AstNode *ast_new_grouping(AstNode *expr, int line);
 AstNode *ast_new_assignment(const char *name, AstNode *value, int line);
 AstNode *ast_new_call(const char *callee, AstNodeList *args, int line);
+AstNode *ast_new_call_expr(AstNode *callee_expr, AstNodeList *args, int line);
 AstNode *ast_new_array(AstNodeList *elements, int line);
 AstNode *ast_new_index(AstNode *object, AstNode *index, int line);
 AstNode *ast_new_index_assign(AstNode *object, AstNode *index, AstNode *value, int line);

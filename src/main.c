@@ -1,11 +1,19 @@
-/*
- * main_vm.c — Khan entry point using the new stack-based VM
- *
- * Drop this file into src/ and rename it main.c (replacing the old one),
- * or compile with -DUSE_VM and let the Makefile choose.
- *
- * The lexer, parser, and AST are completely unchanged.
- */
+// ===========================================================================
+// main.c — Khan interpreter entry point
+//
+// Uses the tree-walk interpreter (not the VM) so that native C libraries
+// (json, datetime, requests, webi) work correctly via the Environment API.
+//
+// Supports:
+//   khan script.kh
+//
+// Import syntax in .kh files:
+//   import "webi"          → loads packages/webi/webi.kh
+//   import "requests"      → loads packages/requests/requests.kh
+//   import "json"          → built-in (json_encode / json_decode always available)
+//   import "strings"       → loads packages/strings/strings.kh
+//   import "math"          → loads packages/math/math.kh
+// ===========================================================================
 
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
@@ -28,9 +36,12 @@ static void enable_ansi(void) {}
 #include "lexer.h"
 #include "parser.h"
 #include "ast.h"
-#include "chunk.h"
-#include "compiler.h"
-#include "vm.h"
+#include "interpreter.h"
+#include "khan_stdlib.h"
+#include "json_lib.h"
+#include "datetime_lib.h"
+#include "requests_lib.h"
+#include "webi_lib.h"
 
 /* ── Read entire file into a heap-allocated string ── */
 static char *read_file(const char *path) {
@@ -51,7 +62,6 @@ static char *read_file(const char *path) {
     return buffer;
 }
 
-/* ── Main ── */
 int main(int argc, char *argv[]) {
     enable_ansi();
 
@@ -60,14 +70,13 @@ int main(int argc, char *argv[]) {
         return 64;
     }
 
-    /* 1. Read source */
     char *source = read_file(argv[1]);
 
-    /* 2. Lex */
+    /* ── Lex ── */
     Lexer lexer;
     lexer_init(&lexer, source);
 
-    /* 3. Parse → AST (unchanged) */
+    /* ── Parse ── */
     Parser parser;
     parser_init(&parser, &lexer);
     AstNode *program = parser_parse(&parser);
@@ -79,34 +88,44 @@ int main(int argc, char *argv[]) {
         return 65;
     }
 
-    /* 4. Compile AST → bytecode */
-    KhanFunction *script = compile(program);
-    ast_free(program);   /* AST no longer needed after compilation */
-
-    if (!script) {
-        fprintf(stderr, "Compilation failed.\n");
-        free(source);
-        return 65;
+    /* ── Resolve base path for imports ── */
+    const char *base_path = NULL;
+    char path_buf[1024];
+    char *last_slash     = strrchr(argv[1], '/');
+    char *last_backslash = strrchr(argv[1], '\\');
+    char *sep = (last_slash > last_backslash) ? last_slash : last_backslash;
+    if (sep) {
+        int len = (int)(sep - argv[1]);
+        memcpy(path_buf, argv[1], len);
+        path_buf[len] = '\0';
+        base_path = path_buf;
     }
 
-    /* 5. Execute on the VM */
-    VM *vm = malloc(sizeof(VM));
-    if (!vm) { fprintf(stderr, "Out of memory\n"); return 70; }
-    vm_init(vm);
-    vm_register_builtins(vm);
+    /* ── Set up interpreter + global environment ── */
+    Interpreter interp;
+    interpreter_init(&interp, base_path);
 
-    InterpretResult result = vm_run(vm, script);
+    Environment *global = env_new(NULL);
 
-    /* 6. Clean up */
-    vm_free(vm);
-    free(vm);
-    khanfn_free(script);
-    free(source);
+    /* Register all native libraries into the global env.
+       Order matters: stdlib first (basic types), then the rest. */
+    stdlib_register_all(global);       /* len, str, push, range, split, …  */
+    json_register_all(global);         /* json_encode, json_decode           */
+    datetime_register_all(global);     /* now(), date_format(), …            */
+    requests_register_all(global);     /* http_get/post/put/delete, …        */
+    webi_register_all(global);         /* http_serve() + extended http_*_h   */
 
-    switch (result) {
-        case INTERPRET_OK:            return 0;
-        case INTERPRET_COMPILE_ERROR: return 65;
-        case INTERPRET_RUNTIME_ERROR: return 70;
-        default:                      return 70;
-    }
+    /* ── Set base_env so webi_lib can call back into Khan ── */
+    interp.base_env = global;
+
+    /* ── Execute ── */
+    interpreter_execute(&interp, program, global);
+
+    int exit_code = interp.had_runtime_error ? 70 : 0;
+
+    env_free(global);
+    /* NOTE: program and source are intentionally NOT freed here.
+       Imported-function AST nodes hold raw pointers into these buffers. */
+
+    return exit_code;
 }

@@ -1,5 +1,6 @@
 # ─────────────────────────────────────────────────────────────
-#  Khan Language — Makefile (VM edition)
+#  Khan Language — Makefile
+#  Builds: khan.exe (interpreter + webi) and kh.exe (package manager)
 # ─────────────────────────────────────────────────────────────
 
 CC      = gcc
@@ -10,45 +11,39 @@ CFLAGS  = -std=c11 -Wall -Wextra -O2 -Isrc \
           -Wno-cast-function-type
 
 ifeq ($(OS),Windows_NT)
-    LDFLAGS  = -lm -lwinhttp -lshell32
+    LDFLAGS  = -lm -lwinhttp -lshell32 -lws2_32
     EXT      = .exe
 else
     LDFLAGS  = -lm
     EXT      =
 endif
 
-# Shared (lexer/parser/AST unchanged)
+# Core language files (unchanged)
 COMMON_SRCS = \
     src/lexer.c         \
     src/parser.c        \
     src/ast.c
 
-# Old interpreter + stdlib needed by native libs (json, datetime, requests)
+# Tree-walk interpreter
 INTERP_SRCS = \
     src/interpreter.c   \
-    src/stdlib.c
+    src/khan_stdlib.c
 
-# New stack VM
-VM_SRCS = \
-    src/value.c         \
-    src/chunk.c         \
-    src/compiler.c      \
-    src/vm.c
-
-# Native C libraries (use interpreter.h Value / Environment API)
+# Native C libraries — all use interpreter.h Value / Environment API
 NATIVE_SRCS = \
     src/json_lib.c      \
     src/datetime_lib.c  \
-    src/requests_lib.c
+    src/requests_lib.c  \
+    src/webi_lib.c
 
-MAIN_VM = src/main.c
-KH_SRCS = src/kh.c
+MAIN_SRC = src/main.c
+KH_SRCS  = src/kh.c
 
 .PHONY: all khan kh clean
 
 all: khan$(EXT) kh$(EXT)
 
-khan$(EXT): $(COMMON_SRCS) $(INTERP_SRCS) $(VM_SRCS) $(NATIVE_SRCS) $(MAIN_VM)
+khan$(EXT): $(COMMON_SRCS) $(INTERP_SRCS) $(NATIVE_SRCS) $(MAIN_SRC)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 	@echo "  Built $@"
 

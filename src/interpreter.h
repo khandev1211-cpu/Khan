@@ -130,9 +130,21 @@ struct Interpreter {
     Value return_value;
     int is_breaking;
     int is_continuing;
+    Environment *base_env;   /* global env; set by main, used by webi_lib */
 };
 
 void interpreter_init(Interpreter *interp, const char *base_path);
 Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env);
+
+
+// ---------------------------------------------------------------------------
+// khan_call_fn — call a Khan function value from C native code
+//
+// Looks up 'fn_name' in 'env', then calls it with 'argc' Value arguments.
+// Returns the function's return value (or value_nil() on error).
+// This is the C→Khan bridge used by webi_lib.c's http_serve() loop.
+// ---------------------------------------------------------------------------
+Value khan_call_fn(Interpreter *interp, Environment *env,
+                   const char *fn_name, int argc, Value *argv);
 
 #endif
