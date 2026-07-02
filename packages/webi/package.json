@@ -1,9 +1,20 @@
 {
   "name": "webi",
-  "version": "1.0.0",
-  "description": "String utilities: split, trim, replace, pad, repeat, contains, join",
+  "version": "1.1.0",
+  "description": "Lightweight web framework: routing, requests, responses, middleware, HTTP server",
   "author": "khandev1211-cpu",
   "developer": "Irfan Khan",
   "main": "webi.kh",
-  "files": ["webi.kh"]
+  "files": [
+    "webi.kh",
+    "util.kh",
+    "app.kh",
+    "routing.kh",
+    "middleware.kh",
+    "request.kh",
+    "response.kh",
+    "server.kh",
+    "template.kh",
+    "meta.kh"
+  ]
 }

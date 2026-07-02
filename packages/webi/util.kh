@@ -1,0 +1,27 @@
+# webi/util.kh — internal helpers shared across the webi package.
+# Not part of the public API; other webi files import this one.
+
+# ---------------------------------------------------------------------------
+# str_replace(s, old, new) -> string
+# Replace every non-overlapping occurrence of `old` in `s` with `new`.
+# Khan's stdlib has no native string-replace builtin, so webi ships its own
+# — this is what html_escape() and render() are built on.
+# ---------------------------------------------------------------------------
+fn str_replace(s, old, new):
+    if len(old) == 0:
+        return s
+
+    let result = ""
+    let i = 0
+    let old_len = len(old)
+    let s_len = len(s)
+
+    while i < s_len:
+        if i + old_len <= s_len and substring(s, i, old_len) == old:
+            result = result + new
+            i = i + old_len
+        else:
+            result = result + substring(s, i, 1)
+            i = i + 1
+
+    return result

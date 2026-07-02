@@ -196,6 +196,21 @@ AstNode *ast_new_import_stmt(const char *path, int line) {
     return node;
 }
 
+AstNode *ast_new_from_import_stmt(const char *path, char **names, int name_count, int line) {
+    AstNode *node = ast_new_node(AST_FROM_IMPORT_STMT, line);
+    node->data.from_import.path = strdup(path);
+    node->data.from_import.name_count = name_count;
+    if (name_count > 0) {
+        node->data.from_import.names = malloc(sizeof(char *) * name_count);
+        for (int i = 0; i < name_count; i++) {
+            node->data.from_import.names[i] = strdup(names[i]);
+        }
+    } else {
+        node->data.from_import.names = NULL;
+    }
+    return node;
+}
+
 AstNode *ast_new_program(AstNodeList *stmts, int line) {
     AstNode *node = ast_new_node(AST_PROGRAM, line);
     node->data.program_stmts = stmts;
@@ -324,6 +339,13 @@ void ast_free(AstNode *node) {
             break;
         case AST_IMPORT_STMT:
             free((void *)node->data.import_path);
+            break;
+        case AST_FROM_IMPORT_STMT:
+            free((void *)node->data.from_import.path);
+            for (int i = 0; i < node->data.from_import.name_count; i++) {
+                free(node->data.from_import.names[i]);
+            }
+            free(node->data.from_import.names);
             break;
     }
     free(node);
@@ -509,6 +531,14 @@ void ast_print(AstNode *node, int indent) {
             break;
         case AST_IMPORT_STMT:
             printf("(import \"%s\")\n", node->data.import_path);
+            break;
+        case AST_FROM_IMPORT_STMT:
+            printf("(from \"%s\" import", node->data.from_import.path);
+            for (int i = 0; i < node->data.from_import.name_count; i++) {
+                printf(" %s%s", node->data.from_import.names[i],
+                       (i < node->data.from_import.name_count - 1) ? "," : "");
+            }
+            printf(")\n");
             break;
     }
 }

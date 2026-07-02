@@ -1,14 +1,4 @@
-# Test the import system
-import "lib_test.kh"
+from math import math_sqrt, PI
 
-# Call functions defined in the imported library
-say_hello()
-
-let x = 10
-let y = 20
-add(x, y)
-
-# Verify we can use imported variables directly
-print greeting
-
-print "Import test passed!"
+func calculate_circle_area(radius: float) -> float:
+    return PI * math_sqrt(radius) ** 2

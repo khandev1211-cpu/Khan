@@ -1,0 +1,61 @@
+# webi/middleware.kh — middleware registration + built-in middlewares.
+
+# ---------------------------------------------------------------------------
+# use(app, middleware_fn) -> app
+# Add a middleware function. Middlewares run before every route handler.
+# middleware signature:  fn my_middleware(req) -> req
+# Return the (possibly modified) req map to pass it along.
+#
+# Example — logging middleware:
+#   fn my_logger(req):
+#       print "Request: " + req["method"] + " " + req["path"]
+#       return req
+#   app = use(app, my_logger)
+# ---------------------------------------------------------------------------
+fn use(app, middleware_fn):
+    app["middlewares"] = push(app["middlewares"], middleware_fn)
+    return app
+
+# ---------------------------------------------------------------------------
+# Internal: run all middlewares on a request
+# ---------------------------------------------------------------------------
+fn _webi_run_middlewares(app, req):
+    let mws = app["middlewares"]
+    let i = 0
+    while i < len(mws):
+        req = mws[i](req)
+        i = i + 1
+    return req
+
+# ===========================================================================
+# BUILT-IN MIDDLEWARE
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# mw_logger(req) -> req
+# Logs every incoming request to stdout
+# ---------------------------------------------------------------------------
+fn mw_logger(req):
+    print "[webi] " + req["method"] + " " + req["path"]
+    return req
+
+# ---------------------------------------------------------------------------
+# mw_cors(req) -> req
+# Adds CORS support by passing through OPTIONS preflight automatically.
+# Add as first middleware: app = use(app, mw_cors)
+# Note: actual CORS headers are added on responses via res_cors()
+# ---------------------------------------------------------------------------
+fn mw_cors(req):
+    return req
+
+# ---------------------------------------------------------------------------
+# mw_json_only(req) -> req
+# Mark non-JSON POST/PUT/PATCH requests for easy detection.
+# Sets req["_json_only_rejected"] if content type is wrong.
+# ---------------------------------------------------------------------------
+fn mw_json_only(req):
+    let method = req["method"]
+    if method == "POST" or method == "PUT" or method == "PATCH":
+        if not is_json_req(req):
+            req["_json_only_rejected"] = true
+    return req

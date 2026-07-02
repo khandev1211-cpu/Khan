@@ -1,0 +1,133 @@
+# webi/server.kh — dispatch + the native-server bridge + startup.
+
+# ---------------------------------------------------------------------------
+# Internal: build a default 404 response
+# ---------------------------------------------------------------------------
+fn _webi_default_404(req):
+    let msg = "404 Not Found: " + req["path"]
+    return res_not_found(msg)
+
+# ---------------------------------------------------------------------------
+# Internal: build a default 500 response
+# ---------------------------------------------------------------------------
+fn _webi_default_500(req):
+    return res_server_error("500 Internal Server Error")
+
+# ---------------------------------------------------------------------------
+# Internal: dispatch a parsed request through the app
+# Returns a response map
+# ---------------------------------------------------------------------------
+fn _webi_dispatch(app, req):
+    req = _webi_run_middlewares(app, req)
+
+    let match = _webi_find_route(app, req["method"], req["path"])
+    if match == nil:
+        if app["not_found"] != nil:
+            return app["not_found"](req)
+        return _webi_default_404(req)
+
+    req["params"] = match["params"]
+    return match["handler"](req)
+
+# ---------------------------------------------------------------------------
+# Internal: log a request (only in debug mode)
+# ---------------------------------------------------------------------------
+fn _webi_log(app, req, res):
+    if app["debug"]:
+        print "[webi] " + req["method"] + " " + req["path"] + " -> " + str(res["status"])
+
+# ---------------------------------------------------------------------------
+# webi_handle(app, method, path, query, headers, body) -> response map
+#
+# This is the BRIDGE FUNCTION — called by the native C server loop.
+# It accepts a raw request as individual strings and returns a response map.
+#
+# The native webi server calls this once per incoming HTTP request.
+# You normally don't call this directly — use webi_run() instead.
+# ---------------------------------------------------------------------------
+fn webi_handle(app, method, path, query_str, headers_str, body):
+    # Build query params map from "key=val&key2=val2"
+    let query = {}
+    if len(query_str) > 0:
+        let pairs = split(query_str, "&")
+        let i = 0
+        while i < len(pairs):
+            let pair = pairs[i]
+            let kv = split(pair, "=")
+            if len(kv) >= 2:
+                query[kv[0]] = kv[1]
+            i = i + 1
+
+    # Build headers map from "Key: Value\r\nKey2: Value2"
+    let headers = {}
+    if len(headers_str) > 0:
+        let lines = split(headers_str, "\n")
+        let j = 0
+        while j < len(lines):
+            let line = trim(lines[j])
+            if contains(line, ":"):
+                let colon_pos = 0
+                let k = 0
+                while k < len(line):
+                    if substring(line, k, 1) == ":":
+                        colon_pos = k
+                        k = len(line)
+                    k = k + 1
+                if colon_pos > 0:
+                    let hk = trim(substring(line, 0, colon_pos))
+                    let hv = trim(substring(line, colon_pos + 1, len(line) - colon_pos - 1))
+                    headers[hk] = hv
+            j = j + 1
+
+    # Decode JSON body if content-type is JSON
+    let body_json = nil
+    if len(body) > 0:
+        let first = substring(body, 0, 1)
+        if first == "{" or first == "[":
+            body_json = json_decode(body)
+
+    let req = {
+        "method":    method,
+        "path":      path,
+        "query":     query,
+        "headers":   headers,
+        "body":      body,
+        "body_json": body_json,
+        "params":    {},
+        "ip":        ""
+    }
+
+    let res = _webi_dispatch(app, req)
+    _webi_log(app, req, res)
+    return res
+
+# ---------------------------------------------------------------------------
+# webi_run(app, port) -> never (starts the server)
+#
+# Starts the HTTP server on the given port.
+# Calls the native http_serve(port, app, webi_handle) builtin.
+#
+# The native C implementation accepts connections in a loop, parses each
+# HTTP request, calls webi_handle(app, method, path, ...) and writes
+# the returned response map back to the socket.
+# ---------------------------------------------------------------------------
+fn webi_run(app, port):
+    app["port"] = port
+    print "[webi] " + app["name"] + " starting on http://" + app["host"] + ":" + str(port)
+    if app["debug"]:
+        print "[webi] Debug mode ON"
+        let routes = app["routes"]
+        let i = 0
+        while i < len(routes):
+            let r = routes[i]
+            print "  " + r["method"] + " " + r["path"]
+            i = i + 1
+    http_serve(port, app)
+
+# ---------------------------------------------------------------------------
+# webi_run_host(app, host, port) -> never
+# Start on a specific host:port
+# ---------------------------------------------------------------------------
+fn webi_run_host(app, host, port):
+    app["host"] = host
+    webi_run(app, port)

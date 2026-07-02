@@ -1,0 +1,128 @@
+# webi/routing.kh — route registration + pattern matching.
+#
+# Path patterns:
+#   "/users"        exact match
+#   "/users/:id"    URL param  — req["params"]["id"] will be set
+#   "/files/*"      wildcard   — matches anything after /files/
+
+# ---------------------------------------------------------------------------
+# route(app, method, path, handler) -> app
+# Register a route handler.
+# handler is a Khan function: fn my_handler(req) -> res
+#
+# Example:
+#   fn handle_user(req):
+#       let id = req["params"]["id"]
+#       return res_json({"id": id, "name": "Irfan"})
+#
+#   app = route(app, "GET", "/users/:id", handle_user)
+# ---------------------------------------------------------------------------
+fn route(app, method, path, handler):
+    let r = {
+        "method":  method,
+        "path":    path,
+        "handler": handler
+    }
+    app["routes"] = push(app["routes"], r)
+    return app
+
+# Shortcut helpers
+fn get_route(app, path, handler):
+    return route(app, "GET", path, handler)
+
+fn post_route(app, path, handler):
+    return route(app, "POST", path, handler)
+
+fn put_route(app, path, handler):
+    return route(app, "PUT", path, handler)
+
+fn patch_route(app, path, handler):
+    return route(app, "PATCH", path, handler)
+
+fn delete_route(app, path, handler):
+    return route(app, "DELETE", path, handler)
+
+# ---------------------------------------------------------------------------
+# webi_not_found(app, handler) -> app
+# Set a custom 404 handler. handler(req) -> res
+# ---------------------------------------------------------------------------
+fn webi_not_found(app, handler):
+    app["not_found"] = handler
+    return app
+
+# ---------------------------------------------------------------------------
+# webi_error(app, handler) -> app
+# Set a custom 500 error handler. handler(req) -> res
+# ---------------------------------------------------------------------------
+fn webi_error(app, handler):
+    app["error"] = handler
+    return app
+
+# ---------------------------------------------------------------------------
+# Internal: check if a path segment is a param (starts with :)
+# ---------------------------------------------------------------------------
+fn _is_param_seg(seg):
+    if len(seg) == 0:
+        return false
+    return substring(seg, 0, 1) == ":"
+
+# ---------------------------------------------------------------------------
+# Internal: split a path string by "/" into array of segments
+# Returns ["", "users", "123"] for "/users/123"
+# ---------------------------------------------------------------------------
+fn _split_path(path):
+    return split(path, "/")
+
+# ---------------------------------------------------------------------------
+# Internal: match a route pattern against an actual path.
+# Returns a map {"matched": bool, "params": {}}
+# ---------------------------------------------------------------------------
+fn _match_route(pattern, actual):
+    let p_segs = _split_path(pattern)
+    let a_segs = _split_path(actual)
+
+    let is_wildcard = false
+    if len(p_segs) > 0:
+        let last = p_segs[len(p_segs) - 1]
+        if last == "*":
+            is_wildcard = true
+
+    if not is_wildcard and len(p_segs) != len(a_segs):
+        return {"matched": false, "params": {}}
+
+    let params = {}
+    let i = 0
+    while i < len(p_segs):
+        let ps = p_segs[i]
+        if ps == "*":
+            return {"matched": true, "params": params}
+        if i >= len(a_segs):
+            return {"matched": false, "params": {}}
+        let as = a_segs[i]
+        if _is_param_seg(ps):
+            let param_name = substring(ps, 1, len(ps) - 1)
+            params[param_name] = as
+        elif ps != as:
+            return {"matched": false, "params": {}}
+        i = i + 1
+
+    return {"matched": true, "params": params}
+
+# ---------------------------------------------------------------------------
+# Internal: find matching route for method + path
+# Returns the route entry + populated params, or nil
+# ---------------------------------------------------------------------------
+fn _webi_find_route(app, method, path):
+    let routes = app["routes"]
+    let i = 0
+    while i < len(routes):
+        let r = routes[i]
+        if r["method"] == method or r["method"] == "*":
+            let m = _match_route(r["path"], path)
+            if m["matched"]:
+                return {
+                    "handler": r["handler"],
+                    "params":  m["params"]
+                }
+        i = i + 1
+    return nil

@@ -166,6 +166,57 @@ static char *json_get_string(const char *json, const char *key) {
 }
 
 // ---------------------------------------------------------------------------
+// Minimal JSON string-array extractor.
+// Finds  "key": ["a", "b", "c"]  in a JSON string.
+// Returns a heap-allocated array of heap-allocated strings (caller frees
+// each string, then the array), and sets *out_count. Returns NULL and sets
+// *out_count = 0 if the key isn't present or isn't an array.
+// ---------------------------------------------------------------------------
+static char **json_get_string_array(const char *json, const char *key, int *out_count) {
+    *out_count = 0;
+    char pat[256];
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+
+    const char *pos = strstr(json, pat);
+    if (!pos) return NULL;
+    pos += strlen(pat);
+
+    while (*pos && (isspace((unsigned char)*pos) || *pos == ':')) pos++;
+    if (*pos != '[') return NULL;
+    pos++; // skip '['
+
+    char **items = NULL;
+    int count = 0;
+    int capacity = 0;
+
+    while (*pos && *pos != ']') {
+        while (*pos && isspace((unsigned char)*pos)) pos++;
+        if (*pos == ',') { pos++; continue; }
+        if (*pos != '"') break;
+        pos++; // skip opening quote
+        const char *start = pos;
+        while (*pos && *pos != '"') {
+            if (*pos == '\\') pos++;
+            if (*pos) pos++;
+        }
+        size_t len = (size_t)(pos - start);
+        char *item = malloc(len + 1);
+        memcpy(item, start, len);
+        item[len] = '\0';
+        if (*pos == '"') pos++;
+
+        if (count == capacity) {
+            capacity = capacity == 0 ? 4 : capacity * 2;
+            items = realloc(items, sizeof(char *) * capacity);
+        }
+        items[count++] = item;
+    }
+
+    *out_count = count;
+    return items;
+}
+
+// ---------------------------------------------------------------------------
 // Parse the registry JSON and find a package entry by name.
 // Returns heap-allocated JSON fragment for the package object, or NULL.
 // ---------------------------------------------------------------------------
@@ -245,6 +296,8 @@ static int cmd_install(const char *name) {
     char *version = json_get_string(pkg, "version");
     char *url     = json_get_string(pkg, "url");
     char *desc    = json_get_string(pkg, "description");
+    int extra_count = 0;
+    char **extra_files = json_get_string_array(pkg, "files", &extra_count);
     free(pkg);
 
     if (!url) {
@@ -271,6 +324,30 @@ static int cmd_install(const char *name) {
         print_err("Download failed.");
         free(version); free(url); free(desc);
         return 1;
+    }
+
+    // Multi-file packages (e.g. webi, split across app.kh/routing.kh/
+    // request.kh/...) list their extra files in a "files" array in the
+    // registry. Fetch each one from the same package directory on the
+    // registry host — without this, a package that imports sibling files
+    // internally would install "successfully" but be broken the moment any
+    // of its code ran.
+    if (extra_count > 0) {
+        char progress[128];
+        snprintf(progress, sizeof(progress), "Fetching %d additional file(s)...", extra_count);
+        print_info_line(progress);
+        for (int i = 0; i < extra_count; i++) {
+            char file_url[1536], file_path[1536];
+            snprintf(file_url, sizeof(file_url), "%s/%s/%s", RAW_BASE, name, extra_files[i]);
+            snprintf(file_path, sizeof(file_path), "%s/%s", pkg_dir, extra_files[i]);
+            if (!download_to_file(file_url, file_path)) {
+                char errmsg[256];
+                snprintf(errmsg, sizeof(errmsg), "Failed to download '%s' — package may be incomplete.", extra_files[i]);
+                print_err(errmsg);
+            }
+            free(extra_files[i]);
+        }
+        free(extra_files);
     }
 
     // Write a local package.json

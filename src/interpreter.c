@@ -320,6 +320,8 @@ void value_print(Value v) {
 // Forward-declare the import executor so we can forward-reference it
 // without having main.c's read_file helper here. We'll read the file inline.
 static Value execute_import(Interpreter *interp, const char *path, Environment *env);
+static Value execute_from_import(Interpreter *interp, const char *path,
+                                  char **names, int name_count, Environment *env);
 
 // ---------------------------------------------------------------------------
 // Forward declarations
@@ -327,6 +329,73 @@ static Value execute_import(Interpreter *interp, const char *path, Environment *
 static Value evaluate(Interpreter *interp, AstNode *node, Environment *env);
 static Value execute_block(Interpreter *interp, AstNodeList *stmts,
                            Environment *env);
+static Value *resolve_lvalue_target(Interpreter *interp, AstNode *node, Environment *env);
+
+// ---------------------------------------------------------------------------
+// Resolve the target of an index-assignment down to a mutable pointer into
+// its actual storage — walking through however many levels of [..][..] the
+// left-hand side has (m["a"]["b"] = v, arr[0]["x"] = v, etc.), not just a
+// bare identifier. Maps/arrays are mutated in place (map_get/array items
+// return pointers into the real storage), so once we reach the innermost
+// container, writing through the returned pointer is enough; no separate
+// "write back" step is needed at any level of the chain.
+// ---------------------------------------------------------------------------
+static Value *resolve_lvalue_target(Interpreter *interp, AstNode *node, Environment *env) {
+    if (node->type == AST_IDENTIFIER) {
+        Value *target = env_get(env, node->data.name);
+        if (!target) {
+            runtime_error(interp, node, "Undefined variable.");
+            return NULL;
+        }
+        return target;
+    }
+
+    if (node->type == AST_INDEX) {
+        Value *container = resolve_lvalue_target(interp, node->data.index_expr.object, env);
+        if (!container || interp->had_runtime_error) return NULL;
+
+        if (container->type == VAL_MAP) {
+            Value key_val = evaluate(interp, node->data.index_expr.index, env);
+            if (interp->had_runtime_error) return NULL;
+            if (key_val.type != VAL_STRING) {
+                runtime_error(interp, node, "Map key must be a string.");
+                value_free(key_val);
+                return NULL;
+            }
+            Value *found = map_get(container, key_val.as.string);
+            value_free(key_val);
+            if (!found) {
+                runtime_error(interp, node, "Key not found in map.");
+                return NULL;
+            }
+            return found;
+        }
+
+        if (container->type == VAL_ARRAY) {
+            Value idx_val = evaluate(interp, node->data.index_expr.index, env);
+            if (interp->had_runtime_error) return NULL;
+            if (idx_val.type != VAL_NUMBER) {
+                runtime_error(interp, node, "Array index must be a number.");
+                value_free(idx_val);
+                return NULL;
+            }
+            int idx = (int)idx_val.as.number;
+            value_free(idx_val);
+            if (idx < 0 || idx >= container->as.array.count) {
+                runtime_error(interp, node, "Array index out of bounds.");
+                return NULL;
+            }
+            return &container->as.array.items[idx];
+        }
+
+        runtime_error(interp, node, "Can only index into an array or map.");
+        return NULL;
+    }
+
+    runtime_error(interp, node,
+        "Can only assign into a variable, or an index/key of one (e.g. x[i] = v).");
+    return NULL;
+}
 
 // ---------------------------------------------------------------------------
 // Expression evaluation
@@ -473,6 +542,11 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
 
         case AST_IMPORT_STMT:
             return execute_import(interp, node->data.import_path, env);
+
+        case AST_FROM_IMPORT_STMT:
+            return execute_from_import(interp, node->data.from_import.path,
+                                        node->data.from_import.names,
+                                        node->data.from_import.name_count, env);
 
         case AST_ASSIGNMENT: {
             Value v = evaluate(interp, node->data.assignment.value, env);
@@ -679,18 +753,9 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
         }
 
         case AST_INDEX_ASSIGN: {
-            if (node->data.index_assign.object->type != AST_IDENTIFIER) {
-                runtime_error(interp, node,
-                    "Can only assign into a simple array/map variable (e.g. x[i] = v).");
-                return value_nil();
-            }
+            Value *target = resolve_lvalue_target(interp, node->data.index_assign.object, env);
+            if (!target || interp->had_runtime_error) return value_nil();
 
-            const char *name = node->data.index_assign.object->data.name;
-            Value *target = env_get(env, name);
-            if (!target) {
-                runtime_error(interp, node, "Undefined variable.");
-                return value_nil();
-            }
 
             if (target->type == VAL_MAP) {
                 Value key_val = evaluate(interp, node->data.index_assign.index, env);
@@ -909,21 +974,64 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
 }
 
 // ---------------------------------------------------------------------------
-// Import executor — reads a file, parses it, executes it in the given env
+// Shared import-path resolution: given a raw `import`/`from` module
+// reference, find the file on disk (relative path, path as-is, or an
+// installed package under ~/.khan/packages/<name>/<name>.kh), open it,
+// and return the parsed AST + full path used.
+//
+// On failure, sets interp->had_runtime_error and returns NULL (out_program
+// is left untouched).
 // ---------------------------------------------------------------------------
-static Value execute_import(Interpreter *interp, const char *path, Environment *env) {
-    // Resolve the import path relative to the base path
-    char full_path[1024];
-    if (interp->base_path) {
-        snprintf(full_path, sizeof(full_path), "%s/%s", interp->base_path, path);
+// Sets interp->current_import_dir to the directory portion of full_path
+// (everything before the last '/' or '\'), or "" if full_path has no
+// directory component (e.g. a bare filename resolved via cwd).
+static void set_import_dir_from_file(Interpreter *interp, const char *full_path) {
+    const char *last_slash = strrchr(full_path, '/');
+    const char *last_bslash = strrchr(full_path, '\\');
+    const char *sep = (last_slash > last_bslash) ? last_slash : last_bslash;
+    if (sep) {
+        size_t len = (size_t)(sep - full_path);
+        if (len >= sizeof(interp->current_import_dir)) len = sizeof(interp->current_import_dir) - 1;
+        memcpy(interp->current_import_dir, full_path, len);
+        interp->current_import_dir[len] = '\0';
     } else {
-        snprintf(full_path, sizeof(full_path), "%s", path);
+        interp->current_import_dir[0] = '\0';
+    }
+}
+
+static AstNode *resolve_and_parse_import(Interpreter *interp, const char *path,
+                                          char *full_path_out, size_t full_path_cap) {
+    char full_path[1024];
+    FILE *file = NULL;
+
+    // If we're currently executing an imported module (current_import_dir
+    // is set), look for sibling files next to *that* module first. This is
+    // what lets a package split across multiple files (e.g. packages/webi/
+    // with webi.kh importing "route", "request", "response", ...) resolve
+    // correctly no matter where the user's top-level script lives — without
+    // this, a nested `import "sibling"` would incorrectly resolve relative
+    // to the top-level script's directory (base_path) instead of the
+    // package's own directory.
+    if (interp->current_import_dir[0] != '\0') {
+        snprintf(full_path, sizeof(full_path), "%s/%s", interp->current_import_dir, path);
+        file = fopen(full_path, "rb");
     }
 
-    FILE *file = fopen(full_path, "rb");
+    if (!file) {
+        if (interp->base_path) {
+            snprintf(full_path, sizeof(full_path), "%s/%s", interp->base_path, path);
+        } else {
+            snprintf(full_path, sizeof(full_path), "%s", path);
+        }
+        file = fopen(full_path, "rb");
+    }
     if (!file) {
         // Try path as-is
         file = fopen(path, "rb");
+        if (file) {
+            strncpy(full_path, path, sizeof(full_path) - 1);
+            full_path[sizeof(full_path) - 1] = '\0';
+        }
     }
     if (!file) {
         // Try as a package name: ~/.khan/packages/<name>/<name>.kh
@@ -958,7 +1066,7 @@ static Value execute_import(Interpreter *interp, const char *path, Environment *
                         "  Tip: if \"%s\" is a package, run: kh install %s\n",
                 full_path, path, path);
         interp->had_runtime_error = 1;
-        return value_nil();
+        return NULL;
     }
 
     fseek(file, 0L, SEEK_END);
@@ -970,13 +1078,13 @@ static Value execute_import(Interpreter *interp, const char *path, Environment *
         fprintf(stderr, "[line 0] Runtime error: Out of memory reading import '%s'.\n", full_path);
         fclose(file);
         interp->had_runtime_error = 1;
-        return value_nil();
+        return NULL;
     }
     fread(source, 1, size, file);
     source[size] = '\0';
     fclose(file);
 
-    // Lex, parse, and execute the imported file
+    // Lex, parse the imported file
     Lexer lexer;
     lexer_init(&lexer, source);
 
@@ -990,10 +1098,45 @@ static Value execute_import(Interpreter *interp, const char *path, Environment *
         free(source);
         ast_free(program);
         interp->had_runtime_error = 1;
-        return value_nil();
+        return NULL;
     }
 
+    // NOTE: We deliberately do NOT free `program` or `source` here.
+    // Functions declared in the imported file hold raw pointers into this
+    // AST (body/params aren't copied — see value_function/value_free).
+    // Freeing it now would leave any imported function with a dangling
+    // body pointer the moment it's called later in the importing script.
+    // This matches how the main script's own AST is kept alive for the
+    // whole process (see main.c) — a small intentional leak, not a crash.
+    if (full_path_out) {
+        strncpy(full_path_out, full_path, full_path_cap - 1);
+        full_path_out[full_path_cap - 1] = '\0';
+    }
+    return program;
+}
+
+// ---------------------------------------------------------------------------
+// Import executor — reads a file, parses it, executes it in the given env
+// (plain `import "path"` — everything the module defines lands directly
+// in the caller's scope, same as before)
+// ---------------------------------------------------------------------------
+static Value execute_import(Interpreter *interp, const char *path, Environment *env) {
+    char full_path[1024];
+    AstNode *program = resolve_and_parse_import(interp, path, full_path, sizeof(full_path));
+    if (!program) return value_nil();
+
+    // Push this module's own directory as the import-resolution base for
+    // anything *it* imports, then restore whatever was there before once
+    // we're done (see resolve_and_parse_import / struct field comment).
+    char saved_dir[1024];
+    strncpy(saved_dir, interp->current_import_dir, sizeof(saved_dir) - 1);
+    saved_dir[sizeof(saved_dir) - 1] = '\0';
+    set_import_dir_from_file(interp, full_path);
+
     Value result = interpreter_execute(interp, program, env);
+
+    strncpy(interp->current_import_dir, saved_dir, sizeof(interp->current_import_dir) - 1);
+    interp->current_import_dir[sizeof(interp->current_import_dir) - 1] = '\0';
 
     // A top-level `return` in an imported file's own code (rare, but
     // possible) is meaningless once we're back in the importing script —
@@ -1005,14 +1148,64 @@ static Value execute_import(Interpreter *interp, const char *path, Environment *
         interp->return_value = value_nil();
     }
 
-    // NOTE: We deliberately do NOT free `program` or `source` here.
-    // Functions declared in the imported file hold raw pointers into this
-    // AST (body/params aren't copied — see value_function/value_free).
-    // Freeing it now would leave any imported function with a dangling
-    // body pointer the moment it's called later in the importing script.
-    // This matches how the main script's own AST is kept alive for the
-    // whole process (see main.c) — a small intentional leak, not a crash.
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// From-import executor — "from <path> import a, b, c"
+//
+// Runs the imported module in its own isolated child scope (a sibling of
+// the caller's scope, hanging off the same global/native environment) so
+// its internals stay private, then copies only the requested names into
+// the caller's scope. This gives real selective/namespaced imports instead
+// of `import`'s "dump everything into my scope" behaviour.
+// ---------------------------------------------------------------------------
+static Value execute_from_import(Interpreter *interp, const char *path,
+                                  char **names, int name_count, Environment *env) {
+    char full_path[1024];
+    AstNode *program = resolve_and_parse_import(interp, path, full_path, sizeof(full_path));
+    if (!program) return value_nil();
+
+    // Isolated scope: parent is the global/native env (so json_encode,
+    // http_get, etc. are still reachable from inside the module), but its
+    // own top-level `let`/`fn` bindings don't leak into the caller.
+    Environment *module_env = env_new(interp->base_env ? interp->base_env : env);
+
+    char saved_dir[1024];
+    strncpy(saved_dir, interp->current_import_dir, sizeof(saved_dir) - 1);
+    saved_dir[sizeof(saved_dir) - 1] = '\0';
+    set_import_dir_from_file(interp, full_path);
+
+    interpreter_execute(interp, program, module_env);
+
+    strncpy(interp->current_import_dir, saved_dir, sizeof(interp->current_import_dir) - 1);
+    interp->current_import_dir[sizeof(interp->current_import_dir) - 1] = '\0';
+
+    if (interp->is_returning) {
+        interp->is_returning = 0;
+        value_free(interp->return_value);
+        interp->return_value = value_nil();
+    }
+
+    if (interp->had_runtime_error) return value_nil();
+
+    // Pull only the requested names out into the caller's scope.
+    for (int i = 0; i < name_count; i++) {
+        Value *found = env_get(module_env, names[i]);
+        if (!found) {
+            fprintf(stderr,
+                    "[line 0] Runtime error: cannot import name '%s' from '%s' (%s).\n",
+                    names[i], path, full_path);
+            interp->had_runtime_error = 1;
+            return value_nil();
+        }
+        env_define(env, names[i], value_copy(*found));
+    }
+
+    // NOTE: module_env is intentionally not freed — same reasoning as the
+    // AST leak above: functions pulled out of it may still reference it as
+    // part of their closure chain.
+    return value_nil();
 }
 
 // ---------------------------------------------------------------------------
@@ -1026,6 +1219,7 @@ void interpreter_init(Interpreter *interp, const char *base_path) {
     interp->is_continuing = 0;
     interp->return_value = value_nil();
     interp->base_env = NULL;
+    interp->current_import_dir[0] = '\0';
 }
 // ---------------------------------------------------------------------------
 // khan_call_fn — call a named Khan function from C native code

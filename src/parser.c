@@ -267,12 +267,69 @@ static AstNode *import_statement(Parser *parser) {
 }
 
 // ---------------------------------------------------------------------------
+// from_import_statement — "from" <module-name-or-"string"> "import" name (, name)*
+//
+// The module reference accepts either a bare identifier (matching the
+// existing package-name resolution used by `import "name"`, e.g.
+// `from webi import route, run`) or a quoted string path (for relative
+// files, e.g. `from "./helpers.kh" import my_fn`).
+// ---------------------------------------------------------------------------
+static AstNode *from_import_statement(Parser *parser) {
+    int line = parser->previous.line;
+
+    char *path = NULL;
+    if (check(parser, TOKEN_STRING)) {
+        advance(parser);
+        const char *raw = parser->previous.start;
+        int len = parser->previous.length;
+        path = malloc(len - 1);
+        strncpy(path, raw + 1, len - 2);
+        path[len - 2] = '\0';
+    } else if (check(parser, TOKEN_IDENTIFIER)) {
+        advance(parser);
+        int len = parser->previous.length;
+        path = malloc(len + 1);
+        strncpy(path, parser->previous.start, len);
+        path[len] = '\0';
+    } else {
+        error_at_current(parser, "Expected a module name after 'from'.");
+        return ast_new_nil(line);
+    }
+
+    consume(parser, TOKEN_IMPORT, "Expected 'import' after module name.");
+
+    char **names = NULL;
+    int count = 0, cap = 0;
+    do {
+        consume(parser, TOKEN_IDENTIFIER, "Expected a name to import.");
+        if (count == cap) {
+            cap = (cap == 0) ? 4 : cap * 2;
+            names = realloc(names, sizeof(char *) * cap);
+        }
+        int nlen = parser->previous.length;
+        char *n = malloc(nlen + 1);
+        strncpy(n, parser->previous.start, nlen);
+        n[nlen] = '\0';
+        names[count++] = n;
+    } while (match(parser, TOKEN_COMMA));
+
+    AstNode *node = ast_new_from_import_stmt(path, names, count, line);
+
+    free(path);
+    for (int i = 0; i < count; i++) free(names[i]);
+    free(names);
+
+    return node;
+}
+
+// ---------------------------------------------------------------------------
 // Top-level declaration dispatcher
 // ---------------------------------------------------------------------------
 static AstNode *declaration(Parser *parser) {
     if (match(parser, TOKEN_LET))    return let_statement(parser);
     if (match(parser, TOKEN_FN))     return fn_declaration(parser);
     if (match(parser, TOKEN_IMPORT)) return import_statement(parser);
+    if (match(parser, TOKEN_FROM))   return from_import_statement(parser);
 
     // Otherwise it's a statement
     return statement(parser);

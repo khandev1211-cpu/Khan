@@ -131,6 +131,14 @@ struct Interpreter {
     int is_breaking;
     int is_continuing;
     Environment *base_env;   /* global env; set by main, used by webi_lib */
+
+    // Directory of the file currently being imported/executed, so that a
+    // module can `import "sibling"` another file next to it regardless of
+    // where the top-level script lives. Empty string when we're running
+    // the top-level script itself (base_path is used in that case).
+    // Saved/restored around each nested import call, so it behaves like a
+    // stack even though it's a single field (see execute_import).
+    char current_import_dir[1024];
 };
 
 void interpreter_init(Interpreter *interp, const char *base_path);

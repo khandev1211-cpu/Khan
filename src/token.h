@@ -12,6 +12,7 @@ typedef enum {
     TOKEN_FN,
     TOKEN_PRINT,
     TOKEN_IMPORT,
+    TOKEN_FROM,
     TOKEN_IF,
     TOKEN_ELIF,
     TOKEN_ELSE,
