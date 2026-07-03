@@ -18,12 +18,24 @@ fn use(app, middleware_fn):
 
 # ---------------------------------------------------------------------------
 # Internal: run all middlewares on a request
+#
+# v1.1.1: also stamps req["_app"] = app so built-in middlewares (CORS,
+# rate limiting, API-key auth) can read their configuration off the app
+# map (set via webi_set_cors_origins/webi_set_rate_limit/etc. — see
+# webi_security.kh) without needing the language to support closures.
+#
+# If a middleware sets req["_webi_short_circuit"] (rejecting the request),
+# later middlewares are skipped — no point running more checks once one
+# has already decided to reject.
 # ---------------------------------------------------------------------------
 fn _webi_run_middlewares(app, req):
+    req["_app"] = app
     let mws = app["middlewares"]
     let i = 0
     while i < len(mws):
         req = mws[i](req)
+        if has(req, "_webi_short_circuit") and req["_webi_short_circuit"] != nil:
+            return req
         i = i + 1
     return req
 
@@ -40,13 +52,56 @@ fn mw_logger(req):
     return req
 
 # ---------------------------------------------------------------------------
-# mw_cors(req) -> req
-# Adds CORS support by passing through OPTIONS preflight automatically.
+# Internal: does `list` (array of strings) contain `s`?
+# ---------------------------------------------------------------------------
+fn contains_str_in_list(list, s):
+    let i = 0
+    while i < len(list):
+        if list[i] == s:
+            return true
+        i = i + 1
+    return false
+
+# ---------------------------------------------------------------------------
+# mw_cors(req) -> req                                              (v1.1.1)
+#
+# Real CORS handling — the old version of this function was a no-op
+# despite its docstring claiming it handled preflight. Reads its allowed
+# origins from app["_cors_origins"] (set via webi_set_cors_origins(app,
+# origins) in webi_security.kh); defaults to ["*"] — same wide-open
+# behaviour as before — if never configured, so this isn't a silent
+# breaking change.
+#
+# On an OPTIONS request it short-circuits with a 204 + the CORS headers
+# directly, instead of letting it fall through to route matching (there's
+# usually no OPTIONS route registered, so it would otherwise 404).
 # Add as first middleware: app = use(app, mw_cors)
-# Note: actual CORS headers are added on responses via res_cors()
 # ---------------------------------------------------------------------------
 fn mw_cors(req):
+    let app = req["_app"]
+    let origins = ["*"]
+    if has(app, "_cors_origins"):
+        origins = app["_cors_origins"]
+
+    let origin_header = header_get(req, "Origin", "")
+    let allow_origin = "*"
+    if not contains_str_in_list(origins, "*"):
+        allow_origin = ""
+        if origin_header != "" and contains_str_in_list(origins, origin_header):
+            allow_origin = origin_header
+
+    if req["method"] == "OPTIONS":
+        let res = res_status(204, "")
+        if allow_origin != "":
+            res["headers"]["Access-Control-Allow-Origin"] = allow_origin
+        res["headers"]["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        res["headers"]["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-CSRF-Token, X-API-Key"
+        req["_webi_short_circuit"] = res
+        return req
+
+    req["_cors_allow_origin"] = allow_origin
     return req
+
 
 # ---------------------------------------------------------------------------
 # mw_json_only(req) -> req

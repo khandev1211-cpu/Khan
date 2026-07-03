@@ -5,6 +5,10 @@
 #             res["body"]         string
 #             res["content_type"] string
 #             res["headers"]      map of extra headers
+#             res["cookies"]      array of raw "name=value; Attr=..." strings
+#                                 (v1.1.1 — a map can only hold one
+#                                 Set-Cookie value, so cookies get their own
+#                                 array to support setting more than one)
 
 # ---------------------------------------------------------------------------
 # Internal: build a base response map
@@ -14,7 +18,8 @@ fn _res_base(status, body, content_type):
         "status":       status,
         "body":         body,
         "content_type": content_type,
-        "headers":      {}
+        "headers":      {},
+        "cookies":      []
     }
 
 # ---------------------------------------------------------------------------
@@ -129,18 +134,79 @@ fn res_with_header(res, key, value):
 
 # ---------------------------------------------------------------------------
 # res_with_cookie(res, name, value) -> response
-# Set a response cookie
+# Set a response cookie (plain — no HttpOnly/Secure/SameSite).
+#
+# Kept for backward compatibility. For anything holding a session ID, auth
+# token, or CSRF token, use res_with_secure_cookie() instead — a cookie set
+# without these flags can be read by any JS on the page (XSS) or replayed
+# across sites (CSRF).
 # ---------------------------------------------------------------------------
 fn res_with_cookie(res, name, value):
-    res["headers"]["Set-Cookie"] = name + "=" + value + "; Path=/"
+    res["cookies"] = push(res["cookies"], name + "=" + value + "; Path=/")
     return res
 
 # ---------------------------------------------------------------------------
-# res_cors(res) -> response
-# Add CORS headers to allow cross-origin requests
+# res_with_secure_cookie(res, name, value, opts) -> response   (v1.1.1)
+#
+# Set a cookie with explicit security flags. opts is a map, all keys
+# optional:
+#   opts["http_only"]  bool    default true   — JS on the page can't read it
+#   opts["secure"]      bool    default false  — only sent over HTTPS
+#                                                (leave false if you're not
+#                                                 running behind TLS yet, or
+#                                                 the browser will drop it)
+#   opts["same_site"]   string  default "Lax"  — "Strict" / "Lax" / "None"
+#   opts["max_age"]     number  — seconds until expiry (omit = session cookie)
+#   opts["path"]        string  default "/"
+#
+# Example:
+#   res = res_with_secure_cookie(res, "session", token, {"max_age": 3600})
 # ---------------------------------------------------------------------------
-fn res_cors(res):
-    res["headers"]["Access-Control-Allow-Origin"] = "*"
+fn res_with_secure_cookie(res, name, value, opts):
+    let http_only = true
+    if has(opts, "http_only"):
+        http_only = opts["http_only"]
+
+    let secure = false
+    if has(opts, "secure"):
+        secure = opts["secure"]
+
+    let same_site = "Lax"
+    if has(opts, "same_site"):
+        same_site = opts["same_site"]
+
+    let path = "/"
+    if has(opts, "path"):
+        path = opts["path"]
+
+    let cookie = name + "=" + value + "; Path=" + path + "; SameSite=" + same_site
+
+    if has(opts, "max_age"):
+        cookie = cookie + "; Max-Age=" + str(opts["max_age"])
+    if http_only:
+        cookie = cookie + "; HttpOnly"
+    if secure:
+        cookie = cookie + "; Secure"
+
+    res["cookies"] = push(res["cookies"], cookie)
+    return res
+
+# ---------------------------------------------------------------------------
+# res_cors(res, req) -> response                                  (v1.1.1)
+# Add CORS headers to allow cross-origin requests.
+#
+# BREAKING CHANGE from 1.1.0: now takes `req` as a second argument, so it
+# can honor the origin allow-list set up by mw_cors() / webi_set_cors_origins()
+# instead of always sending a hardcoded wildcard "*". If mw_cors wasn't
+# used (req has no "_cors_allow_origin"), falls back to "*" — same
+# behaviour as before.
+# ---------------------------------------------------------------------------
+fn res_cors(res, req):
+    let allow_origin = "*"
+    if has(req, "_cors_allow_origin"):
+        allow_origin = req["_cors_allow_origin"]
+    if allow_origin != "":
+        res["headers"]["Access-Control-Allow-Origin"] = allow_origin
     res["headers"]["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-    res["headers"]["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    res["headers"]["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-CSRF-Token, X-API-Key"
     return res

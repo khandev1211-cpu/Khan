@@ -87,3 +87,34 @@ fn is_delete(req):
 fn is_json_req(req):
     let ct = header_get(req, "Content-Type", "")
     return contains(ct, "application/json")
+
+# ---------------------------------------------------------------------------
+# cookie_get(req, name, default) -> string   (v1.1.1)
+# Read a single cookie value out of the request's "Cookie" header.
+# The header looks like: "a=1; b=2; csrf_token=abc123"
+# ---------------------------------------------------------------------------
+fn cookie_get(req, name, default):
+    let raw = header_get(req, "Cookie", "")
+    if len(raw) == 0:
+        return default
+
+    let parts = split(raw, ";")
+    let i = 0
+    while i < len(parts):
+        let piece = trim(parts[i])
+        # Split on the FIRST "=" only — cookie values (base64 tokens, JWTs)
+        # can legitimately contain "=" themselves.
+        let eq_pos = -1
+        let k = 0
+        while k < len(piece):
+            if substring(piece, k, 1) == "=":
+                eq_pos = k
+                k = len(piece)
+            k = k + 1
+        if eq_pos > 0:
+            let key = trim(substring(piece, 0, eq_pos))
+            let val = trim(substring(piece, eq_pos + 1, len(piece) - eq_pos - 1))
+            if key == name:
+                return val
+        i = i + 1
+    return default

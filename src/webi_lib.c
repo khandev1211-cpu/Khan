@@ -19,13 +19,16 @@
 #  include <winsock2.h>
 #  include <ws2tcpip.h>
 #  include <winhttp.h>
+#  include <wincrypt.h>
 #  pragma comment(lib, "ws2_32.lib")
 #  pragma comment(lib, "winhttp.lib")
+#  pragma comment(lib, "advapi32.lib")
 typedef SOCKET wb_sock_t;
 #else
 #  define _POSIX_C_SOURCE 200809L
 #  include <sys/socket.h>
 #  include <sys/types.h>
+#  include <sys/time.h>
 #  include <netinet/in.h>
 #  include <arpa/inet.h>
 #  include <unistd.h>
@@ -37,13 +40,69 @@ typedef int wb_sock_t;
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
 
 #include "webi_lib.h"
+
+// ---------------------------------------------------------------------------
+// Security limits (v1.1.1)
+//   - WB_MAX_HEADER_SIZE: caps how much we'll buffer while waiting for the
+//     \r\n\r\n header terminator, so a client that never sends one can't
+//     grow our buffer forever.
+//   - WB_MAX_BODY_SIZE: caps how large a request body we'll allocate for,
+//     regardless of what Content-Length claims.
+//   - WB_SOCKET_TIMEOUT_SEC: read timeout on an accepted connection, so a
+//     client that connects and then sends data slowly (or not at all)
+//     can't hold a connection open indefinitely (slowloris-style).
+// ---------------------------------------------------------------------------
+#define WB_MAX_HEADER_SIZE   (64 * 1024)          /* 64 KB */
+#define WB_MAX_BODY_SIZE     (10 * 1024 * 1024)   /* 10 MB */
+#define WB_SOCKET_TIMEOUT_SEC 30
+
 /* Bridge: call Khan function by name from C */
 extern Value khan_call_fn(Interpreter *interp, Environment *env,
                           const char *fn_name, int argc, Value *argv);
 /* Global env pointer set by http_serve so the accept loop can call Khan */
 static Environment *g_webi_env = NULL;
+
+// ---------------------------------------------------------------------------
+// wb_safe_call_webi_handle — call the Khan webi_handle() bridge function
+// and CONTAIN any runtime error to this one request.
+//
+// Previously a runtime error inside a route handler (a typo, a bad map
+// access, anything) set interp->had_runtime_error, and the accept loop
+// checked that flag and `break`-ed out — permanently stopping the server
+// for every future client, not just the one that triggered it. There was
+// no per-request fault isolation at all: one bad or malicious request
+// could take the whole app down until it was manually restarted.
+//
+// This wrapper calls webi_handle() the same way, but if it set the error
+// flag, it logs the failure, clears the flag, discards whatever partial
+// result came back, and returns a plain 500 response instead — the
+// server keeps running and keeps serving everyone else.
+// ---------------------------------------------------------------------------
+static Value wb_safe_call_webi_handle(Interpreter *interp, Environment *env,
+                                       Value *call_args, int argc,
+                                       const char *method, const char *path) {
+    Value res_map = khan_call_fn(interp, env, "webi_handle", argc, call_args);
+
+    if (interp->had_runtime_error) {
+        fprintf(stderr,
+                "[webi] request handler error on %s %s — request failed, "
+                "server continues running.\n",
+                method ? method : "?", path ? path : "?");
+        interp->had_runtime_error = 0;
+        value_free(res_map);
+
+        res_map = value_map_empty();
+        map_set(&res_map, "status",       value_number(500));
+        map_set(&res_map, "body",         value_string("500 Internal Server Error"));
+        map_set(&res_map, "content_type", value_string("text/plain"));
+        map_set(&res_map, "headers",      value_map_empty());
+    }
+
+    return res_map;
+}
 
 // ---------------------------------------------------------------------------
 // Shared buffer helpers (same pattern as requests_lib.c)
@@ -159,7 +218,8 @@ static char *wb_read_request(wb_sock_t fd) {
     char tmp[4096];
     ssize_t n;
 
-    // Read until we have headers (double CRLF)
+    // Read until we have headers (double CRLF), or give up if the client
+    // sends more than WB_MAX_HEADER_SIZE without ever completing them.
     while ((n = recv(fd, tmp, sizeof(tmp), 0)) > 0) {
         if (len + n + 1 > cap) {
             cap = cap ? (cap + (int)n) * 2 : 8192;
@@ -171,6 +231,13 @@ static char *wb_read_request(wb_sock_t fd) {
 
         // Check if we have the header terminator
         if (strstr(buf, "\r\n\r\n")) break;
+
+        if (len > WB_MAX_HEADER_SIZE) {
+            fprintf(stderr, "[webi] request headers exceeded %d bytes — dropping connection\n",
+                    WB_MAX_HEADER_SIZE);
+            free(buf);
+            return strdup("");
+        }
     }
     if (!buf) buf = strdup("");
     return buf;
@@ -218,9 +285,17 @@ static char *wb_read_body(wb_sock_t fd, const char *raw) {
     if (!cl) cl = strstr(raw, "content-length:");
     if (!cl) return strdup("");
 
-    int content_length = 0;
-    sscanf(cl + 15, "%d", &content_length);
+    long content_length = 0;
+    sscanf(cl + 15, "%ld", &content_length);
     if (content_length <= 0) return strdup("");
+
+    // Reject absurd/hostile Content-Length values instead of trusting the
+    // client and allocating whatever they ask for.
+    if (content_length > WB_MAX_BODY_SIZE) {
+        fprintf(stderr, "[webi] request body Content-Length %ld exceeds %d byte limit — rejecting\n",
+                content_length, WB_MAX_BODY_SIZE);
+        return NULL;
+    }
 
     // Body starts after \r\n\r\n
     const char *body_start = strstr(raw, "\r\n\r\n");
@@ -291,7 +366,7 @@ static char *wb_build_http_response(Value *res_map) {
     wb_buf_str(&out, &olen, &ocap, line);
 
     // Standard headers
-    wb_buf_str(&out, &olen, &ocap, "Server: webi/1.0.0 (Khan)\r\n");
+    wb_buf_str(&out, &olen, &ocap, "Server: webi/1.1.1 (Khan)\r\n");
     wb_buf_str(&out, &olen, &ocap, "Connection: close\r\n");
     snprintf(line, sizeof(line), "Content-Type: %s\r\n", ct);
     wb_buf_str(&out, &olen, &ocap, line);
@@ -305,6 +380,20 @@ static char *wb_build_http_response(Value *res_map) {
             Value hv = hdrs_v->as.map.entries[i].value;
             if (hv.type == VAL_STRING) {
                 snprintf(line, sizeof(line), "%s: %s\r\n", hk, hv.as.string);
+                wb_buf_str(&out, &olen, &ocap, line);
+            }
+        }
+    }
+
+    // Cookies from res["cookies"] array (v1.1.1) — one Set-Cookie line per
+    // entry, since a map (res["headers"]) can only hold one value per key
+    // and a response may need to set more than one cookie.
+    Value *cookies_v = map_get(res_map, "cookies");
+    if (cookies_v && cookies_v->type == VAL_ARRAY) {
+        for (int i = 0; i < cookies_v->as.array.count; i++) {
+            Value cv = cookies_v->as.array.items[i];
+            if (cv.type == VAL_STRING) {
+                snprintf(line, sizeof(line), "Set-Cookie: %s\r\n", cv.as.string);
                 wb_buf_str(&out, &olen, &ocap, line);
             }
         }
@@ -545,12 +634,28 @@ static void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *a
             break;
         }
 
+        // Read timeout so a client that connects and stalls can't hold the
+        // connection (and this single-threaded server) open forever.
+        struct timeval wb_timeout;
+        wb_timeout.tv_sec = WB_SOCKET_TIMEOUT_SEC;
+        wb_timeout.tv_usec = 0;
+        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &wb_timeout, sizeof(wb_timeout));
+
         // Read request
         char *raw = wb_read_request(client_fd);
         char method[512], path[512], query[512];
         wb_parse_request_line(raw, method, path, query);
         char *headers_str = wb_extract_headers(raw);
         char *body_str    = wb_read_body(client_fd, raw);
+        if (!body_str) {
+            // Body exceeded WB_MAX_BODY_SIZE — reject without buffering it.
+            const char *resp =
+                "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            send(client_fd, resp, strlen(resp), 0);
+            free(raw); free(headers_str);
+            close(client_fd);
+            continue;
+        }
         char  client_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
 
@@ -561,18 +666,19 @@ static void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *a
         // and call its underlying C NativeFn / Khan fn body directly.
 
         // Build args array for webi_handle
-        Value call_args[6];
+        Value call_args[7];
         call_args[0] = value_copy(app);
         call_args[1] = value_string(method);
         call_args[2] = value_string(path);
         call_args[3] = value_string(query);
         call_args[4] = value_string(headers_str);
         call_args[5] = value_string(body_str);
+        call_args[6] = value_string(client_ip);
 
-        /* Call Khan webi_handle(app, method, path, query, headers, body) */
+        /* Call Khan webi_handle(app, method, path, query, headers, body, ip) */
         Value res_map;
         if (g_webi_env) {
-            res_map = khan_call_fn(interp, g_webi_env, "webi_handle", 6, call_args);
+            res_map = wb_safe_call_webi_handle(interp, g_webi_env, call_args, 7, method, path);
         } else {
             res_map = value_map_empty();
             map_set(&res_map, "status",       value_number(500));
@@ -594,7 +700,9 @@ static void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *a
         value_free(res_map);
         close(client_fd);
 
-        if (interp->had_runtime_error) break;
+        // A runtime error inside a single request is now contained and
+        // logged by wb_safe_call_webi_handle() above — the server keeps
+        // accepting new connections instead of shutting down.
     }
 
     close(server_fd);
@@ -786,14 +894,22 @@ static void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *a
     fflush(stdout);
 
     while (1) {
-        SOCKET cli = accept(srv, NULL, NULL);
+        struct sockaddr_in client_addr;
+        int client_len = sizeof(client_addr);
+        SOCKET cli = accept(srv, (struct sockaddr *)&client_addr, &client_len);
         if (cli == INVALID_SOCKET) continue;
+
+        // Read timeout so a client that connects and stalls can't hold the
+        // connection (and this single-threaded server) open forever.
+        DWORD wb_timeout_ms = WB_SOCKET_TIMEOUT_SEC * 1000;
+        setsockopt(cli, SOL_SOCKET, SO_RCVTIMEO, (const char *)&wb_timeout_ms, sizeof(wb_timeout_ms));
 
         /* Read raw request */
         char *raw = NULL;
         int rlen = 0, rcap = 0;
         char rbuf[4096];
         int n;
+        int header_too_big = 0;
         while ((n = recv(cli, rbuf, sizeof(rbuf), 0)) > 0) {
             if (rlen + n + 1 > rcap) {
                 rcap = rcap ? rcap * 2 : 8192;
@@ -803,25 +919,46 @@ static void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *a
             rlen += n;
             raw[rlen] = '\0';
             if (strstr(raw, "\r\n\r\n")) break;
+            if (rlen > WB_MAX_HEADER_SIZE) { header_too_big = 1; break; }
         }
         if (!raw) { closesocket(cli); continue; }
+        if (header_too_big) {
+            const char *resp =
+                "HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            send(cli, resp, (int)strlen(resp), 0);
+            free(raw);
+            closesocket(cli);
+            continue;
+        }
 
         char method[512], path[512], query[512];
         wb_parse_request_line(raw, method, path, query);
         char *headers_str = wb_extract_headers(raw);
         char *body_str    = wb_read_body(cli, raw);
+        if (!body_str) {
+            const char *resp =
+                "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            send(cli, resp, (int)strlen(resp), 0);
+            free(raw); free(headers_str);
+            closesocket(cli);
+            continue;
+        }
 
-        Value call_args[6];
+        char client_ip[INET6_ADDRSTRLEN] = "";
+        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+
+        Value call_args[7];
         call_args[0] = value_copy(app);
         call_args[1] = value_string(method);
         call_args[2] = value_string(path);
         call_args[3] = value_string(query);
         call_args[4] = value_string(headers_str ? headers_str : "");
         call_args[5] = value_string(body_str    ? body_str    : "");
+        call_args[6] = value_string(client_ip);
 
         Value res_map;
         if (g_webi_env) {
-            res_map = khan_call_fn(interp, g_webi_env, "webi_handle", 6, call_args);
+            res_map = wb_safe_call_webi_handle(interp, g_webi_env, call_args, 7, method, path);
         } else {
             res_map = value_map_empty();
             map_set(&res_map, "status",       value_number(500));
@@ -842,7 +979,9 @@ static void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *a
         value_free(res_map);
         closesocket(cli);
 
-        if (interp->had_runtime_error) break;
+        // A runtime error inside a single request is now contained and
+        // logged by wb_safe_call_webi_handle() above — the server keeps
+        // accepting new connections instead of shutting down.
     }
     closesocket(srv);
     WSACleanup();
@@ -854,6 +993,157 @@ static void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *a
 // ===========================================================================
 // Registration
 // ===========================================================================
+// ===========================================================================
+// secure_token — cryptographically-random hex token (v1.1.1 security)
+//
+// Khan's existing random() is seeded rand() — fine for game logic, but
+// predictable enough that it must never be used for session IDs, CSRF
+// tokens, password reset links, or anything else where an attacker being
+// able to guess the value matters. This pulls from the OS's actual CSPRNG
+// instead (/dev/urandom on POSIX, CryptGenRandom on Windows).
+// ===========================================================================
+static int wb_fill_random_bytes(unsigned char *buf, int n) {
+#ifdef _WIN32
+    HCRYPTPROV hProv = 0;
+    if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
+        return 0;
+    }
+    BOOL ok = CryptGenRandom(hProv, (DWORD)n, buf);
+    CryptReleaseContext(hProv, 0);
+    return ok ? 1 : 0;
+#else
+    FILE *f = fopen("/dev/urandom", "rb");
+    if (!f) return 0;
+    size_t got = fread(buf, 1, (size_t)n, f);
+    fclose(f);
+    return got == (size_t)n;
+#endif
+}
+
+// Khan: secure_token(num_bytes = 32) -> hex string (num_bytes*2 chars)
+static void fn_secure_token(Value *result, Interpreter *interp, int argc, Value *args) {
+    int nbytes = 32; /* 256 bits by default */
+    if (argc >= 1) {
+        if (args[0].type != VAL_NUMBER) {
+            fprintf(stderr, "Runtime error: secure_token() argument must be a number\n");
+            interp->had_runtime_error = 1; *result = value_nil(); return;
+        }
+        nbytes = (int)args[0].as.number;
+        if (nbytes < 1)    nbytes = 1;
+        if (nbytes > 1024) nbytes = 1024; /* sane upper bound */
+    }
+
+    unsigned char *buf = malloc((size_t)nbytes);
+    if (!wb_fill_random_bytes(buf, nbytes)) {
+        fprintf(stderr, "Runtime error: secure_token() could not read system randomness\n");
+        free(buf);
+        interp->had_runtime_error = 1; *result = value_nil(); return;
+    }
+
+    static const char hex_digits[] = "0123456789abcdef";
+    char *out = malloc((size_t)nbytes * 2 + 1);
+    for (int i = 0; i < nbytes; i++) {
+        out[i * 2]     = hex_digits[(buf[i] >> 4) & 0xF];
+        out[i * 2 + 1] = hex_digits[buf[i] & 0xF];
+    }
+    out[nbytes * 2] = '\0';
+    free(buf);
+
+    *result = value_string(out);
+    free(out);
+}
+
+// ===========================================================================
+// rate_limit_check — simple in-memory, per-key sliding-window rate limiter
+// (v1.1.1 security)
+//
+// State has to live here in C, not in a Khan-visible map, because the
+// native server passes http_serve a *copy* of the app map on every single
+// request (see call_args[0] = value_copy(app) above) — anything mutated
+// on a Khan map during one request is gone by the next one. This table is
+// a real process-lifetime C global, so counts actually persist across
+// requests the way a rate limiter needs them to.
+//
+// Limitations (documented, not silent): fixed-size table (1024 keys) with
+// no eviction — under a very large number of distinct keys it can fill up,
+// at which point it fails OPEN (allows the request) rather than locking
+// everyone out. Resets on server restart. Not shared across multiple
+// server processes/machines. Good enough for a single-instance app;
+// swap for a real store (Redis etc.) if you scale beyond that.
+// ===========================================================================
+#define WB_RATE_LIMIT_BUCKETS 1024
+#define WB_RATE_LIMIT_KEY_LEN 128
+
+typedef struct {
+    char key[WB_RATE_LIMIT_KEY_LEN];
+    int in_use;
+    int count;
+    time_t window_start;
+} wb_rate_entry_t;
+
+static wb_rate_entry_t g_rate_table[WB_RATE_LIMIT_BUCKETS];
+
+static unsigned long wb_hash_str(const char *s) {
+    unsigned long h = 5381;
+    int c;
+    while ((c = (unsigned char)*s++)) h = ((h << 5) + h) + (unsigned long)c;
+    return h;
+}
+
+// Returns 1 if this call is within the limit (and counts it), 0 if the
+// caller identified by `key` has exceeded `max_requests` within the last
+// `window_seconds`.
+static int wb_rate_limit_check(const char *key, int max_requests, int window_seconds) {
+    if (max_requests <= 0) max_requests = 1;
+    if (window_seconds <= 0) window_seconds = 1;
+
+    unsigned long h = wb_hash_str(key) % WB_RATE_LIMIT_BUCKETS;
+    time_t now = time(NULL);
+
+    for (int i = 0; i < WB_RATE_LIMIT_BUCKETS; i++) {
+        int idx = (int)((h + (unsigned long)i) % WB_RATE_LIMIT_BUCKETS);
+        wb_rate_entry_t *e = &g_rate_table[idx];
+
+        if (e->in_use && strncmp(e->key, key, WB_RATE_LIMIT_KEY_LEN) == 0) {
+            if ((long)(now - e->window_start) >= window_seconds) {
+                e->window_start = now;
+                e->count = 1;
+                return 1;
+            }
+            if (e->count >= max_requests) return 0;
+            e->count++;
+            return 1;
+        }
+        if (!e->in_use) {
+            e->in_use = 1;
+            strncpy(e->key, key, WB_RATE_LIMIT_KEY_LEN - 1);
+            e->key[WB_RATE_LIMIT_KEY_LEN - 1] = '\0';
+            e->window_start = now;
+            e->count = 1;
+            return 1;
+        }
+    }
+    // Table is completely full — fail open rather than block everyone.
+    return 1;
+}
+
+// Khan: rate_limit_check(key, max_requests, window_seconds) -> bool
+static void fn_rate_limit_check(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!wb_check(interp, "rate_limit_check", 3, argc)) { *result = value_nil(); return; }
+    const char *key;
+    if (!wb_str_arg(interp, "rate_limit_check", 0, args[0], &key)) { *result = value_nil(); return; }
+    if (args[1].type != VAL_NUMBER || args[2].type != VAL_NUMBER) {
+        fprintf(stderr, "Runtime error: rate_limit_check(key, max_requests, window_seconds) — "
+                        "max_requests and window_seconds must be numbers\n");
+        interp->had_runtime_error = 1; *result = value_nil(); return;
+    }
+    int max_requests   = (int)args[1].as.number;
+    int window_seconds = (int)args[2].as.number;
+
+    int allowed = wb_rate_limit_check(key, max_requests, window_seconds);
+    *result = value_bool(allowed);
+}
+
 void webi_register_all(Environment *env) {
     // v1.1 extended request natives
     env_define(env, "http_get_h",      value_native("http_get_h",      fn_http_get_h));
@@ -867,4 +1157,8 @@ void webi_register_all(Environment *env) {
 
     // webi server
     env_define(env, "http_serve",      value_native("http_serve",      fn_http_serve));
+
+    // security (v1.1.1)
+    env_define(env, "secure_token",    value_native("secure_token",    fn_secure_token));
+    env_define(env, "rate_limit_check",value_native("rate_limit_check",fn_rate_limit_check));
 }

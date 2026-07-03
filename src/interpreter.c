@@ -426,6 +426,30 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
         }
 
         case AST_BINARY: {
+            // AND / OR must short-circuit: for `a and b`, if `a` is
+            // falsy, `b` is never evaluated (and vice versa for `or`).
+            // This matters for more than just performance — it's the
+            // standard "guard" pattern (`has(map, k) and map[k] != nil`)
+            // that safely checks a key exists before indexing it. Without
+            // short-circuiting, the right-hand side always runs too, so
+            // that guard would still throw "Key not found in map" on a
+            // missing key — the exact case it's written to prevent.
+            if (node->data.binary.op == OP_AND || node->data.binary.op == OP_OR) {
+                Value left = evaluate(interp, node->data.binary.left, env);
+                if (interp->had_runtime_error) return value_nil();
+                int lb = (left.type == VAL_BOOL) ? left.as.boolean :
+                         (left.type == VAL_NUMBER && left.as.number != 0);
+
+                if (node->data.binary.op == OP_AND && !lb) return value_bool(0);
+                if (node->data.binary.op == OP_OR  &&  lb) return value_bool(1);
+
+                Value right = evaluate(interp, node->data.binary.right, env);
+                if (interp->had_runtime_error) return value_nil();
+                int rb = (right.type == VAL_BOOL) ? right.as.boolean :
+                         (right.type == VAL_NUMBER && right.as.number != 0);
+                return value_bool(rb);
+            }
+
             Value left = evaluate(interp, node->data.binary.left, env);
             if (interp->had_runtime_error) return value_nil();
             Value right = evaluate(interp, node->data.binary.right, env);
@@ -497,17 +521,6 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
                     }
                 }
                 return value_bool(node->data.binary.op == OP_EQUAL_EQUAL ? eq : !eq);
-            }
-
-            // Logical operators — work on booleans
-            if (node->data.binary.op == OP_AND || node->data.binary.op == OP_OR) {
-                int lb = (left.type == VAL_BOOL) ? left.as.boolean :
-                         (left.type == VAL_NUMBER && left.as.number != 0);
-                int rb = (right.type == VAL_BOOL) ? right.as.boolean :
-                         (right.type == VAL_NUMBER && right.as.number != 0);
-
-                if (node->data.binary.op == OP_AND) return value_bool(lb && rb);
-                else return value_bool(lb || rb);
             }
 
             runtime_error(interp, node, "Type mismatch in binary expression.");
