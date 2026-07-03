@@ -1012,6 +1012,41 @@ static void set_import_dir_from_file(Interpreter *interp, const char *full_path)
     }
 }
 
+// Directory portion of full_path (everything before the last '/' or '\'),
+// or "" if there's no directory component. Same rule as
+// set_import_dir_from_file, but written into caller-supplied storage
+// instead of interp state — used when we need "the directory the module
+// we just imported from lives in" *after* interp->current_import_dir has
+// already been restored to whatever it was before that import.
+static void dirname_of(const char *full_path, char *out, size_t cap) {
+    const char *last_slash = strrchr(full_path, '/');
+    const char *last_bslash = strrchr(full_path, '\\');
+    const char *sep = (last_slash > last_bslash) ? last_slash : last_bslash;
+    if (sep) {
+        size_t len = (size_t)(sep - full_path);
+        if (len >= cap) len = cap - 1;
+        memcpy(out, full_path, len);
+        out[len] = '\0';
+    } else {
+        out[0] = '\0';
+    }
+}
+
+// Copies every *public* (non "_"-prefixed) top-level name from a module's
+// own environment into a target scope. This is how "from X import Y" is
+// able to flatten an entire submodule file (or an entire aggregate
+// package, for the self-name case) instead of just pulling out a single
+// pre-defined symbol — same mechanism the interpreter already uses to
+// snapshot scope into a closure (see AST_FN_DECL), just aimed at a
+// different destination and filtered for privacy.
+static void flatten_public_names(Environment *target, Environment *module_env) {
+    for (int i = 0; i < module_env->count; i++) {
+        const char *name = module_env->entries[i].name;
+        if (name[0] == '_') continue;
+        env_define(target, name, value_copy(module_env->entries[i].value));
+    }
+}
+
 static AstNode *resolve_and_parse_import(Interpreter *interp, const char *path,
                                           char *full_path_out, size_t full_path_cap) {
     char full_path[1024];
@@ -1202,17 +1237,95 @@ static Value execute_from_import(Interpreter *interp, const char *path,
 
     if (interp->had_runtime_error) return value_nil();
 
-    // Pull only the requested names out into the caller's scope.
+    // Directory the module we just imported from actually lives in (e.g.
+    // ~/.khan/packages/webi), so sibling submodule files can still be
+    // found below even though current_import_dir has already been
+    // restored to whatever it was before this import.
+    char module_dir[1024];
+    dirname_of(full_path, module_dir, sizeof(module_dir));
+
+    // Pull the requested names out into the caller's scope. Each name is
+    // resolved in order against three possibilities:
+    //   1. a plain symbol the module itself defines (original Phase 1
+    //      behaviour — e.g. `from webi import webi_app`)
+    //   2. the package's own name (`from webi import webi`) — flatten
+    //      everything the aggregate module just defined, equivalent to a
+    //      plain `import "webi"`
+    //   3. a sibling submodule file (`from webi import security`) — parse
+    //      and run <module_dir>/security.kh in its own scope, then
+    //      flatten its public names in too
     for (int i = 0; i < name_count; i++) {
         Value *found = env_get(module_env, names[i]);
-        if (!found) {
-            fprintf(stderr,
-                    "[line 0] Runtime error: cannot import name '%s' from '%s' (%s).\n",
-                    names[i], path, full_path);
-            interp->had_runtime_error = 1;
-            return value_nil();
+        if (found) {
+            env_define(env, names[i], value_copy(*found));
+            continue;
         }
-        env_define(env, names[i], value_copy(*found));
+
+        if (strcmp(names[i], path) == 0) {
+            flatten_public_names(env, module_env);
+            continue;
+        }
+
+        char sub_probe_path[1024];
+        snprintf(sub_probe_path, sizeof(sub_probe_path), "%s/%s.kh", module_dir, names[i]);
+        FILE *probe = fopen(sub_probe_path, "rb");
+        if (probe) {
+            fclose(probe);
+
+            char sub_rel[300];
+            snprintf(sub_rel, sizeof(sub_rel), "%s.kh", names[i]);
+
+            // Temporarily point import resolution at the package
+            // directory so resolve_and_parse_import finds the sibling
+            // file no matter where the caller's own script lives.
+            char saved_dir2[1024];
+            strncpy(saved_dir2, interp->current_import_dir, sizeof(saved_dir2) - 1);
+            saved_dir2[sizeof(saved_dir2) - 1] = '\0';
+            strncpy(interp->current_import_dir, module_dir, sizeof(interp->current_import_dir) - 1);
+            interp->current_import_dir[sizeof(interp->current_import_dir) - 1] = '\0';
+
+            char sub_full_path[1024];
+            AstNode *sub_program = resolve_and_parse_import(interp, sub_rel, sub_full_path, sizeof(sub_full_path));
+
+            if (sub_program) {
+                Environment *sub_env = env_new(interp->base_env ? interp->base_env : env);
+
+                char saved_dir3[1024];
+                strncpy(saved_dir3, interp->current_import_dir, sizeof(saved_dir3) - 1);
+                saved_dir3[sizeof(saved_dir3) - 1] = '\0';
+                set_import_dir_from_file(interp, sub_full_path);
+
+                interpreter_execute(interp, sub_program, sub_env);
+
+                strncpy(interp->current_import_dir, saved_dir3, sizeof(interp->current_import_dir) - 1);
+                interp->current_import_dir[sizeof(interp->current_import_dir) - 1] = '\0';
+
+                if (interp->is_returning) {
+                    interp->is_returning = 0;
+                    value_free(interp->return_value);
+                    interp->return_value = value_nil();
+                }
+
+                if (!interp->had_runtime_error) {
+                    flatten_public_names(env, sub_env);
+                }
+                // sub_env intentionally not freed — functions pulled out
+                // of it may still reference it via their closure chain,
+                // same reasoning as module_env below.
+            }
+
+            strncpy(interp->current_import_dir, saved_dir2, sizeof(interp->current_import_dir) - 1);
+            interp->current_import_dir[sizeof(interp->current_import_dir) - 1] = '\0';
+
+            if (interp->had_runtime_error) return value_nil();
+            continue;
+        }
+
+        fprintf(stderr,
+                "[line 0] Runtime error: cannot import name '%s' from '%s' (%s).\n",
+                names[i], path, full_path);
+        interp->had_runtime_error = 1;
+        return value_nil();
     }
 
     // NOTE: module_env is intentionally not freed — same reasoning as the

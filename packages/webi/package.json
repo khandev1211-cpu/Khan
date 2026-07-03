@@ -16,6 +16,8 @@
     "security.kh",
     "server.kh",
     "template.kh",
-    "meta.kh"
+    "meta.kh",
+    "requests.kh",
+    "json.kh"
   ]
 }
