@@ -113,7 +113,10 @@
         "response.kh",
         "server.kh",
         "template.kh",
-        "meta.kh"
+        "meta.kh",
+        "security.kh",
+        "requests.kh",
+        "json.kh"
       ]
     }
   ]
