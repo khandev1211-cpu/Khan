@@ -99,7 +99,7 @@
     },
     {
       "name": "webi",
-      "version": "1.1.2",
+      "version": "1.1.1",
       "developer": "Irfan Khan",
       "description": "Lightweight web framework: routing, requests, responses, middleware, HTTP server",
       "author": "khandev1211-cpu",
