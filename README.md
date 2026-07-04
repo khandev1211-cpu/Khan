@@ -4,7 +4,7 @@
 ![Build](https://img.shields.io/badge/build-make-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 ![Status](https://img.shields.io/badge/status-stable--release-green)
-![Packages](https://img.shields.io/badge/packages-5-purple)
+![Packages](https://img.shields.io/badge/packages-12-purple)
 
 **Khan** is a custom, indentation-based programming language built entirely from scratch in C11. Created by **Irfan Khan**, this project is a hands-on exploration of compiler design, lexer construction, parser development, runtime interpretation, and standard library implementation. The language draws inspiration from Python's clean indentation syntax and Lua's simplicity, while keeping a minimal footprint in pure C.
 
@@ -18,6 +18,7 @@
 - [Quick Start](#quick-start)
 - [Package Manager — kh](#package-manager--kh)
 - [Packages](#packages)
+- [Web Framework — webi](#web-framework--webi)
 - [Language Features](#language-features)
 - [Syntax & Examples](#syntax--examples)
 - [Built-in Libraries](#built-in-libraries)
@@ -110,11 +111,19 @@ print PI                # 3.14159...
 
 | Package | Version | Description |
 |---|---|---|
-| `math` | 1.0.0 | Advanced math: sqrt, pow, gcd, primes, factorial, mean |
+| `math` | 2.0.0 | Advanced math: sqrt, pow, gcd, primes, factorial, mean |
 | `strings` | 1.0.0 | String utilities: split, trim, replace, pad, contains, join |
 | `colors` | 1.0.0 | Terminal ANSI colors: red, green, bold, print_success, print_error |
-| `requests` | 1.0.0 | HTTP client with auto JSON decode: get, post, post_json, put, delete |
+| `requests` | 1.1.0 | HTTP client with auto JSON decode: get, post, post_json, put, delete |
 | `postman` | 1.0.0 | API testing toolkit: send requests, assert responses, print reports |
+| `collections` | 1.0.0 | Functional array helpers: sort, filter, map_each, reduce, find, unique, chunk, zip, sort_by |
+| `fs` | 1.0.0 | File system utilities: read, write, append, copy, path helpers, JSON config |
+| `datetime` | 1.0.0 | Date/time utilities: timer, elapsed, human-readable duration, sleep helpers |
+| `test` | 1.0.0 | Unit testing framework: assertions, test suites, pass/fail reporting |
+| `events` | 1.0.0 | Event emitter system: on, emit, once, off, history |
+| `logger` | 1.0.0 | Structured logger: debug/info/warn/error levels, file output, silent mode |
+| `uuid` | 1.0.0 | Unique ID generation: uuid_v4, short IDs, sequential counters |
+| `webi` | 1.1.2 | Web framework: routing, security, templates, static files, HTTP server — see [docs/webi.md](docs/webi.md) |
 
 ### math
 
@@ -215,6 +224,46 @@ Output:
 
 ---
 
+## Web Framework — webi
+
+`webi` is a Flask-inspired web framework: routing, request/response
+helpers, middleware, opt-in security (CSRF, rate limiting, API keys,
+CORS), HTML templates (including reading them off disk), static file
+serving, and a small HTTP server — all built on top of Khan.
+
+```bash
+kh install webi
+```
+
+```khan
+import "webi"
+
+let app = webi_app()
+app = route(app, "GET", "/", fn_index)
+app = serve_static(app, "/static", "public")
+
+fn fn_index(req):
+    let name = query_get(req, "name", "World")
+    return res_html(render("<h1>Hello, {{name}}!</h1>", {"name": name}))
+
+webi_run(app, 8080)
+```
+
+Or pull in the security/HTTP-client/JSON helpers in one line with
+[`from`-import](docs/from-import.md):
+
+```khan
+from webi import webi, security, requests, json
+```
+
+**Full reference:** [docs/webi.md](docs/webi.md) — routing, request/response
+helpers, middleware, CSRF/rate-limiting/API-key/CORS security,
+`render()`/`render_file()`, `serve_static()`, running the server, and
+known limitations (single-threaded server, string/NUL-byte caveats for
+binary static assets).
+
+---
+
 ## Language Features
 
 ### Core Language
@@ -229,7 +278,7 @@ Output:
 - ✅ **Break & Continue** — `break` and `continue` inside loops
 - ✅ **Return statements** — `return expr` from functions
 - ✅ **Closures** — Functions capture their enclosing lexical scope
-- ✅ **Import/Module system** — `import "filename.kh"` or `import "packagename"`
+- ✅ **Import/Module system** — `import "filename.kh"` or `import "packagename"`, plus [`from "pkg" import A, B, C`](docs/from-import.md) for pulling out individual symbols, the package's own name, or a sibling submodule file
 - ✅ **String escape sequences** — `\n`, `\t`, `\r`, `\\`, `\"`, `\0`, `\xHH`
 
 ### Data Types
@@ -483,45 +532,65 @@ Khan/
 ├── kh.exe                    # Khan package manager (Windows)
 ├── makefile                  # Build configuration
 ├── README.md                 # This file
+├── docs/
+│   ├── webi.md                # Full webi framework reference
+│   └── from-import.md         # `from X import A, B, C` reference
 ├── packages/
 │   ├── registry.json         # Official package registry
 │   ├── math/
-│   │   ├── package.json
-│   │   └── math.kh
 │   ├── strings/
-│   │   ├── package.json
-│   │   └── strings.kh
 │   ├── colors/
-│   │   ├── package.json
-│   │   └── colors.kh
 │   ├── requests/
-│   │   ├── package.json
-│   │   └── requests.kh
-│   └── postman/
+│   ├── postman/
+│   ├── collections/
+│   ├── fs/
+│   ├── datetime/
+│   ├── test/
+│   ├── events/
+│   ├── logger/
+│   ├── uuid/
+│   └── webi/
 │       ├── package.json
-│       └── postman.kh
+│       ├── webi.kh            # entry point — pulls in every file below
+│       ├── util.kh            # internal string helper other files rely on
+│       ├── app.kh             # app context: webi_app / webi_debug / webi_name
+│       ├── routing.kh         # route registration, path matching, serve_static()
+│       ├── request.kh         # helpers for reading data off the req map
+│       ├── response.kh        # res_* response builders
+│       ├── middleware.kh      # middleware registration + built-ins
+│       ├── security.kh        # CSRF, rate limiting, API-key auth, CORS config
+│       ├── server.kh          # dispatch, native-bridge handler, webi_run
+│       ├── template.kh        # render() / render_file() + html_escape()
+│       ├── meta.kh            # webi_version() / webi_routes()
+│       ├── requests.kh        # thin http_* re-export for `from webi import requests`
+│       └── json.kh            # thin json_* re-export for `from webi import json`
 ├── examples/
 │   ├── hello.kh
 │   ├── full_test.kh
 │   ├── arrays_test.kh
 │   ├── maps_test.kh
+│   ├── webi_security_test.kh
+│   ├── webi_from_import_test.kh
+│   ├── webi_phase3_test.kh
 │   └── todo_app/
 │       ├── main.kh
 │       ├── todo_core.kh
 │       ├── todo_storage.kh
 │       └── todo_ui.kh
 └── src/
-    ├── main.c                # Entry point + ANSI setup
-    ├── token.h               # Token types
-    ├── lexer.h / lexer.c     # Lexer — tokenizer
-    ├── ast.h / ast.c         # AST node definitions
-    ├── parser.h / parser.c   # Recursive descent parser
+    ├── main.c                 # Entry point + ANSI setup
+    ├── token.h                # Token types
+    ├── lexer.h / lexer.c      # Lexer — tokenizer
+    ├── ast.h / ast.c          # AST node definitions
+    ├── parser.h / parser.c    # Recursive descent parser
     ├── interpreter.h / interpreter.c  # Tree-walk interpreter
-    ├── stdlib.h / stdlib.c   # 30+ built-in functions
+    ├── khan_stdlib.c          # 30+ built-in functions
     ├── json_lib.h / json_lib.c        # Native JSON encode/decode
     ├── datetime_lib.h / datetime_lib.c # Native datetime functions
     ├── requests_lib.h / requests_lib.c # Native HTTP client
-    └── kh.c                  # Package manager CLI
+    ├── webi_lib.h / webi_lib.c         # Native HTTP server, MIME table,
+    │                                    path-traversal-safe file resolution
+    └── kh.c                   # Package manager CLI
 ```
 
 ---
@@ -597,6 +666,14 @@ Source .kh file
 2. Relative path as-is
 3. `~/.khan/packages/name/name.kh` (installed packages)
 
+`from "name" import A, B, C` resolves each requested name against a
+plain symbol, the package's own name (flattens the whole module), or a
+sibling submodule file next to it (flattens that file's public names) —
+see [docs/from-import.md](docs/from-import.md) for details, including
+the privacy rule (`_`-prefixed names never get flattened) and the
+closure-snapshot ordering constraint that applies to any multi-file
+package.
+
 ---
 
 ## Roadmap
@@ -608,6 +685,7 @@ Source .kh file
 | Interpreter | ✅ Complete |
 | Standard Library | ✅ Complete |
 | Import/Module system | ✅ Complete |
+| `from X import A, B, C` (symbols, self-name, submodule flatten) | ✅ Complete |
 | `elif` / `break` / `continue` | ✅ Complete |
 | Recursion fix | ✅ Complete |
 | `\xHH` hex escape sequences | ✅ Complete |
@@ -615,14 +693,16 @@ Source .kh file
 | Datetime built-in library | ✅ Complete |
 | HTTP requests built-in library | ✅ Complete |
 | Package manager (`kh`) | ✅ Complete |
-| `math` package | ✅ Complete |
-| `strings` package | ✅ Complete |
-| `colors` package | ✅ Complete |
-| `requests` package | ✅ Complete |
-| `postman` package | ✅ Complete |
+| `math` / `strings` / `colors` / `requests` / `postman` packages | ✅ Complete |
+| `collections` / `fs` / `datetime` / `test` / `events` / `logger` / `uuid` packages | ✅ Complete |
+| `webi` package — routing, request/response, middleware | ✅ Complete |
+| `webi` security — CSRF, rate limiting, API keys, CORS, `secure_token()` | ✅ Complete |
+| `webi` templates — `render()` / `render_file()` | ✅ Complete |
+| `webi` static files — `serve_static()`, MIME table, path-traversal protection | ✅ Complete |
+| `webi` threaded server (thread-per-connection, concurrency cap) | 🔲 Planned |
 | Error handling (`try`/`catch`) | 🔲 Planned |
 | Bytecode compiler + VM | 🔲 Planned |
-| More packages (`csv`, `env`, `fileutils`) | 🔲 Planned |
+| Binary-safe string type (length-prefixed, not NUL-terminated) | 🔲 Planned |
 | Self-hosted compiler | 🔲 Planned |
 
 ---

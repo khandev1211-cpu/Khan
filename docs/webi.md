@@ -1,0 +1,346 @@
+# webi — Khan's web framework
+
+`webi` is Khan's built-in-style web framework: routing, request/response
+helpers, middleware, opt-in security (CSRF, rate limiting, API keys, CORS),
+HTML templates, static file serving, and a small HTTP server — all written
+in Khan itself (`packages/webi/*.kh`) on top of a handful of native
+C helpers (`src/webi_lib.c`) for the parts that genuinely need them
+(sockets, MIME types, path safety, crypto-random tokens).
+
+```bash
+kh install webi
+```
+
+```khan
+import "webi"
+
+let app = webi_app()
+app = route(app, "GET", "/", fn_index)
+
+fn fn_index(req):
+    return res_html("<h1>Welcome to webi!</h1>")
+
+webi_run(app, 8080)
+```
+
+Or pull in the security/HTTP-client/JSON helpers in the same line with
+[`from`-import](from-import.md):
+
+```khan
+from webi import webi, security, requests, json
+```
+
+---
+
+## Table of contents
+
+- [App & routing](#app--routing)
+- [Reading a request](#reading-a-request)
+- [Building a response](#building-a-response)
+- [Middleware](#middleware)
+- [Security](#security)
+- [Templates](#templates)
+- [Static files](#static-files)
+- [Running the server](#running-the-server)
+- [Known limitations](#known-limitations)
+
+---
+
+## App & routing
+
+```khan
+let app = webi_app()
+```
+
+Returns a fresh app context — a plain map (`routes`, `middlewares`, `host`,
+`port`, `debug`, `not_found`, `error`, `name`). Every `webi_*`/`route`/`use`
+function takes an app map and returns a new one; reassign as you go:
+
+```khan
+app = webi_debug(app, true)      # verbose per-request logging
+app = webi_name(app, "my-api")   # shown in logs
+```
+
+Register routes with `route()`, or the per-method shortcuts:
+
+```khan
+app = route(app, "GET", "/", fn_index)
+app = get_route(app, "/users/:id", fn_get_user)
+app = post_route(app, "/users", fn_create_user)
+app = put_route(app, "/users/:id", fn_update_user)
+app = patch_route(app, "/users/:id", fn_patch_user)
+app = delete_route(app, "/users/:id", fn_delete_user)
+```
+
+Path patterns support:
+- **Static segments** — `/users`
+- **Params** — `:id` → available via `req["params"]["id"]` or `param_get(req, "id", default)`
+- **Wildcards** — `/*` matches any remaining path (used internally by `serve_static()`)
+
+Custom error handlers:
+
+```khan
+app = webi_not_found(app, fn (req): return res_text("nothing here"))
+app = webi_error(app, fn (req): return res_text("something broke"))
+```
+
+---
+
+## Reading a request
+
+Every handler receives one `req` map:
+
+| Field | Description |
+|---|---|
+| `req["method"]` | `"GET"`, `"POST"`, ... |
+| `req["path"]` | Request path, e.g. `"/users/42"` |
+| `req["query"]` | Parsed query-string map |
+| `req["headers"]` | Header map |
+| `req["body"]` | Raw request body string |
+| `req["body_json"]` | Body parsed as JSON (or `nil` if it isn't valid JSON) |
+| `req["params"]` | Route param values (from `:name` segments) |
+| `req["ip"]` | Client IP |
+
+Helpers instead of indexing directly (each takes a fallback default):
+
+```khan
+let name  = query_get(req, "name", "World")     # ?name=...
+let id    = param_get(req, "id", nil)           # :id route param
+let auth  = header_get(req, "Authorization", "")
+let token = cookie_get(req, "session", "")
+let email = form_get(req, "email", "")          # url-encoded form body
+
+let data = body_json(req)                       # parsed JSON body, or nil
+
+if is_get(req): ...
+if is_post(req): ...
+if is_json_req(req): ...    # Content-Type: application/json
+```
+
+---
+
+## Building a response
+
+Every handler returns a response map — build one with `res_*`:
+
+```khan
+return res_text("plain text")
+return res_html("<h1>hi</h1>")
+return res_json({"ok": true})
+return res_json_str(already_encoded_json_string)
+return res_status(418, "I'm a teapot")
+
+return res_redirect("/login")
+return res_redirect_permanent("/new-url")
+
+return res_not_found("nothing here")        # 404
+return res_bad_request("missing field")     # 400
+return res_unauthorized("log in first")     # 401
+return res_forbidden("nope")                # 403
+return res_server_error("oops")             # 500
+return res_created({"id": 1})               # 201
+return res_no_content()                     # 204
+```
+
+Chain header/cookie helpers onto any response:
+
+```khan
+let res = res_json({"ok": true})
+res = res_with_header(res, "X-Request-Id", req_id)
+res = res_with_cookie(res, "theme", "dark")
+res = res_with_secure_cookie(res, "session", token, {"http_only": true, "max_age": 3600})
+res = res_cors(res, req)   # apply your configured CORS origin to this one response
+```
+
+---
+
+## Middleware
+
+```khan
+app = use(app, mw_logger)
+```
+
+A middleware is a function `fn(req) -> req` that runs before the matched
+route handler, in registration order. It can:
+- Return a modified `req` (add a field, e.g. `_app`)
+- Short-circuit the whole request by setting `req["_webi_short_circuit"]`
+  to a response map — the route handler never runs, and that response is
+  sent as-is. This is how CORS preflight, CSRF rejection, rate limiting,
+  and API-key rejection all work.
+
+Built-ins:
+
+```khan
+app = use(app, mw_logger)      # print "[webi] GET /path -> 200" (in debug mode)
+app = use(app, mw_cors)        # reflect your configured CORS origin, handle OPTIONS preflight
+app = use(app, mw_json_only)   # reject non-JSON requests with 415
+```
+
+Write your own the same way:
+
+```khan
+fn mw_request_id(req):
+    req["request_id"] = uuid_v4()
+    return req
+
+app = use(app, mw_request_id)
+```
+
+---
+
+## Security
+
+Everything here is **opt-in** — nothing runs unless you wire it up with
+`use()`.
+
+### CORS
+
+```khan
+app = webi_set_cors_origins(app, ["https://example.com"])  # default: ["*"]
+app = use(app, mw_cors)
+```
+
+### Rate limiting
+
+```khan
+app = webi_set_rate_limit(app, 100, 60)   # 100 requests / IP / 60s window
+app = use(app, mw_rate_limit)             # 429 once exceeded
+```
+
+Counting happens in native code (`rate_limit_check()`), since a handler
+only ever sees a fresh copy of `app` — counts can't live on the Khan map
+and survive across requests.
+
+### API-key auth
+
+```khan
+app = webi_require_api_key(app, ["secret-key-1", "secret-key-2"])
+app = use(app, mw_require_api_key)   # checks Authorization: Bearer <key>
+```
+
+### CSRF
+
+```khan
+fn fn_form(req):
+    let token = csrf_new_token()
+    let html = render("...<input type='hidden' name='csrf_token' value='{{t}}'>...", {"t": token})
+    return csrf_issue(res_html(html), token)   # sets the token as an HttpOnly cookie
+
+app = use(app, mw_csrf)   # verifies the cookie against the submitted token on POST/PUT/PATCH/DELETE
+```
+
+`csrf_new_token()` uses `secure_token()` — an OS-CSPRNG-backed random
+token (`/dev/urandom` on POSIX, `CryptGenRandom` on Windows), not Khan's
+`random()`, which is seeded `rand()` and predictable enough to never use
+for anything security-sensitive.
+
+---
+
+## Templates
+
+```khan
+let html = render("<h1>Hello, {{name}}!</h1>", {"name": "Irfan"})
+```
+
+`{{key}}` placeholders are replaced with `str(vars[key])`.
+
+To read a template off disk instead of inlining the string:
+
+```khan
+let html = render_file("templates/index.html", {"name": "Irfan"})
+if html == nil:
+    return res_server_error("template error")
+return res_html(html)
+```
+
+`render_file(path, vars)`:
+- Resolves `path` relative to whichever `.kh` file is calling it (same
+  directory-aware resolution `import` uses), not the process's current
+  directory.
+- Rejects anything that would escape that directory — a `..` segment
+  (raw or percent-encoded), an absolute path, or (on POSIX) a symlink
+  pointing outside it. This matters if `path` is ever built from request
+  input (e.g. `"templates/" + req["query"]["page"] + ".html"`).
+- Only accepts `.html`, `.htm`, `.txt`, `.xml`, `.svg` — there's no
+  legitimate reason for a template renderer to open anything else.
+- Caps files at 2 MB (a sanity backstop, not a real limit).
+- Returns `nil` on any rejection instead of raising, so a broken template
+  path doesn't take the whole app down — always check for `nil`.
+
+`html_escape(s)` escapes `&`, `<`, `>`, `"`, `'` — use it on any
+user-supplied value you interpolate into HTML to avoid XSS:
+
+```khan
+let safe_name = html_escape(req["query"]["name"])
+```
+
+---
+
+## Static files
+
+```khan
+app = serve_static(app, "/static", "public")
+```
+
+Mounts the `public` folder (resolved relative to the calling script, same
+as `render_file()`) so `GET /static/style.css` returns
+`public/style.css`, with `Content-Type` set from a small built-in MIME
+table (html/css/js/json/svg/png/jpg/gif/ico/webp/woff/ttf/pdf/mp4/mp3/...;
+unknown extensions get `application/octet-stream`).
+
+The part of the URL *after* the mount prefix is re-validated on **every
+request** — not just once at mount time — the same way `render_file()`
+validates its path: the resolved file must stay inside the mounted
+folder, whether the escape attempt is a literal `..`, a percent-encoded
+`%2e%2e%2f`, or (on POSIX) a symlink pointing outside it. This is the
+same class of bug as the classic `GET /static/../../server.kh` attack.
+
+```khan
+app = serve_static(app, "/static", "public")
+app = serve_static(app, "/assets", "vendor/assets")   # mount as many as you need
+```
+
+---
+
+## Running the server
+
+```khan
+webi_run(app, 8080)              # binds 0.0.0.0:8080
+webi_run_host(app, "127.0.0.1", 8080)   # bind a specific host
+```
+
+Both block forever, dispatching one request at a time through
+`webi_handle()` — the same bridge function the native C accept loop
+calls per connection. You normally don't call `webi_handle()` yourself;
+it's exposed mainly so tests can dispatch a request without actually
+opening a socket (see `examples/webi_phase3_test.kh` for an example).
+
+```khan
+print webi_version()    # "webi/1.1.2 (Khan)"
+print webi_routes(app)  # list every registered route, for debugging
+```
+
+---
+
+## Known limitations
+
+- **Single-threaded server.** `http_serve()` handles one connection fully
+  (read → dispatch → respond → close) before accepting the next. A slow
+  client currently blocks every other visitor. A threaded version is
+  planned but not yet built — see the project's roadmap; it needs either
+  a global lock around request dispatch (simplest), a worker-process
+  pool, or a fully thread-safe interpreter, since nothing in
+  `interpreter.c` is locked today.
+- **Strings are C-strings, not byte buffers.** `read_file()`/response
+  bodies rely on `strlen()`/NUL-termination under the hood, so a file
+  containing an embedded NUL byte truncates at that byte. Text assets
+  (html/css/js/svg/json/txt) essentially never contain one; many
+  real-world binary formats (png/jpg/etc.) do somewhere in the file and
+  can come back truncated through `serve_static()`. Fine for text-based
+  static assets; true binary-safe serving would need Khan's string type
+  to carry an explicit length instead of relying on NUL-termination.
+- **No per-app persistent state across requests.** Each request gets a
+  fresh copy of `app` — that's why rate limiting counts live in native
+  code rather than on the Khan map. If you need shared mutable state
+  (a request counter, an in-memory cache), it has to live outside Khan's
+  normal value semantics for now.
