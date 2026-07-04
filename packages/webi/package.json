@@ -1,6 +1,6 @@
 {
   "name": "webi",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Lightweight Flask-inspired web framework for Khan: routing, request/response helpers, middleware, CSRF/rate-limit/API-key security, templates, and an HTTP server.",
   "author": "khandev1211-cpu",
   "developer": "Irfan Khan",

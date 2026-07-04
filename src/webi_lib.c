@@ -41,8 +41,17 @@ typedef int wb_sock_t;
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+#include <ctype.h>
+#include <sys/stat.h>
+#ifndef _WIN32
+#include <limits.h>
+#endif
 
 #include "webi_lib.h"
+
+#ifndef S_ISREG
+#define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+#endif
 
 // ---------------------------------------------------------------------------
 // Security limits (v1.1.1)
@@ -994,6 +1003,253 @@ static void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *a
 // Registration
 // ===========================================================================
 // ===========================================================================
+// Static file serving support (Phase 3): MIME type table + a
+// traversal-safe path resolver shared by serve_static()/render_file() on
+// the Khan side (routing.kh/template.kh). Every untrusted path segment —
+// the part of the URL after a serve_static mount prefix, or a template
+// path passed to render_file() — goes through _webi_safe_static_path()
+// below before anything ever touches the filesystem. That's the one
+// choke point responsible for blocking path traversal; nothing upstream
+// of it is trusted to have already sanitized the input.
+// ===========================================================================
+
+// Minimal percent-decoder: turns "%XX" into the corresponding byte.
+// Deliberately leaves '+' alone — that's form-encoding, not URL-path
+// encoding, and decoding it to a space here would be wrong. This exists
+// specifically so a traversal attempt smuggled in encoded, e.g.
+// "%2e%2e%2fetc%2fpasswd", gets turned into "../etc/passwd" *before* the
+// realpath-based containment check runs below — checking the raw encoded
+// string would miss it entirely, since "%2e%2e" doesn't look like ".."
+// until it's decoded.
+static char *wb_url_decode(const char *s) {
+    size_t len = strlen(s);
+    char *out = malloc(len + 1);
+    size_t j = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] == '%' && i + 2 < len &&
+            isxdigit((unsigned char)s[i + 1]) && isxdigit((unsigned char)s[i + 2])) {
+            char hex[3] = { s[i + 1], s[i + 2], '\0' };
+            int byte = (int)strtol(hex, NULL, 16);
+            // A decoded NUL would silently truncate every C-string
+            // operation downstream (path join, comparisons, ...) and
+            // could let an attacker hide a bogus suffix after it — treat
+            // it as the literal two characters instead of decoding it.
+            if (byte == 0) {
+                out[j++] = s[i];
+            } else {
+                out[j++] = (char)byte;
+                i += 2;
+            }
+        } else {
+            out[j++] = s[i];
+        }
+    }
+    out[j] = '\0';
+    return out;
+}
+
+typedef struct { const char *ext; const char *mime; } wb_mime_entry_t;
+
+static const wb_mime_entry_t WB_MIME_TABLE[] = {
+    { ".html",  "text/html; charset=utf-8" },
+    { ".htm",   "text/html; charset=utf-8" },
+    { ".css",   "text/css; charset=utf-8" },
+    { ".js",    "application/javascript; charset=utf-8" },
+    { ".mjs",   "application/javascript; charset=utf-8" },
+    { ".json",  "application/json" },
+    { ".txt",   "text/plain; charset=utf-8" },
+    { ".xml",   "application/xml" },
+    { ".csv",   "text/csv; charset=utf-8" },
+    { ".svg",   "image/svg+xml" },
+    { ".png",   "image/png" },
+    { ".jpg",   "image/jpeg" },
+    { ".jpeg",  "image/jpeg" },
+    { ".gif",   "image/gif" },
+    { ".ico",   "image/x-icon" },
+    { ".webp",  "image/webp" },
+    { ".woff",  "font/woff" },
+    { ".woff2", "font/woff2" },
+    { ".ttf",   "font/ttf" },
+    { ".pdf",   "application/pdf" },
+    { ".mp4",   "video/mp4" },
+    { ".mp3",   "audio/mpeg" },
+    { ".wasm",  "application/wasm" },
+};
+#define WB_MIME_TABLE_LEN ((int)(sizeof(WB_MIME_TABLE) / sizeof(WB_MIME_TABLE[0])))
+
+static int wb_streq_ci(const char *a, const char *b) {
+    while (*a && *b) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return 0;
+        a++; b++;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+static const char *wb_mime_for_path(const char *path) {
+    const char *dot = strrchr(path, '.');
+    if (!dot) return "application/octet-stream";
+    for (int i = 0; i < WB_MIME_TABLE_LEN; i++) {
+        if (wb_streq_ci(dot, WB_MIME_TABLE[i].ext)) return WB_MIME_TABLE[i].mime;
+    }
+    return "application/octet-stream";
+}
+
+// Khan: _webi_mime_type(path) -> string
+static void fn_webi_mime_type(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!wb_check(interp, "_webi_mime_type", 1, argc)) { *result = value_nil(); return; }
+    const char *path;
+    if (!wb_str_arg(interp, "_webi_mime_type", 0, args[0], &path)) { *result = value_nil(); return; }
+    *result = value_string(wb_mime_for_path(path));
+}
+
+// Resolves `path` to a canonical, existence-verified absolute path.
+// POSIX: realpath() resolves ".."/"." AND symlinks, and fails if the
+// path doesn't exist — exactly the semantics we want for "does this
+// really point where it looks like it points".
+// Windows: GetFullPathNameA only does lexical "..'"/"." normalization —
+// it doesn't resolve symlinks/junctions and doesn't require the path to
+// exist, so callers here separately stat() the result afterward.
+static int wb_realpath(const char *path, char *out, size_t out_cap) {
+#ifdef _WIN32
+    DWORD n = GetFullPathNameA(path, (DWORD)out_cap, out, NULL);
+    return (n > 0 && n < out_cap);
+#else
+    char resolved[PATH_MAX];
+    if (!realpath(path, resolved)) return 0;
+    if (strlen(resolved) >= out_cap) return 0;
+    strcpy(out, resolved);
+    return 1;
+#endif
+}
+
+// Khan: _webi_script_dir() -> string
+//
+// Same fallback order as _webi_resolve_path, exposed on its own so
+// callers that need "the directory of whichever .kh file is currently
+// running" as a value (e.g. render_file()'s containment boundary) don't
+// have to fake it by resolving ".".
+static void fn_webi_script_dir(Value *result, Interpreter *interp, int argc, Value *args) {
+    (void)args;
+    if (!wb_check(interp, "_webi_script_dir", 0, argc)) { *result = value_nil(); return; }
+    if (interp->current_import_dir[0] != '\0') {
+        *result = value_string(interp->current_import_dir);
+    } else if (interp->base_path) {
+        *result = value_string(interp->base_path);
+    } else {
+        *result = value_string(".");
+    }
+}
+
+// Khan: _webi_resolve_path(path) -> string
+//
+// Directory-aware resolution for a file path an app author wrote in
+// their own source (a template path for render_file(), a folder for
+// serve_static()) — same fallback order Phase 2 already uses for
+// `import`: an absolute path is left alone; otherwise resolve relative
+// to whatever file is currently executing (current_import_dir) if we're
+// inside one, else relative to the top-level script's own directory
+// (base_path), so it works the same regardless of what directory `khan`
+// happens to be invoked from. Falls back to the path unchanged (resolved
+// relative to the process's current directory) if neither is set.
+static void fn_webi_resolve_path(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!wb_check(interp, "_webi_resolve_path", 1, argc)) { *result = value_nil(); return; }
+    const char *path;
+    if (!wb_str_arg(interp, "_webi_resolve_path", 0, args[0], &path)) { *result = value_nil(); return; }
+
+    // Already absolute (POSIX "/..." or Windows "C:\..." / "\\...") — use as-is.
+    if (path[0] == '/' || path[0] == '\\' || (strlen(path) >= 2 && path[1] == ':')) {
+        *result = value_string(path);
+        return;
+    }
+
+    char joined[2048];
+    if (interp->current_import_dir[0] != '\0') {
+        snprintf(joined, sizeof(joined), "%s/%s", interp->current_import_dir, path);
+    } else if (interp->base_path) {
+        snprintf(joined, sizeof(joined), "%s/%s", interp->base_path, path);
+    } else {
+        snprintf(joined, sizeof(joined), "%s", path);
+    }
+    *result = value_string(joined);
+}
+
+
+//
+// `folder` is the trusted mount root (a path the app author wrote in
+// their own source). `rel` is untrusted — either the tail of a URL after
+// a serve_static() mount prefix, or a template filename passed to
+// render_file(). Returns the real, existence-verified absolute path to
+// serve if (and only if) it resolves to somewhere inside `folder`;
+// returns nil for anything else — traversal attempts (encoded or not),
+// absolute-path/drive-letter escapes, symlink escapes (POSIX), missing
+// files, or directories.
+static void fn_webi_safe_static_path(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!wb_check(interp, "_webi_safe_static_path", 2, argc)) { *result = value_nil(); return; }
+    const char *folder, *rel;
+    if (!wb_str_arg(interp, "_webi_safe_static_path", 0, args[0], &folder)) { *result = value_nil(); return; }
+    if (!wb_str_arg(interp, "_webi_safe_static_path", 1, args[1], &rel))    { *result = value_nil(); return; }
+
+    char *decoded = wb_url_decode(rel);
+
+    // Reject anything that looks like it's trying to escape the "relative
+    // to folder" contract outright, rather than relying solely on the
+    // containment check after the join — an absolute path or a Windows
+    // drive letter has no business being "the rest of a mounted URL".
+    if (decoded[0] == '/' || decoded[0] == '\\' ||
+        (strlen(decoded) >= 2 && decoded[1] == ':')) {
+        free(decoded);
+        *result = value_nil();
+        return;
+    }
+
+    char candidate[2048];
+    int wrote = snprintf(candidate, sizeof(candidate), "%s/%s", folder, decoded);
+    free(decoded);
+    if (wrote < 0 || (size_t)wrote >= sizeof(candidate)) { *result = value_nil(); return; }
+
+    char folder_real[2048], candidate_real[2048];
+    if (!wb_realpath(folder, folder_real, sizeof(folder_real))) {
+        // The mounted folder itself doesn't exist — an app config bug,
+        // not a request to serve.
+        *result = value_nil();
+        return;
+    }
+    if (!wb_realpath(candidate, candidate_real, sizeof(candidate_real))) {
+        // Doesn't exist (POSIX) or path malformed (Windows) — 404 either way.
+        *result = value_nil();
+        return;
+    }
+
+    // Containment check: candidate_real must equal folder_real, or sit
+    // strictly inside it (folder_real + separator + ...). Comparing the
+    // prefix alone without also requiring that separator would wrongly
+    // let a sibling folder like "/mnt/static-evil" pass a check meant for
+    // "/mnt/static".
+    size_t flen = strlen(folder_real);
+    int contained = strncmp(candidate_real, folder_real, flen) == 0 &&
+                    (candidate_real[flen] == '\0' ||
+                     candidate_real[flen] == '/'  ||
+                     candidate_real[flen] == '\\');
+    if (!contained) {
+        fprintf(stderr,
+                "[webi] serve_static: rejected path traversal attempt ('%s' resolves outside '%s')\n",
+                rel, folder);
+        *result = value_nil();
+        return;
+    }
+
+    struct stat st;
+    if (stat(candidate_real, &st) != 0 || !S_ISREG(st.st_mode)) {
+        // Missing, or a directory — this feature serves files, not
+        // directory listings.
+        *result = value_nil();
+        return;
+    }
+
+    *result = value_string(candidate_real);
+}
+
+// ===========================================================================
 // secure_token — cryptographically-random hex token (v1.1.1 security)
 //
 // Khan's existing random() is seeded rand() — fine for game logic, but
@@ -1161,4 +1417,10 @@ void webi_register_all(Environment *env) {
     // security (v1.1.1)
     env_define(env, "secure_token",    value_native("secure_token",    fn_secure_token));
     env_define(env, "rate_limit_check",value_native("rate_limit_check",fn_rate_limit_check));
+
+    // static file serving (v1.1.2 — Phase 3)
+    env_define(env, "_webi_mime_type",         value_native("_webi_mime_type",         fn_webi_mime_type));
+    env_define(env, "_webi_safe_static_path",  value_native("_webi_safe_static_path",  fn_webi_safe_static_path));
+    env_define(env, "_webi_resolve_path",      value_native("_webi_resolve_path",      fn_webi_resolve_path));
+    env_define(env, "_webi_script_dir",        value_native("_webi_script_dir",        fn_webi_script_dir));
 }

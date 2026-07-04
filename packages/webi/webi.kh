@@ -1,4 +1,4 @@
-# Khan webi package v1.1.1
+# Khan webi package v1.1.2
 # Usage: import "webi"
 #
 # webi is a lightweight web framework for Khan — inspired by Flask.
@@ -33,14 +33,17 @@
 #
 #   util.kh        internal string helper (str_replace) other files rely on
 #   app.kh         app context: webi_app / webi_debug / webi_name
-#   routing.kh     route registration + path pattern matching
+#   routing.kh     route registration + path pattern matching +
+#                  serve_static() for mounted static folders (v1.1.2)
 #   request.kh     helpers for reading data off the req map
 #   response.kh    res_* response builders
 #   middleware.kh  middleware registration + built-in middlewares
 #   security.kh    CSRF, rate limiting, API-key auth, CORS config (v1.1.1)
 #   server.kh      dispatch, the native-bridge handler, webi_run / webi_run_host
-#   template.kh    render() + html_escape()
+#   template.kh    render() / render_file() + html_escape()      (v1.1.2)
 #   meta.kh        webi_version() / webi_routes()
+#   requests.kh    thin http_* re-export — `from webi import requests`
+#   json.kh        thin json_* re-export — `from webi import json`
 #
 # `import "webi"` (this file) pulls all of the above into your script's
 # scope, so nothing about using webi changes — this is purely an internal

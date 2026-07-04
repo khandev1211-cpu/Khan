@@ -28,6 +28,7 @@ static void enable_ansi(void) {}
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -91,13 +92,37 @@ static void mkdir_p(const char *path) {
 }
 
 // ---------------------------------------------------------------------------
+// Appends a cache-busting query parameter (current unix time) to a URL.
+// raw.githubusercontent.com is served through a CDN that can hold an old
+// response for a while after a push — a distinct query string forces a
+// fresh edge fetch regardless of whatever TTL that cache would otherwise
+// honor, so `kh install`/`kh update`/`kh list` never silently serve a
+// stale registry.json or package file just because a push happened
+// recently. Caller must free the result.
+// ---------------------------------------------------------------------------
+static char *cache_busted_url(const char *url) {
+    char *out = malloc(strlen(url) + 32);
+    char sep = strchr(url, '?') ? '&' : '?';
+    sprintf(out, "%s%ccb=%ld", url, sep, (long)time(NULL));
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Run curl and capture output.  Returns heap string, caller must free.
 // On Windows we use curl.exe (ships with Windows 10+) the same way.
 // ---------------------------------------------------------------------------
 static char *fetch_url(const char *url) {
-    // Build command safely (URL from our own constants, trusted)
+    char *busted = cache_busted_url(url);
+
+    // Build command safely (URL from our own constants, trusted). The
+    // no-cache/pragma headers are a second line of defense for any
+    // intermediate proxy that does honor them; the cache-busting query
+    // param above is what actually guarantees a fresh fetch either way.
     char cmd[2048];
-    snprintf(cmd, sizeof(cmd), "curl -s -L --max-time 30 \"%s\"", url);
+    snprintf(cmd, sizeof(cmd),
+             "curl -s -L --max-time 30 -H \"Cache-Control: no-cache\" -H \"Pragma: no-cache\" \"%s\"",
+             busted);
+    free(busted);
 
     FILE *fp = popen(cmd, "r");
     if (!fp) return NULL;
@@ -125,9 +150,14 @@ static char *fetch_url(const char *url) {
 // Returns 1 on success, 0 on failure.
 // ---------------------------------------------------------------------------
 static int download_to_file(const char *url, const char *filepath) {
+    char *busted = cache_busted_url(url);
+
     char cmd[2048];
     snprintf(cmd, sizeof(cmd),
-             "curl -s -L --max-time 30 -o \"%s\" \"%s\"", filepath, url);
+             "curl -s -L --max-time 30 -H \"Cache-Control: no-cache\" -H \"Pragma: no-cache\" -o \"%s\" \"%s\"",
+             filepath, busted);
+    free(busted);
+
     int rc = system(cmd);
     return rc == 0;
 }
