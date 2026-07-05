@@ -1,8 +1,5 @@
 # Khan ORM (Object-Relational Mapper)
 # Usage: import "orm"
-#
-# let User = orm_model("users")
-# let u = orm_create(User, {"name": "Irfan"})
 
 import "json_db"
 
@@ -13,11 +10,23 @@ fn orm_model(table_name):
     }
 
 fn orm_create(model, data):
-    let table = db_get(model["db"], "items", [])
-    table = push(table, data)
-    db_set(model["db"], "items", table)
-    db_save(model["db"])
-    return data
+    let db = model["db"]
+    let items = db_get(db, "items", [])
+    items = push(items, data)
+    db = db_set(db, "items", items)
+    db_save(db)
+    model["db"] = db
+    return model
 
 fn orm_find_all(model):
-    return db_get(model["db"], "items", [])
+    # Refresh from disk to ensure we have latest data
+    let db = db_open(model["table"] + ".json")
+    return db_get(db, "items", [])
+
+fn orm_find_one(model, field, value):
+    let items = orm_find_all(model)
+    for item in items:
+        if has(item, field):
+            if item[field] == value:
+                return item
+    return nil

@@ -1,12 +1,24 @@
 # Khan Swagger Package
 # Usage: import "swagger"
-#
-# app = swagger_ui(app, "/docs")
 
 import "webi"
 
 fn swagger_ui(app, path):
-    return route(app, "GET", path, _fn_swagger_html)
+    let routes = webi_routes(app)
 
-fn _fn_swagger_html(req):
-    return res_html("<h1>Swagger Documentation</h1><p>API docs coming soon...</p>")
+    # Internal handler that uses the captured routes
+    fn _swagger_handler(req):
+        let html = "<html><head><title>Swagger UI</title>"
+        html = html + "<style>body{font-family:sans-serif;padding:20px} .route{border-bottom:1px solid #ccc;padding:10px}</style></head>"
+        html = html + "<body><h1>API Documentation</h1>"
+
+        # routes is an array of strings e.g. "GET /hello"
+        for r in routes:
+            html = html + "<div class='route'>"
+            html = html + "<b>" + r + "</b>"
+            html = html + "</div>"
+
+        html = html + "</body></html>"
+        return res_html(html)
+
+    return route(app, "GET", path, _swagger_handler)
