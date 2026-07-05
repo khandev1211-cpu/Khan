@@ -1,0 +1,23 @@
+# Khan ORM (Object-Relational Mapper)
+# Usage: import "orm"
+#
+# let User = orm_model("users")
+# let u = orm_create(User, {"name": "Irfan"})
+
+import "json_db"
+
+fn orm_model(table_name):
+    return {
+        "table": table_name,
+        "db": db_open(table_name + ".json")
+    }
+
+fn orm_create(model, data):
+    let table = db_get(model["db"], "items", [])
+    table = push(table, data)
+    db_set(model["db"], "items", table)
+    db_save(model["db"])
+    return data
+
+fn orm_find_all(model):
+    return db_get(model["db"], "items", [])

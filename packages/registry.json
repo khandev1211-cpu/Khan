@@ -182,6 +182,46 @@
       "description": "Simple machine learning and AI utilities",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/kbrain/kbrain.kh"
+    },
+    {
+      "name": "webi_auth",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Authentication middleware for Webi",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/webi_auth/webi_auth.kh"
+    },
+    {
+      "name": "dns",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "DNS lookup utilities using DNS-over-HTTPS",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/dns/dns.kh"
+    },
+    {
+      "name": "smtp",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Email sending utilities",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/smtp/smtp.kh"
+    },
+    {
+      "name": "orm",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Simple Object-Relational Mapper for JSON databases",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/orm/orm.kh"
+    },
+    {
+      "name": "swagger",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Swagger UI and API documentation generator",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/swagger/swagger.kh"
     }
   ]
 }

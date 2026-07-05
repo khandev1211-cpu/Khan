@@ -1,0 +1,13 @@
+# Khan SMTP (Email) Package
+# Usage: import "smtp"
+#
+# send_email("to@example.com", "Hello", "Body content")
+
+import "requests"
+
+fn send_email(to, subject, body):
+    # This is a placeholder for an API-based email sender
+    # In a real scenario, you'd use SendGrid/Mailgun API
+    print "Sending email to " + to + "..."
+    print "Subject: " + subject
+    return true

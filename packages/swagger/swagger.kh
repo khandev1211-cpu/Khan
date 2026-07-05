@@ -1,0 +1,12 @@
+# Khan Swagger Package
+# Usage: import "swagger"
+#
+# app = swagger_ui(app, "/docs")
+
+import "webi"
+
+fn swagger_ui(app, path):
+    return route(app, "GET", path, _fn_swagger_html)
+
+fn _fn_swagger_html(req):
+    return res_html("<h1>Swagger Documentation</h1><p>API docs coming soon...</p>")

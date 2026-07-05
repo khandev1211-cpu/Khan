@@ -1,0 +1,17 @@
+# Khan DNS Package (DNS-over-HTTPS)
+# Usage: import "dns"
+#
+# let ip = dns_lookup("google.com")
+# print ip
+
+import "requests"
+import "json"
+
+fn dns_lookup(domain):
+    let url = "https://dns.google/resolve?name=" + domain
+    let res = http_get(url)
+    if res["success"]:
+        let data = json_decode(res["body"])
+        if has(data, "Answer"):
+            return data["Answer"][0]["data"]
+    return nil
