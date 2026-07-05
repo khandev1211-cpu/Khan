@@ -1,6 +1,7 @@
 from webi import webi
 
 let app = webi_app()
+app = webi_debug(app, true)
 
 fn fn_index(req):
     let vars = {

@@ -248,6 +248,75 @@ static void fn_split(Value *result, Interpreter *interp, int argc, Value *args) 
     *result = value_array(items, count);
 }
 
+// ---------------------------------------------------------------------------
+// str_replace(s, old, new) -> string
+// Replace every non-overlapping occurrence of `old` in `s` with `new`.
+//
+// Two-pass, linear time in the length of `s`: count occurrences first so
+// the output buffer can be allocated exactly once, then build the result
+// in a single scan. This exists as a native specifically because Khan
+// strings are immutable — a naive Khan-level version built by repeated
+// `result = result + ...` string concatenation is O(n^2) (every `+`
+// copies the whole string built so far), which is fine for short strings
+// but catastrophic for anything template-sized: a 30-50KB HTML template
+// (a real page, not a toy example) run through a handful of {{var}}
+// substitutions at O(n^2) each can turn into billions of character
+// copies — the kind of thing that pegs a CPU core for tens of seconds
+// and makes a whole machine feel like it's hung, for what should be a
+// sub-millisecond operation. webi's render()/html_escape() (and
+// anything else that used to roll its own replace loop) use this now.
+// ---------------------------------------------------------------------------
+static void fn_str_replace(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "str_replace", 3, argc)) { *result = value_nil(); return; }
+    const char *s, *old, *newv;
+    if (!expect_string(interp, "str_replace", 0, args[0], &s))    { *result = value_nil(); return; }
+    if (!expect_string(interp, "str_replace", 1, args[1], &old))  { *result = value_nil(); return; }
+    if (!expect_string(interp, "str_replace", 2, args[2], &newv)) { *result = value_nil(); return; }
+
+    size_t old_len = strlen(old);
+    if (old_len == 0) {
+        *result = value_string(s);
+        return;
+    }
+
+    size_t s_len = strlen(s);
+    size_t new_len = strlen(newv);
+
+    // First pass: count non-overlapping occurrences, so the exact output
+    // size is known before allocating anything.
+    size_t count = 0;
+    for (size_t i = 0; i + old_len <= s_len; ) {
+        if (memcmp(s + i, old, old_len) == 0) {
+            count++;
+            i += old_len;
+        } else {
+            i++;
+        }
+    }
+
+    if (count == 0) {
+        *result = value_string(s);
+        return;
+    }
+
+    size_t out_len = s_len - (count * old_len) + (count * new_len);
+    char *out = malloc(out_len + 1);
+    size_t oi = 0;
+    for (size_t i = 0; i < s_len; ) {
+        if (i + old_len <= s_len && memcmp(s + i, old, old_len) == 0) {
+            memcpy(out + oi, newv, new_len);
+            oi += new_len;
+            i += old_len;
+        } else {
+            out[oi++] = s[i++];
+        }
+    }
+    out[oi] = '\0';
+
+    *result = value_string(out);
+    free(out);
+}
+
 // ===========================================================================
 // Array functions
 // ===========================================================================
@@ -538,6 +607,7 @@ void stdlib_register_all(Environment *env) {
     env_define(env, "contains", value_native("contains", fn_contains));
     env_define(env, "trim", value_native("trim", fn_trim));
     env_define(env, "split", value_native("split", fn_split));
+    env_define(env, "str_replace", value_native("str_replace", fn_str_replace));
 
     // Array functions
     env_define(env, "push", value_native("push", fn_push));
