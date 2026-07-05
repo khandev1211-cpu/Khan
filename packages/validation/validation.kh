@@ -1,8 +1,5 @@
 # Khan Validation Package
 # Usage: import "validation"
-#
-# if is_email("test@example.com"):
-#     print "Valid email"
 
 fn is_email(s):
     if type(s) != "string":
@@ -34,14 +31,21 @@ fn is_numeric(s):
     return n != nil
 
 fn trim(s):
-    if type(s) != "string": return s
+    if type(s) != "string":
+        return s
     # Simplified trim: remove leading/trailing spaces
     let start = 0
-    while start < len(s) and substring(s, start, start + 1) == " ":
-        start = start + 1
+    while start < len(s):
+        if substring(s, start, 1) == " ":
+            start = start + 1
+        else:
+            break
 
     let end = len(s)
-    while end > start and substring(s, end - 1, end) == " ":
-        end = end - 1
+    while end > start:
+        if substring(s, end - 1, 1) == " ":
+            end = end - 1
+        else:
+            break
 
-    return substring(s, start, end)
+    return substring(s, start, end - start)

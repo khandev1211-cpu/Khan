@@ -94,229 +94,6 @@ void env_assign(Environment *env, const char *name, Value value) {
     env_define(env, name, value);
 }
 
-// ---------------------------------------------------------------------------
-// Value construction / destruction
-// ---------------------------------------------------------------------------
-Value value_number(double n) {
-    Value v;
-    v.type = VAL_NUMBER;
-    v.as.number = n;
-    return v;
-}
-
-Value value_string(const char *s) {
-    Value v;
-    v.type = VAL_STRING;
-    v.as.string = strdup(s);
-    return v;
-}
-
-Value value_bool(int b) {
-    Value v;
-    v.type = VAL_BOOL;
-    v.as.boolean = b;
-    return v;
-}
-
-Value value_nil(void) {
-    Value v;
-    v.type = VAL_NIL;
-    v.as.number = 0;
-    return v;
-}
-
-Value value_function(const char *name, Environment *closure,
-                     AstNode *body, AstNodeList *params) {
-    Value v;
-    v.type = VAL_FUNCTION;
-    v.as.function.name = strdup(name);
-    v.as.function.closure = closure;
-    v.as.function.body = body;
-    v.as.function.params = params;
-    return v;
-}
-
-Value value_native(const char *name, NativeFn fn) {
-    Value v;
-    v.type = VAL_NATIVE;
-    v.as.native.name = strdup(name);
-    v.as.native.function = fn;
-    return v;
-}
-
-// Takes ownership of the `items` buffer directly (no extra copy) — caller
-// must have heap-allocated it and must not free it afterwards.
-Value value_array(Value *items, int count) {
-    Value v;
-    v.type = VAL_ARRAY;
-    v.as.array.items = items;
-    v.as.array.count = count;
-    v.as.array.capacity = count;
-    return v;
-}
-
-Value value_map_empty(void) {
-    Value v;
-    v.type = VAL_MAP;
-    v.as.map.entries = NULL;
-    v.as.map.count = 0;
-    v.as.map.capacity = 0;
-    return v;
-}
-
-// Sets key -> value, overwriting if the key already exists. Takes ownership
-// of `value` (caller should pass value_copy(...) if it still needs its own
-// copy afterwards) — same ownership convention as everywhere else here.
-void map_set(Value *map, const char *key, Value value) {
-    for (int i = 0; i < map->as.map.count; i++) {
-        if (strcmp(map->as.map.entries[i].key, key) == 0) {
-            value_free(map->as.map.entries[i].value);
-            map->as.map.entries[i].value = value;
-            return;
-        }
-    }
-    if (map->as.map.count == map->as.map.capacity) {
-        int new_cap = map->as.map.capacity == 0 ? 4 : map->as.map.capacity * 2;
-        map->as.map.entries = realloc(map->as.map.entries, sizeof(MapEntry) * new_cap);
-        map->as.map.capacity = new_cap;
-    }
-    map->as.map.entries[map->as.map.count].key = strdup(key);
-    map->as.map.entries[map->as.map.count].value = value;
-    map->as.map.count++;
-}
-
-// Returns a pointer to the stored value for `key`, or NULL if absent.
-// Simple linear search — fine for the small maps this language deals with.
-Value *map_get(Value *map, const char *key) {
-    for (int i = 0; i < map->as.map.count; i++) {
-        if (strcmp(map->as.map.entries[i].key, key) == 0) {
-            return &map->as.map.entries[i].value;
-        }
-    }
-    return NULL;
-}
-
-// Deep-copies a value so the result owns fully independent memory from the
-// original. MUST be used any time a value is read out of a variable and
-// might end up stored somewhere else (another variable, a function arg,
-// inside an array, etc.) — otherwise two owners can end up pointing at the
-// same heap memory, and freeing one corrupts/frees the other (double-free).
-Value value_copy(Value v) {
-    Value copy = v;
-    switch (v.type) {
-        case VAL_STRING:
-            copy.as.string = strdup(v.as.string);
-            break;
-        case VAL_FUNCTION:
-            copy.as.function.name = strdup(v.as.function.name);
-            break;
-        case VAL_NATIVE:
-            copy.as.native.name = strdup(v.as.native.name);
-            break;
-        case VAL_ARRAY: {
-            int count = v.as.array.count;
-            Value *items = count > 0 ? malloc(sizeof(Value) * count) : NULL;
-            for (int i = 0; i < count; i++) {
-                items[i] = value_copy(v.as.array.items[i]);
-            }
-            copy.as.array.items = items;
-            copy.as.array.capacity = count;
-            break;
-        }
-        case VAL_MAP: {
-            int count = v.as.map.count;
-            MapEntry *entries = count > 0 ? malloc(sizeof(MapEntry) * count) : NULL;
-            for (int i = 0; i < count; i++) {
-                entries[i].key = strdup(v.as.map.entries[i].key);
-                entries[i].value = value_copy(v.as.map.entries[i].value);
-            }
-            copy.as.map.entries = entries;
-            copy.as.map.capacity = count;
-            break;
-        }
-        default:
-            break; // numbers, bools, nil have no owned memory
-    }
-    return copy;
-}
-
-void value_free(Value v) {
-    if (v.type == VAL_STRING) {
-        free((void *)v.as.string);
-    } else if (v.type == VAL_FUNCTION) {
-        free((void *)v.as.function.name);
-        // Don't free closure/body/params — they're owned by the AST
-    } else if (v.type == VAL_NATIVE) {
-        free((void *)v.as.native.name);
-    } else if (v.type == VAL_ARRAY) {
-        for (int i = 0; i < v.as.array.count; i++) {
-            value_free(v.as.array.items[i]);
-        }
-        free(v.as.array.items);
-    } else if (v.type == VAL_MAP) {
-        for (int i = 0; i < v.as.map.count; i++) {
-            free((void *)v.as.map.entries[i].key);
-            value_free(v.as.map.entries[i].value);
-        }
-        free(v.as.map.entries);
-    }
-}
-
-// Prints a value the way it should look when nested inside an array
-// (e.g. strings get quotes, like Python's repr inside a list).
-static void value_print_nested(Value v) {
-    if (v.type == VAL_STRING) {
-        printf("\"%s\"", v.as.string);
-    } else {
-        value_print(v);
-    }
-}
-
-void value_print(Value v) {
-    switch (v.type) {
-        case VAL_NUMBER:
-            // Print integer-like numbers without decimal
-            if (v.as.number == (long long)v.as.number) {
-                printf("%lld", (long long)v.as.number);
-            } else {
-                printf("%g", v.as.number);
-            }
-            break;
-        case VAL_STRING:
-            printf("%s", v.as.string);
-            break;
-        case VAL_BOOL:
-            printf(v.as.boolean ? "true" : "false");
-            break;
-        case VAL_NIL:
-            printf("nil");
-            break;
-        case VAL_FUNCTION:
-            printf("<fn %s>", v.as.function.name);
-            break;
-        case VAL_NATIVE:
-            printf("<native %s>", v.as.native.name);
-            break;
-        case VAL_ARRAY:
-            printf("[");
-            for (int i = 0; i < v.as.array.count; i++) {
-                if (i > 0) printf(", ");
-                value_print_nested(v.as.array.items[i]);
-            }
-            printf("]");
-            break;
-        case VAL_MAP:
-            printf("{");
-            for (int i = 0; i < v.as.map.count; i++) {
-                if (i > 0) printf(", ");
-                printf("\"%s\": ", v.as.map.entries[i].key);
-                value_print_nested(v.as.map.entries[i].value);
-            }
-            printf("}");
-            break;
-    }
-}
-
 // Forward-declare the import executor so we can forward-reference it
 // without having main.c's read_file helper here. We'll read the file inline.
 static Value execute_import(Interpreter *interp, const char *path, Environment *env);
@@ -381,11 +158,11 @@ static Value *resolve_lvalue_target(Interpreter *interp, AstNode *node, Environm
             }
             int idx = (int)idx_val.as.number;
             value_free(idx_val);
-            if (idx < 0 || idx >= container->as.array.count) {
+            if (idx < 0 || idx >= AS_ARRAY_COUNT(*container)) {
                 runtime_error(interp, node, "Array index out of bounds.");
                 return NULL;
             }
-            return &container->as.array.items[idx];
+            return &AS_ARRAY_ITEMS(*container)[idx];
         }
 
         runtime_error(interp, node, "Can only index into an array or map.");
@@ -670,7 +447,6 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
             for (AstNodeList *e = node->data.array_elements; e; e = e->next) {
                 items[i] = evaluate(interp, e->node, env);
                 if (interp->had_runtime_error) {
-                    // Free what we've built so far, then bail out
                     for (int j = 0; j < i; j++) value_free(items[j]);
                     free(items);
                     return value_nil();
@@ -683,7 +459,7 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
         case AST_MAP: {
             Value map = value_map_empty();
             for (AstNodeList *e = node->data.map_entries; e; e = e->next) {
-                AstNode *entry = e->node; // AST_MAP_ENTRY
+                AstNode *entry = e->node;
 
                 Value key_val = evaluate(interp, entry->data.map_entry.key, env);
                 if (interp->had_runtime_error) { value_free(map); return value_nil(); }
@@ -701,8 +477,8 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
                     return value_nil();
                 }
 
-                map_set(&map, key_val.as.string, val); // map_set takes ownership of val
-                value_free(key_val); // map_set strdup'd the key internally
+                map_set(&map, key_val.as.string, val);
+                value_free(key_val);
             }
             return map;
         }
@@ -754,13 +530,13 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
             int idx = (int)idx_val.as.number;
             value_free(idx_val);
 
-            if (idx < 0 || idx >= obj.as.array.count) {
+            if (!obj.as.obj || idx < 0 || idx >= obj.as.obj->as.array.count) {
                 runtime_error(interp, node, "Array index out of bounds.");
                 value_free(obj);
                 return value_nil();
             }
 
-            Value result = value_copy(obj.as.array.items[idx]);
+            Value result = value_copy(obj.as.obj->as.array.items[idx]);
             value_free(obj);
             return result;
         }
@@ -768,7 +544,6 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
         case AST_INDEX_ASSIGN: {
             Value *target = resolve_lvalue_target(interp, node->data.index_assign.object, env);
             if (!target || interp->had_runtime_error) return value_nil();
-
 
             if (target->type == VAL_MAP) {
                 Value key_val = evaluate(interp, node->data.index_assign.index, env);
@@ -803,7 +578,7 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
             int idx = (int)idx_val.as.number;
             value_free(idx_val);
 
-            if (idx < 0 || idx >= arr_ptr->as.array.count) {
+            if (!arr_ptr->as.obj || idx < 0 || idx >= arr_ptr->as.obj->as.array.count) {
                 runtime_error(interp, node, "Array index out of bounds.");
                 return value_nil();
             }
@@ -811,8 +586,8 @@ static Value evaluate(Interpreter *interp, AstNode *node, Environment *env) {
             Value new_val = evaluate(interp, node->data.index_assign.value, env);
             if (interp->had_runtime_error) return value_nil();
 
-            value_free(arr_ptr->as.array.items[idx]);
-            arr_ptr->as.array.items[idx] = value_copy(new_val);
+            value_free(arr_ptr->as.obj->as.array.items[idx]);
+            arr_ptr->as.obj->as.array.items[idx] = value_copy(new_val);
             return new_val;
         }
 
@@ -874,9 +649,7 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
             Value cond = evaluate(interp, node->data.if_stmt.condition, env);
             if (interp->had_runtime_error) return value_nil();
 
-            int truthy = (cond.type == VAL_NUMBER && cond.as.number != 0) ||
-                         (cond.type == VAL_BOOL && cond.as.boolean) ||
-                         (cond.type == VAL_STRING && strlen(cond.as.string) > 0);
+            int truthy = vm_is_truthy(cond);
 
             if (truthy) {
                 return interpreter_execute(interp, node->data.if_stmt.then_branch, env);
@@ -917,18 +690,20 @@ Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env) 
             }
 
             Value result = value_nil();
-            for (int i = 0; i < iterable.as.array.count; i++) {
-                env_assign(env, node->data.for_stmt.for_var,
-                           value_copy(iterable.as.array.items[i]));
+            if (iterable.as.obj) {
+                for (int i = 0; i < iterable.as.obj->as.array.count; i++) {
+                    env_assign(env, node->data.for_stmt.for_var,
+                               value_copy(iterable.as.obj->as.array.items[i]));
 
-                result = interpreter_execute(interp, node->data.for_stmt.for_body, env);
-                if (interp->had_runtime_error) {
-                    value_free(iterable);
-                    return value_nil();
+                    result = interpreter_execute(interp, node->data.for_stmt.for_body, env);
+                    if (interp->had_runtime_error) {
+                        value_free(iterable);
+                        return value_nil();
+                    }
+                    if (interp->is_returning) break;
+                    if (interp->is_breaking) { interp->is_breaking = 0; break; }
+                    if (interp->is_continuing) { interp->is_continuing = 0; continue; }
                 }
-                if (interp->is_returning) break;
-                if (interp->is_breaking) { interp->is_breaking = 0; break; }
-                if (interp->is_continuing) { interp->is_continuing = 0; continue; }
             }
             value_free(iterable);
             return result;

@@ -5,6 +5,8 @@
 #include "ast.h"
 #include "chunk.h"
 #include "value.h"
+#include "lexer.h"
+#include "parser.h"
 
 /* ══════════════════════════════════════════════════════════════
    Compiler state
@@ -12,6 +14,7 @@
 
 #define MAX_LOCALS  256
 #define MAX_BREAKS  64
+#define MAX_IMPORTED 128
 
 typedef struct {
     char name[256];
@@ -38,6 +41,12 @@ typedef struct CompilerState {
     int                 loop_depth;
 
     int                 had_error;
+
+    /* Import tracking */
+    char               *base_path;
+    char               *current_import_dir;
+    char               *imported_paths[MAX_IMPORTED];
+    int                 imported_count;
 } CompilerState;
 
 static CompilerState *current = NULL;
@@ -148,6 +157,17 @@ static void compiler_state_init(CompilerState *c, KhanFunction *fn,
     c->enclosing    = enclosing;
     c->loop_depth   = 0;
     c->had_error    = 0;
+
+    if (enclosing) {
+        c->base_path = enclosing->base_path;
+        c->current_import_dir = enclosing->current_import_dir;
+        c->imported_count = enclosing->imported_count;
+        // Share imported paths with parent
+    } else {
+        c->base_path = NULL;
+        c->current_import_dir = NULL;
+        c->imported_count = 0;
+    }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -156,6 +176,122 @@ static void compiler_state_init(CompilerState *c, KhanFunction *fn,
 static void compile_expr(AstNode *node);
 static void compile_stmt(AstNode *node);
 static void compile_block(AstNodeList *stmts, int line);
+
+static char *compiler_read_file(const char *path) {
+    FILE *file = fopen(path, "rb");
+    if (!file) return NULL;
+    fseek(file, 0L, SEEK_END);
+    long size = ftell(file);
+    rewind(file);
+    char *buffer = malloc(size + 1);
+    size_t n = fread(buffer, 1, size, file);
+    buffer[n] = '\0';
+    fclose(file);
+    return buffer;
+}
+
+static void compile_import(const char *path, int line) {
+    // Prevent double imports
+    for (int i = 0; i < current->imported_count; i++) {
+        if (strcmp(current->imported_paths[i], path) == 0) return;
+    }
+    if (current->imported_count >= MAX_IMPORTED) {
+        compiler_error("Too many imports", line);
+        return;
+    }
+
+    char full_path[1024];
+    FILE *file = NULL;
+
+    // Resolve path (logic from interpreter.c)
+    if (current->current_import_dir) {
+        snprintf(full_path, sizeof(full_path), "%s/%s", current->current_import_dir, path);
+        file = fopen(full_path, "rb");
+    }
+    if (!file && current->base_path) {
+        snprintf(full_path, sizeof(full_path), "%s/%s", current->base_path, path);
+        file = fopen(full_path, "rb");
+    }
+    if (!file) {
+        file = fopen(path, "rb");
+        if (file) strncpy(full_path, path, sizeof(full_path));
+    }
+    if (!file) {
+        // Try package
+        int is_pkg = 1;
+        for (const char *p = path; *p; p++) if (*p == '/' || *p == '\\' || *p == '.') { is_pkg = 0; break; }
+        if (is_pkg) {
+            char *home = getenv("USERPROFILE");
+            if (!home) home = getenv("HOME");
+            if (!home) home = ".";
+#ifdef _WIN32
+            snprintf(full_path, sizeof(full_path), "%s\\.khan\\packages\\%s\\%s.kh", home, path, path);
+#else
+            snprintf(full_path, sizeof(full_path), "%s/.khan/packages/%s/%s.kh", home, path, path);
+#endif
+            file = fopen(full_path, "rb");
+        }
+    }
+
+    if (!file) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Could not open import '%s'", path);
+        compiler_error(msg, line);
+        return;
+    }
+    fclose(file);
+
+    char *source = compiler_read_file(full_path);
+    if (!source) {
+        compiler_error("Could not read import file", line);
+        return;
+    }
+
+    Lexer lexer;
+    lexer_init(&lexer, source);
+    Parser parser;
+    parser_init(&parser, &lexer);
+    AstNode *program = parser_parse(&parser);
+
+    if (parser.had_error) {
+        compiler_error("Syntax error in import", line);
+        free(source);
+        return;
+    }
+
+    // Mark as imported
+    current->imported_paths[current->imported_count++] = strdup(path);
+
+    // Save old import dir
+    char *old_dir = current->current_import_dir ? strdup(current->current_import_dir) : NULL;
+
+    // Set new import dir
+    char *last_slash = strrchr(full_path, '/');
+    char *last_backslash = strrchr(full_path, '\\');
+    char *sep = (last_slash > last_backslash) ? last_slash : last_backslash;
+    if (sep) {
+        int dlen = (int)(sep - full_path);
+        if (current->current_import_dir) free(current->current_import_dir);
+        current->current_import_dir = malloc(dlen + 1);
+        memcpy(current->current_import_dir, full_path, dlen);
+        current->current_import_dir[dlen] = '\0';
+    }
+
+    // Compile the imported program into the current chunk
+    if (program->type == AST_PROGRAM) {
+        for (AstNodeList *s = program->data.program_stmts; s; s = s->next)
+            compile_stmt(s->node);
+    } else {
+        compile_stmt(program);
+    }
+
+    // Restore old import dir
+    if (current->current_import_dir) free(current->current_import_dir);
+    current->current_import_dir = old_dir;
+
+    ast_free(program);
+    free(source);
+}
 
 /* ══════════════════════════════════════════════════════════════
    Count items in an AstNodeList
@@ -645,7 +781,7 @@ static void compile_stmt(AstNode *node) {
 
     /* ── import — handled at parse time; skip in VM mode ── */
     case AST_IMPORT_STMT:
-        /* TODO: import support in VM mode */
+        compile_import(node->data.import_path, line);
         break;
 
     /* ── program root ── */
@@ -664,11 +800,25 @@ static void compile_stmt(AstNode *node) {
    Public entry point
    ══════════════════════════════════════════════════════════════ */
 
-KhanFunction *compile(AstNode *program) {
+KhanFunction *compile(AstNode *program, const char *base_path) {
     KhanFunction *script = khanfn_new("<script>", 0);
 
     CompilerState state;
     compiler_state_init(&state, script, NULL);
+
+    // Set base path dir
+    if (base_path) {
+        char *last_slash = strrchr(base_path, '/');
+        char *last_backslash = strrchr(base_path, '\\');
+        char *sep = (last_slash > last_backslash) ? last_slash : last_backslash;
+        if (sep) {
+            int len = (int)(sep - base_path);
+            state.base_path = malloc(len + 1);
+            memcpy(state.base_path, base_path, len);
+            state.base_path[len] = '\0';
+        }
+    }
+
     current = &state;
 
     /* compile all top-level statements */

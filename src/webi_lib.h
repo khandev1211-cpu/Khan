@@ -24,4 +24,21 @@
 // ===========================================================================
 void webi_register_all(Environment *env);
 
+/* Export function pointers for VM registration */
+void fn_http_get_h(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_http_post_h(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_http_put_h(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_http_put_json(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_http_patch(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_http_patch_json(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_http_delete_h(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_http_head(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_secure_token(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_rate_limit_check(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_webi_mime_type(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_webi_safe_static_path(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_webi_resolve_path(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_webi_script_dir(Value *result, Interpreter *interp, int argc, Value *args);
+
 #endif

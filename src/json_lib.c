@@ -73,19 +73,19 @@ static void json_encode_value(Value v, char **buf, int *len, int *cap) {
             break;
         case VAL_ARRAY:
             buf_char(buf, len, cap, '[');
-            for (int i = 0; i < v.as.array.count; i++) {
+            for (int i = 0; i < AS_ARRAY_COUNT(v); i++) {
                 if (i > 0) buf_append(buf, len, cap, ", ", 2);
-                json_encode_value(v.as.array.items[i], buf, len, cap);
+                json_encode_value(AS_ARRAY_ITEMS(v)[i], buf, len, cap);
             }
             buf_char(buf, len, cap, ']');
             break;
         case VAL_MAP:
             buf_char(buf, len, cap, '{');
-            for (int i = 0; i < v.as.map.count; i++) {
+            for (int i = 0; i < AS_MAP_COUNT(v); i++) {
                 if (i > 0) buf_append(buf, len, cap, ", ", 2);
-                json_encode_string(v.as.map.entries[i].key, buf, len, cap);
+                json_encode_string(AS_MAP_ENTRIES(v)[i].key, buf, len, cap);
                 buf_append(buf, len, cap, ": ", 2);
-                json_encode_value(v.as.map.entries[i].value, buf, len, cap);
+                json_encode_value(*AS_MAP_ENTRIES(v)[i].value, buf, len, cap);
             }
             buf_char(buf, len, cap, '}');
             break;
@@ -95,11 +95,11 @@ static void json_encode_value(Value v, char **buf, int *len, int *cap) {
     }
 }
 
-static void fn_json_encode(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_json_encode(Value *result, Interpreter *interp, int argc, Value *args) {
     (void)interp;
     if (argc != 1) {
         fprintf(stderr, "Runtime error: json_encode() expects 1 argument\n");
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         *result = value_nil();
         return;
     }
@@ -192,28 +192,26 @@ static Value jp_parse_number(JsonParser *jp) {
 static Value jp_parse_array(JsonParser *jp) {
     jp->pos++; // skip '['
     jp_skip_ws(jp);
-    Value arr = value_array(NULL, 0);
     if (jp->pos < jp->len && jp->src[jp->pos] == ']') {
         jp->pos++;
-        return arr;
+        return value_array(NULL, 0);
     }
+    Value *items = NULL;
+    int count = 0, capacity = 0;
     while (jp->pos < jp->len) {
         jp_skip_ws(jp);
         Value elem = jp_parse_value(jp);
-        // Append to array
-        if (arr.as.array.count >= arr.as.array.capacity) {
-            arr.as.array.capacity = arr.as.array.capacity ? arr.as.array.capacity * 2 : 4;
-            arr.as.array.items = realloc(arr.as.array.items,
-                                         sizeof(Value) * arr.as.array.capacity);
+        if (count >= capacity) {
+            capacity = capacity ? capacity * 2 : 4;
+            items = realloc(items, sizeof(Value) * capacity);
         }
-        arr.as.array.items[arr.as.array.count++] = elem;
-
+        items[count++] = elem;
         jp_skip_ws(jp);
         if (jp->pos < jp->len && jp->src[jp->pos] == ',') { jp->pos++; continue; }
         if (jp->pos < jp->len && jp->src[jp->pos] == ']') { jp->pos++; break; }
         jp->error = 1; break;
     }
-    return arr;
+    return value_array(items, count);
 }
 
 static Value jp_parse_object(JsonParser *jp) {
@@ -267,10 +265,10 @@ static Value jp_parse_value(JsonParser *jp) {
     return value_nil();
 }
 
-static void fn_json_decode(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_json_decode(Value *result, Interpreter *interp, int argc, Value *args) {
     if (argc != 1 || args[0].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: json_decode() expects 1 string argument\n");
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         *result = value_nil();
         return;
     }

@@ -65,8 +65,8 @@ static char *read_file(const char *path) {
 int main(int argc, char *argv[]) {
     enable_ansi();
 
-    if (argc != 2) {
-        fprintf(stderr, "Usage: khan <script.kh>\n");
+    if (argc < 2) {
+        fprintf(stderr, "Usage: khan <script.kh> [args...]\n");
         return 64;
     }
 
@@ -117,6 +117,14 @@ int main(int argc, char *argv[]) {
 
     /* ── Set base_env so webi_lib can call back into Khan ── */
     interp.base_env = global;
+
+    /* ── Register argv ── */
+    Value argv_val = value_array(NULL, 0);
+    for (int i = 2; i < argc; i++) {
+        argv_val.as.array.items = realloc(argv_val.as.array.items, sizeof(Value) * (argv_val.as.array.count + 1));
+        argv_val.as.array.items[argv_val.as.array.count++] = value_string(argv[i]);
+    }
+    env_define(global, "argv", argv_val);
 
     /* ── Execute ── */
     interpreter_execute(&interp, program, global);

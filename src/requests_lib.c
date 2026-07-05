@@ -37,7 +37,7 @@ static int req_check(Interpreter *interp, const char *fn,
     if (actual < expected) {
         fprintf(stderr, "Runtime error: %s() expects %d argument(s), got %d\n",
                 fn, expected, actual);
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         return 0;
     }
     return 1;
@@ -90,18 +90,18 @@ static void req_json_encode(Value v, char **buf, int *len, int *cap) {
             req_json_string(v.as.string, buf, len, cap); break;
         case VAL_ARRAY:
             req_buf_char(buf, len, cap, '[');
-            for (int i = 0; i < v.as.array.count; i++) {
+            for (int i = 0; i < AS_ARRAY_COUNT(v); i++) {
                 if (i) req_buf_append(buf, len, cap, ", ", 2);
-                req_json_encode(v.as.array.items[i], buf, len, cap);
+                req_json_encode(AS_ARRAY_ITEMS(v)[i], buf, len, cap);
             }
             req_buf_char(buf, len, cap, ']'); break;
         case VAL_MAP:
             req_buf_char(buf, len, cap, '{');
-            for (int i = 0; i < v.as.map.count; i++) {
+            for (int i = 0; i < AS_MAP_COUNT(v); i++) {
                 if (i) req_buf_append(buf, len, cap, ", ", 2);
-                req_json_string(v.as.map.entries[i].key, buf, len, cap);
+                req_json_string(AS_MAP_ENTRIES(v)[i].key, buf, len, cap);
                 req_buf_append(buf, len, cap, ": ", 2);
-                req_json_encode(v.as.map.entries[i].value, buf, len, cap);
+                req_json_encode(*AS_MAP_ENTRIES(v)[i].value, buf, len, cap);
             }
             req_buf_char(buf, len, cap, '}'); break;
         default:
@@ -173,14 +173,15 @@ static Value winhttp_request(Interpreter *interp,
         if (hReq) {
             // Add custom headers if provided
             if (headers.type == VAL_MAP) {
-                for (int i = 0; i < headers.as.map.count; i++) {
+                for (int i = 0; i < AS_MAP_COUNT(headers); i++) {
                     char hbuf[1024];
                     const char *val = "";
-                    if (headers.as.map.entries[i].value.type == VAL_STRING) {
-                        val = headers.as.map.entries[i].value.as.string;
+                    Value *hv = AS_MAP_ENTRIES(headers)[i].value;
+                    if (hv && hv->type == VAL_STRING) {
+                        val = hv->as.string;
                     }
                     snprintf(hbuf, sizeof(hbuf), "%s: %s",
-                             headers.as.map.entries[i].key, val);
+                             AS_MAP_ENTRIES(headers)[i].key, val);
 
                     int hwlen = MultiByteToWideChar(CP_UTF8, 0, hbuf, -1, NULL, 0);
                     wchar_t *wh = malloc(hwlen * sizeof(wchar_t));
@@ -225,7 +226,7 @@ static Value winhttp_request(Interpreter *interp,
     return result;
 }
 
-static void fn_http_get(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_get(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_get", 1, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_get(url) expects a string\n");
@@ -234,7 +235,7 @@ static void fn_http_get(Value *result, Interpreter *interp, int argc, Value *arg
     *result = winhttp_request(interp, "GET", args[0].as.string, NULL, value_nil());
 }
 
-static void fn_http_post(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_post(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_post", 2, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_post(url, body) - both must be strings\n");
@@ -246,7 +247,7 @@ static void fn_http_post(Value *result, Interpreter *interp, int argc, Value *ar
     value_free(h);
 }
 
-static void fn_http_put(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_put(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_put", 2, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_put(url, body) - both must be strings\n");
@@ -258,7 +259,7 @@ static void fn_http_put(Value *result, Interpreter *interp, int argc, Value *arg
     value_free(h);
 }
 
-static void fn_http_delete(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_delete(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_delete", 1, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_delete(url) expects a string\n");
@@ -267,7 +268,7 @@ static void fn_http_delete(Value *result, Interpreter *interp, int argc, Value *
     *result = winhttp_request(interp, "DELETE", args[0].as.string, NULL, value_nil());
 }
 
-static void fn_http_post_json(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_post_json(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_post_json", 2, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_post_json(url, data) - url must be a string\n");
@@ -283,7 +284,7 @@ static void fn_http_post_json(Value *result, Interpreter *interp, int argc, Valu
     free(json_body);
 }
 
-static void fn_http_request(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_request(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_request", 2, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_request(method, url, ...) - method and url must be strings\n");
@@ -411,7 +412,7 @@ static Value curl_request(const char *method, const char *url,
     return result;
 }
 
-static void fn_http_get(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_get(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_get", 1, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_get(url) expects a string\n");
@@ -420,7 +421,7 @@ static void fn_http_get(Value *result, Interpreter *interp, int argc, Value *arg
     *result = curl_request("GET", args[0].as.string, NULL, value_nil());
 }
 
-static void fn_http_post(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_post(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_post", 2, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_post(url, body) expects strings\n");
@@ -432,7 +433,7 @@ static void fn_http_post(Value *result, Interpreter *interp, int argc, Value *ar
     value_free(h);
 }
 
-static void fn_http_put(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_put(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_put", 2, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_put(url, body) expects strings\n");
@@ -444,7 +445,7 @@ static void fn_http_put(Value *result, Interpreter *interp, int argc, Value *arg
     value_free(h);
 }
 
-static void fn_http_delete(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_delete(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_delete", 1, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_delete(url) expects a string\n");
@@ -453,7 +454,7 @@ static void fn_http_delete(Value *result, Interpreter *interp, int argc, Value *
     *result = curl_request("DELETE", args[0].as.string, NULL, value_nil());
 }
 
-static void fn_http_post_json(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_post_json(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_post_json", 2, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_post_json(url, data) - url must be a string\n");
@@ -469,7 +470,7 @@ static void fn_http_post_json(Value *result, Interpreter *interp, int argc, Valu
     free(json_body);
 }
 
-static void fn_http_request(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_request(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!req_check(interp, "http_request", 2, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: http_request(method, url, ...) - method and url must be strings\n");

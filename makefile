@@ -29,6 +29,14 @@ INTERP_SRCS = \
     src/interpreter.c   \
     src/khan_stdlib.c
 
+# Bytecode VM (New)
+VM_SRCS = \
+    src/vm.c            \
+    src/compiler.c      \
+    src/chunk.c         \
+    src/value.c         \
+    src/vm_libs.c
+
 # Native C libraries — all use interpreter.h Value / Environment API
 NATIVE_SRCS = \
     src/json_lib.c      \
@@ -37,13 +45,18 @@ NATIVE_SRCS = \
     src/webi_lib.c
 
 MAIN_SRC = src/main.c
+MAIN_VM_SRC = src/main_vm.c
 KH_SRCS  = src/kh.c
 
-.PHONY: all khan kh clean
+.PHONY: all khan kh khan_vm clean
 
-all: khan$(EXT) kh$(EXT)
+all: khan$(EXT) kh$(EXT) khan_vm$(EXT)
 
 khan$(EXT): $(COMMON_SRCS) $(INTERP_SRCS) $(NATIVE_SRCS) $(MAIN_SRC)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	@echo "  Built $@"
+
+khan_vm$(EXT): $(COMMON_SRCS) $(INTERP_SRCS) $(VM_SRCS) $(NATIVE_SRCS) $(MAIN_VM_SRC)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 	@echo "  Built $@"
 

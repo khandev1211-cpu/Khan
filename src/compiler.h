@@ -14,6 +14,6 @@
  * Returns: pointer to the compiled top-level KhanFunction on success,
  *          NULL on compile error.
  */
-KhanFunction *compile(AstNode *program);
+KhanFunction *compile(AstNode *program, const char *base_path);
 
 #endif /* KHAN_COMPILER_H */

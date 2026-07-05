@@ -4,6 +4,7 @@ kh.exe
 khan
 kh
 
+*.exe
 # Build artifacts
 *.o
 *.obj
@@ -22,6 +23,12 @@ kh
 *.dat
 *.log
 cache_requests.json
+*.json
+*.csv
+*.env
+!packages/**/package.json
+!packages/registry.json
+!packages/registry_additions.json
 
 # OS files
 .DS_Store

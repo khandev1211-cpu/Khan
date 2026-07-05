@@ -17,12 +17,17 @@ typedef struct {
     Value        *slots;    /* base of this frame's locals on vm.stack  */
 } CallFrame;
 
-/* ── Global variable store ── */
-#define VM_GLOBALS_MAX 512
+/* ── Global variable store (Hash Table) ── */
 typedef struct {
     char  *key;
     Value  val;
-} GlobalEntry;
+} TableEntry;
+
+typedef struct {
+    int         count;
+    int         capacity;
+    TableEntry *entries;
+} Table;
 
 /* ── The VM ── */
 typedef struct {
@@ -32,8 +37,7 @@ typedef struct {
     Value     stack[VM_STACK_MAX];
     Value    *stack_top;
 
-    GlobalEntry globals[VM_GLOBALS_MAX];
-    int         global_count;
+    Table     globals;
 } VM;
 
 typedef enum {
@@ -47,6 +51,12 @@ void            vm_free(VM *vm);
 
 /* Register Khan's stdlib native functions into the VM's global table */
 void            vm_register_builtins(VM *vm);
+void            vm_global_set_native(VM *vm, const char *name, NativeFn fn);
+
+void json_register_all_vm(VM *vm);
+void datetime_register_all_vm(VM *vm);
+void requests_register_all_vm(VM *vm);
+void webi_register_all_vm(VM *vm);
 
 /* Run a compiled script function */
 InterpretResult vm_run(VM *vm, KhanFunction *script);

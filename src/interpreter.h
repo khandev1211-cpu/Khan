@@ -3,18 +3,9 @@
 
 #include "ast.h"
 
-// ---------------------------------------------------------------------------
-// Forward declarations
-// ---------------------------------------------------------------------------
 typedef struct Environment Environment;
 typedef struct Interpreter Interpreter;
 
-// ---------------------------------------------------------------------------
-// A native C function: takes interpreter, arg count, arg array, returns Value
-// We use a struct wrapper to break the circular dependency between
-// NativeFn's return type (Value) and Value's member (NativeFn pointer).
-// ---------------------------------------------------------------------------
-// Value types that the interpreter works with at runtime
 typedef enum {
     VAL_NUMBER,
     VAL_STRING,
@@ -26,30 +17,19 @@ typedef enum {
     VAL_MAP,
 } ValueType;
 
-// Forward-declare Value struct for the native function pointer
 struct Value;
-typedef struct MapEntry MapEntry;
 
-// Native function signature
+typedef struct {
+    const char *key;
+    struct Value *value; // Pointers to Value to break circularity
+} MapEntry;
+
 typedef void (*NativeFn)(struct Value *result, Interpreter *interp, int argc, struct Value *args);
 
-// Now define Value
-struct Value {
+typedef struct Obj {
     ValueType type;
+    int ref_count;
     union {
-        double number;
-        const char *string;
-        int boolean;
-        struct {
-            const char *name;
-            Environment *closure;
-            AstNode *body;
-            AstNodeList *params;
-        } function;
-        struct {
-            const char *name;
-            NativeFn function;
-        } native;
         struct {
             struct Value *items;
             int count;
@@ -61,21 +41,28 @@ struct Value {
             int capacity;
         } map;
     } as;
-};
+} Obj;
 
-// Typedef for convenience
-typedef struct Value Value;
+typedef struct Value {
+    ValueType type;
+    union {
+        double number;
+        int boolean;
+        const char *string;
+        Obj *obj;
+        struct {
+            const char *name;
+            Environment *closure;
+            AstNode *body;
+            AstNodeList *params;
+        } function;
+        struct {
+            const char *name;
+            NativeFn function;
+        } native;
+    } as;
+} Value;
 
-// One key-value pair inside a map. Defined here (after Value) since each
-// entry owns a full Value, not just a pointer to one.
-struct MapEntry {
-    const char *key;
-    Value value;
-};
-
-// ---------------------------------------------------------------------------
-// Environment (scope chain)
-// ---------------------------------------------------------------------------
 struct Environment {
     struct EnvEntry {
         const char *name;
@@ -92,9 +79,6 @@ void env_define(Environment *env, const char *name, Value value);
 Value *env_get(Environment *env, const char *name);
 void env_assign(Environment *env, const char *name, Value value);
 
-// ---------------------------------------------------------------------------
-// Value helpers
-// ---------------------------------------------------------------------------
 Value value_number(double n);
 Value value_string(const char *s);
 Value value_bool(int b);
@@ -104,54 +88,36 @@ Value value_function(const char *name, Environment *closure,
 Value value_native(const char *name, NativeFn fn);
 Value value_array(Value *items, int count);
 Value value_map_empty(void);
-// Sets key to value in the map (overwrites if key already exists). Takes
-// ownership of `value` — pass a value_copy() if the caller still needs it.
+
 void map_set(Value *map, const char *key, Value value);
-// Returns a pointer to the stored Value for `key`, or NULL if not present.
 Value *map_get(Value *map, const char *key);
+
 Value value_copy(Value v);
 void value_free(Value v);
 void value_print(Value v);
 
 // ---------------------------------------------------------------------------
-// Interpreter
+// Accessors for shared objects
 // ---------------------------------------------------------------------------
+#define AS_ARRAY_COUNT(v) ((v).as.obj->as.array.count)
+#define AS_ARRAY_ITEMS(v) ((v).as.obj->as.array.items)
+#define AS_MAP_COUNT(v)   ((v).as.obj->as.map.count)
+#define AS_MAP_ENTRIES(v) ((v).as.obj->as.map.entries)
+
 struct Interpreter {
     int had_runtime_error;
-    const char *base_path;  // directory of the main source file, for resolving imports
-
-    // Early-return signaling. When a `return` statement executes, it sets
-    // is_returning and stashes its value here. Every block-executing
-    // function (execute_block, if/while/for bodies) must check this flag
-    // after running each statement and stop immediately if it's set, so
-    // the signal correctly unwinds all the way out to the enclosing
-    // function call, instead of just stopping the innermost block.
+    const char *base_path;
     int is_returning;
     Value return_value;
     int is_breaking;
     int is_continuing;
-    Environment *base_env;   /* global env; set by main, used by webi_lib */
-
-    // Directory of the file currently being imported/executed, so that a
-    // module can `import "sibling"` another file next to it regardless of
-    // where the top-level script lives. Empty string when we're running
-    // the top-level script itself (base_path is used in that case).
-    // Saved/restored around each nested import call, so it behaves like a
-    // stack even though it's a single field (see execute_import).
+    Environment *base_env;
     char current_import_dir[1024];
 };
 
 void interpreter_init(Interpreter *interp, const char *base_path);
 Value interpreter_execute(Interpreter *interp, AstNode *node, Environment *env);
 
-
-// ---------------------------------------------------------------------------
-// khan_call_fn — call a Khan function value from C native code
-//
-// Looks up 'fn_name' in 'env', then calls it with 'argc' Value arguments.
-// Returns the function's return value (or value_nil() on error).
-// This is the C→Khan bridge used by webi_lib.c's http_serve() loop.
-// ---------------------------------------------------------------------------
 Value khan_call_fn(Interpreter *interp, Environment *env,
                    const char *fn_name, int argc, Value *argv);
 

@@ -15,7 +15,7 @@ static int check_arg_count(Interpreter *interp, const char *name,
     if (actual != expected) {
         fprintf(stderr, "Runtime error: %s() expects %d argument(s), got %d\n",
                 name, expected, actual);
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         return 0;
     }
     return 1;
@@ -26,7 +26,7 @@ static int expect_number(Interpreter *interp, const char *name,
     if (v.type != VAL_NUMBER) {
         fprintf(stderr, "Runtime error: %s() argument %d must be a number\n",
                 name, index + 1);
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         return 0;
     }
     *out = v.as.number;
@@ -38,7 +38,7 @@ static int expect_string(Interpreter *interp, const char *name,
     if (v.type != VAL_STRING) {
         fprintf(stderr, "Runtime error: %s() argument %d must be a string\n",
                 name, index + 1);
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         return 0;
     }
     *out = v.as.string;
@@ -48,7 +48,60 @@ static int expect_string(Interpreter *interp, const char *name,
 // ===========================================================================
 // Type conversion functions
 // ===========================================================================
-static void fn_num(Value *result, Interpreter *interp, int argc, Value *args) {
+
+static void value_to_str_recursive(Value v, char **buf, int *len, int *cap) {
+    char tmp[128];
+    switch (v.type) {
+        case VAL_NUMBER:
+            if (v.as.number == (long long)v.as.number)
+                snprintf(tmp, sizeof(tmp), "%lld", (long long)v.as.number);
+            else snprintf(tmp, sizeof(tmp), "%g", v.as.number);
+            break;
+        case VAL_STRING:
+            snprintf(tmp, sizeof(tmp), "%s", v.as.string);
+            break;
+        case VAL_BOOL:
+            snprintf(tmp, sizeof(tmp), "%s", v.as.boolean ? "true" : "false");
+            break;
+        case VAL_NIL:
+            snprintf(tmp, sizeof(tmp), "nil");
+            break;
+        case VAL_ARRAY:
+            snprintf(tmp, sizeof(tmp), "<array len=%d>", AS_ARRAY_COUNT(v));
+            break;
+        case VAL_MAP:
+            snprintf(tmp, sizeof(tmp), "<map count=%d>", AS_MAP_COUNT(v));
+            break;
+        case VAL_FUNCTION:
+            snprintf(tmp, sizeof(tmp), "<fn %s>", v.as.function.name ? v.as.function.name : "?");
+            break;
+        case VAL_NATIVE:
+            snprintf(tmp, sizeof(tmp), "<native %s>", v.as.native.name ? v.as.native.name : "?");
+            break;
+        default:
+            snprintf(tmp, sizeof(tmp), "<unknown>");
+            break;
+    }
+    int tlen = (int)strlen(tmp);
+    if (*len + tlen + 1 > *cap) {
+        *cap = *cap ? *cap * 2 : 256;
+        *buf = realloc(*buf, *cap);
+    }
+    memcpy(*buf + *len, tmp, tlen);
+    *len += tlen;
+    (*buf)[*len] = '\0';
+}
+
+void fn_str(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "str", 1, argc)) { *result = value_nil(); return; }
+    char *buf = NULL;
+    int len = 0, cap = 0;
+    value_to_str_recursive(args[0], &buf, &len, &cap);
+    *result = value_string(buf ? buf : "");
+    free(buf);
+}
+
+void fn_num(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "num", 1, argc)) { *result = value_nil(); return; }
     const char *s;
     if (expect_string(interp, "num", 0, args[0], &s)) {
@@ -61,35 +114,7 @@ static void fn_num(Value *result, Interpreter *interp, int argc, Value *args) {
     *result = value_nil();
 }
 
-static void fn_str(Value *result, Interpreter *interp, int argc, Value *args) {
-    if (!check_arg_count(interp, "str", 1, argc)) { *result = value_nil(); return; }
-    switch (args[0].type) {
-        case VAL_NUMBER: {
-            char buf[64];
-            if (args[0].as.number == (long long)args[0].as.number) {
-                snprintf(buf, sizeof(buf), "%lld", (long long)args[0].as.number);
-            } else {
-                snprintf(buf, sizeof(buf), "%g", args[0].as.number);
-            }
-            *result = value_string(buf);
-            return;
-        }
-        case VAL_STRING:
-            *result = value_string(args[0].as.string);
-            return;
-        case VAL_BOOL:
-            *result = value_string(args[0].as.boolean ? "true" : "false");
-            return;
-        case VAL_NIL:
-            *result = value_string("nil");
-            return;
-        default:
-            *result = value_string("<unknown>");
-            return;
-    }
-}
-
-static void fn_type(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_type(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "type", 1, argc)) { *result = value_nil(); return; }
     switch (args[0].type) {
         case VAL_NUMBER:   *result = value_string("number"); return;
@@ -107,18 +132,18 @@ static void fn_type(Value *result, Interpreter *interp, int argc, Value *args) {
 // ===========================================================================
 // String functions
 // ===========================================================================
-static void fn_len(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_len(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "len", 1, argc)) { *result = value_nil(); return; }
     if (args[0].type == VAL_STRING) {
         *result = value_number((double)strlen(args[0].as.string));
         return;
     }
     if (args[0].type == VAL_ARRAY) {
-        *result = value_number((double)args[0].as.array.count);
+        *result = value_number((double)AS_ARRAY_COUNT(args[0]));
         return;
     }
     if (args[0].type == VAL_MAP) {
-        *result = value_number((double)args[0].as.map.count);
+        *result = value_number((double)AS_MAP_COUNT(args[0]));
         return;
     }
     if (args[0].type == VAL_NUMBER) {
@@ -132,11 +157,11 @@ static void fn_len(Value *result, Interpreter *interp, int argc, Value *args) {
         return;
     }
     fprintf(stderr, "Runtime error: len() argument must be a string, number, array, or map\n");
-    interp->had_runtime_error = 1;
+    if (interp) interp->had_runtime_error = 1;
     *result = value_nil();
 }
 
-static void fn_substring(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_substring(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "substring", 3, argc)) { *result = value_nil(); return; }
     const char *s;
     double start, length;
@@ -160,7 +185,7 @@ static void fn_substring(Value *result, Interpreter *interp, int argc, Value *ar
     free(tmp);
 }
 
-static void fn_upper(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_upper(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "upper", 1, argc)) { *result = value_nil(); return; }
     const char *s;
     if (!expect_string(interp, "upper", 0, args[0], &s)) { *result = value_nil(); return; }
@@ -172,7 +197,7 @@ static void fn_upper(Value *result, Interpreter *interp, int argc, Value *args) 
     free(tmp);
 }
 
-static void fn_lower(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_lower(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "lower", 1, argc)) { *result = value_nil(); return; }
     const char *s;
     if (!expect_string(interp, "lower", 0, args[0], &s)) { *result = value_nil(); return; }
@@ -184,7 +209,7 @@ static void fn_lower(Value *result, Interpreter *interp, int argc, Value *args) 
     free(tmp);
 }
 
-static void fn_contains(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_contains(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "contains", 2, argc)) { *result = value_nil(); return; }
     const char *haystack, *needle;
     if (!expect_string(interp, "contains", 0, args[0], &haystack)) { *result = value_nil(); return; }
@@ -192,7 +217,7 @@ static void fn_contains(Value *result, Interpreter *interp, int argc, Value *arg
     *result = value_bool(strstr(haystack, needle) != NULL);
 }
 
-static void fn_trim(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_trim(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "trim", 1, argc)) { *result = value_nil(); return; }
     const char *s;
     if (!expect_string(interp, "trim", 0, args[0], &s)) { *result = value_nil(); return; }
@@ -208,7 +233,7 @@ static void fn_trim(Value *result, Interpreter *interp, int argc, Value *args) {
     free(tmp);
 }
 
-static void fn_split(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_split(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "split", 2, argc)) { *result = value_nil(); return; }
     const char *s, *delim;
     if (!expect_string(interp, "split", 0, args[0], &s)) { *result = value_nil(); return; }
@@ -216,14 +241,12 @@ static void fn_split(Value *result, Interpreter *interp, int argc, Value *args) 
 
     size_t delim_len = strlen(delim);
     if (delim_len == 0) {
-        // No delimiter: return the whole string as a single-element array
         Value *items = malloc(sizeof(Value));
         items[0] = value_string(s);
         *result = value_array(items, 1);
         return;
     }
 
-    // First pass: count how many parts we'll produce
     int count = 1;
     for (const char *p = s; (p = strstr(p, delim)) != NULL; p += delim_len) {
         count++;
@@ -242,31 +265,12 @@ static void fn_split(Value *result, Interpreter *interp, int argc, Value *args) 
         free(tmp);
         seg_start = pos + delim_len;
     }
-    // Final remaining segment
     items[i++] = value_string(seg_start);
 
     *result = value_array(items, count);
 }
 
-// ---------------------------------------------------------------------------
-// str_replace(s, old, new) -> string
-// Replace every non-overlapping occurrence of `old` in `s` with `new`.
-//
-// Two-pass, linear time in the length of `s`: count occurrences first so
-// the output buffer can be allocated exactly once, then build the result
-// in a single scan. This exists as a native specifically because Khan
-// strings are immutable — a naive Khan-level version built by repeated
-// `result = result + ...` string concatenation is O(n^2) (every `+`
-// copies the whole string built so far), which is fine for short strings
-// but catastrophic for anything template-sized: a 30-50KB HTML template
-// (a real page, not a toy example) run through a handful of {{var}}
-// substitutions at O(n^2) each can turn into billions of character
-// copies — the kind of thing that pegs a CPU core for tens of seconds
-// and makes a whole machine feel like it's hung, for what should be a
-// sub-millisecond operation. webi's render()/html_escape() (and
-// anything else that used to roll its own replace loop) use this now.
-// ---------------------------------------------------------------------------
-static void fn_str_replace(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_str_replace(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "str_replace", 3, argc)) { *result = value_nil(); return; }
     const char *s, *old, *newv;
     if (!expect_string(interp, "str_replace", 0, args[0], &s))    { *result = value_nil(); return; }
@@ -282,8 +286,6 @@ static void fn_str_replace(Value *result, Interpreter *interp, int argc, Value *
     size_t s_len = strlen(s);
     size_t new_len = strlen(newv);
 
-    // First pass: count non-overlapping occurrences, so the exact output
-    // size is known before allocating anything.
     size_t count = 0;
     for (size_t i = 0; i + old_len <= s_len; ) {
         if (memcmp(s + i, old, old_len) == 0) {
@@ -320,32 +322,27 @@ static void fn_str_replace(Value *result, Interpreter *interp, int argc, Value *
 // ===========================================================================
 // Array functions
 // ===========================================================================
-// push(arr, value) -> returns a NEW array with value appended.
-// Arrays in Khan are value types (deep-copied), so this can't mutate the
-// caller's array in place — the idiom is: arr = push(arr, x)
-static void fn_push(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_push(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "push", 2, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_ARRAY) {
         fprintf(stderr, "Runtime error: push() first argument must be an array\n");
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         *result = value_nil();
         return;
     }
-    int old_count = args[0].as.array.count;
+    int old_count = AS_ARRAY_COUNT(args[0]);
     Value *items = malloc(sizeof(Value) * (old_count + 1));
     for (int i = 0; i < old_count; i++) {
-        items[i] = value_copy(args[0].as.array.items[i]);
+        items[i] = value_copy(AS_ARRAY_ITEMS(args[0])[i]);
     }
     items[old_count] = value_copy(args[1]);
     *result = value_array(items, old_count + 1);
 }
 
-// range(n) -> [0, 1, ..., n-1]
-// range(start, end) -> [start, start+1, ..., end-1]
-static void fn_range(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_range(Value *result, Interpreter *interp, int argc, Value *args) {
     if (argc != 1 && argc != 2) {
         fprintf(stderr, "Runtime error: range() expects 1 or 2 arguments, got %d\n", argc);
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         *result = value_nil();
         return;
     }
@@ -367,14 +364,14 @@ static void fn_range(Value *result, Interpreter *interp, int argc, Value *args) 
 }
 
 
-static void fn_abs(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_abs(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "abs", 1, argc)) { *result = value_nil(); return; }
     double n;
     if (!expect_number(interp, "abs", 0, args[0], &n)) { *result = value_nil(); return; }
     *result = value_number(fabs(n));
 }
 
-static void fn_min(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_min(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "min", 2, argc)) { *result = value_nil(); return; }
     double a, b;
     if (!expect_number(interp, "min", 0, args[0], &a)) { *result = value_nil(); return; }
@@ -382,7 +379,7 @@ static void fn_min(Value *result, Interpreter *interp, int argc, Value *args) {
     *result = value_number(a < b ? a : b);
 }
 
-static void fn_max(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_max(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "max", 2, argc)) { *result = value_nil(); return; }
     double a, b;
     if (!expect_number(interp, "max", 0, args[0], &a)) { *result = value_nil(); return; }
@@ -390,41 +387,41 @@ static void fn_max(Value *result, Interpreter *interp, int argc, Value *args) {
     *result = value_number(a > b ? a : b);
 }
 
-static void fn_sqrt(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_sqrt(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "sqrt", 1, argc)) { *result = value_nil(); return; }
     double n;
     if (!expect_number(interp, "sqrt", 0, args[0], &n)) { *result = value_nil(); return; }
     if (n < 0) {
         fprintf(stderr, "Runtime error: sqrt() of negative number\n");
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         *result = value_nil();
         return;
     }
     *result = value_number(sqrt(n));
 }
 
-static void fn_round(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_round(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "round", 1, argc)) { *result = value_nil(); return; }
     double n;
     if (!expect_number(interp, "round", 0, args[0], &n)) { *result = value_nil(); return; }
     *result = value_number(round(n));
 }
 
-static void fn_floor(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_floor(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "floor", 1, argc)) { *result = value_nil(); return; }
     double n;
     if (!expect_number(interp, "floor", 0, args[0], &n)) { *result = value_nil(); return; }
     *result = value_number(floor(n));
 }
 
-static void fn_ceil(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_ceil(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "ceil", 1, argc)) { *result = value_nil(); return; }
     double n;
     if (!expect_number(interp, "ceil", 0, args[0], &n)) { *result = value_nil(); return; }
     *result = value_number(ceil(n));
 }
 
-static void fn_random(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_random(Value *result, Interpreter *interp, int argc, Value *args) {
 #ifndef RAND_MAX
 #  define RAND_MAX 32767
 #endif
@@ -437,7 +434,7 @@ static void fn_random(Value *result, Interpreter *interp, int argc, Value *args)
     *result = value_number((double)rand() / RAND_MAX * max);
 }
 
-static void fn_pow(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_pow(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "pow", 2, argc)) { *result = value_nil(); return; }
     double base, exp;
     if (!expect_number(interp, "pow", 0, args[0], &base)) { *result = value_nil(); return; }
@@ -448,7 +445,7 @@ static void fn_pow(Value *result, Interpreter *interp, int argc, Value *args) {
 // ===========================================================================
 // I/O functions
 // ===========================================================================
-static void fn_input(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_input(Value *result, Interpreter *interp, int argc, Value *args) {
     (void)interp;
     if (argc > 0 && args[0].type == VAL_STRING) {
         printf("%s", args[0].as.string);
@@ -464,7 +461,7 @@ static void fn_input(Value *result, Interpreter *interp, int argc, Value *args) 
     *result = value_string(buf);
 }
 
-static void fn_read_file(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_read_file(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "read_file", 1, argc)) { *result = value_nil(); return; }
     const char *path;
     if (!expect_string(interp, "read_file", 0, args[0], &path)) { *result = value_nil(); return; }
@@ -472,7 +469,7 @@ static void fn_read_file(Value *result, Interpreter *interp, int argc, Value *ar
     FILE *f = fopen(path, "rb");
     if (!f) {
         fprintf(stderr, "Runtime error: read_file() could not open '%s'\n", path);
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         *result = value_nil();
         return;
     }
@@ -490,7 +487,7 @@ static void fn_read_file(Value *result, Interpreter *interp, int argc, Value *ar
     free(buffer);
 }
 
-static void fn_write_file(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_write_file(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "write_file", 2, argc)) { *result = value_nil(); return; }
     const char *path, *content;
     if (!expect_string(interp, "write_file", 0, args[0], &path)) { *result = value_nil(); return; }
@@ -499,7 +496,7 @@ static void fn_write_file(Value *result, Interpreter *interp, int argc, Value *a
     FILE *f = fopen(path, "w");
     if (!f) {
         fprintf(stderr, "Runtime error: write_file() could not open '%s'\n", path);
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         *result = value_nil();
         return;
     }
@@ -509,9 +506,7 @@ static void fn_write_file(Value *result, Interpreter *interp, int argc, Value *a
     *result = value_number((double)strlen(content));
 }
 
-// file_exists(path) -> true/false, without raising an error either way.
-// Useful for "first run" cases — e.g. a save file that doesn't exist yet.
-static void fn_file_exists(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_file_exists(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "file_exists", 1, argc)) { *result = value_nil(); return; }
     const char *path;
     if (!expect_string(interp, "file_exists", 0, args[0], &path)) { *result = value_nil(); return; }
@@ -528,7 +523,7 @@ static void fn_file_exists(Value *result, Interpreter *interp, int argc, Value *
 // ===========================================================================
 // Utility functions
 // ===========================================================================
-static void fn_sleep(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_sleep(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "sleep", 1, argc)) { *result = value_nil(); return; }
     double ms;
     if (!expect_number(interp, "sleep", 0, args[0], &ms)) { *result = value_nil(); return; }
@@ -538,13 +533,13 @@ static void fn_sleep(Value *result, Interpreter *interp, int argc, Value *args) 
     *result = value_nil();
 }
 
-static void fn_clock(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_clock(Value *result, Interpreter *interp, int argc, Value *args) {
     (void)args;
     if (!check_arg_count(interp, "clock", 0, argc)) { *result = value_nil(); return; }
     *result = value_number((double)clock() / CLOCKS_PER_SEC);
 }
 
-static void fn_exit(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_exit(Value *result, Interpreter *interp, int argc, Value *args) {
     (void)interp;
     int code = 0;
     if (argc > 0 && args[0].type == VAL_NUMBER) {
@@ -557,29 +552,27 @@ static void fn_exit(Value *result, Interpreter *interp, int argc, Value *args) {
 // ===========================================================================
 // Map functions
 // ===========================================================================
-// keys(map) -> array of all keys in the map (as strings)
-static void fn_keys(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_keys(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "keys", 1, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_MAP) {
         fprintf(stderr, "Runtime error: keys() argument must be a map\n");
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         *result = value_nil();
         return;
     }
-    int count = args[0].as.map.count;
+    int count = AS_MAP_COUNT(args[0]);
     Value *items = count > 0 ? malloc(sizeof(Value) * count) : NULL;
     for (int i = 0; i < count; i++) {
-        items[i] = value_string(args[0].as.map.entries[i].key);
+        items[i] = value_string(AS_MAP_ENTRIES(args[0])[i].key);
     }
     *result = value_array(items, count);
 }
 
-// has(map, key) -> true/false depending on whether key exists
-static void fn_has(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_has(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "has", 2, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_MAP) {
         fprintf(stderr, "Runtime error: has() first argument must be a map\n");
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         *result = value_nil();
         return;
     }

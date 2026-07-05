@@ -167,18 +167,18 @@ static void wb_json_encode(Value v, char **buf, int *len, int *cap) {
             wb_json_string(v.as.string, buf, len, cap); break;
         case VAL_ARRAY:
             wb_buf_char(buf, len, cap, '[');
-            for (int i = 0; i < v.as.array.count; i++) {
+            for (int i = 0; i < AS_ARRAY_COUNT(v); i++) {
                 if (i) wb_buf_append(buf, len, cap, ", ", 2);
-                wb_json_encode(v.as.array.items[i], buf, len, cap);
+                wb_json_encode(AS_ARRAY_ITEMS(v)[i], buf, len, cap);
             }
             wb_buf_char(buf, len, cap, ']'); break;
         case VAL_MAP:
             wb_buf_char(buf, len, cap, '{');
-            for (int i = 0; i < v.as.map.count; i++) {
+            for (int i = 0; i < AS_MAP_COUNT(v); i++) {
                 if (i) wb_buf_append(buf, len, cap, ", ", 2);
-                wb_json_string(v.as.map.entries[i].key, buf, len, cap);
+                wb_json_string(AS_MAP_ENTRIES(v)[i].key, buf, len, cap);
                 wb_buf_append(buf, len, cap, ": ", 2);
-                wb_json_encode(v.as.map.entries[i].value, buf, len, cap);
+                wb_json_encode(*AS_MAP_ENTRIES(v)[i].value, buf, len, cap);
             }
             wb_buf_char(buf, len, cap, '}'); break;
         default:
@@ -384,23 +384,21 @@ static char *wb_build_http_response(Value *res_map) {
 
     // Extra headers from res["headers"] map
     if (hdrs_v && hdrs_v->type == VAL_MAP) {
-        for (int i = 0; i < hdrs_v->as.map.count; i++) {
-            const char *hk = hdrs_v->as.map.entries[i].key;
-            Value hv = hdrs_v->as.map.entries[i].value;
-            if (hv.type == VAL_STRING) {
-                snprintf(line, sizeof(line), "%s: %s\r\n", hk, hv.as.string);
+        for (int i = 0; i < AS_MAP_COUNT(*hdrs_v); i++) {
+            const char *hk = AS_MAP_ENTRIES(*hdrs_v)[i].key;
+            Value *hv_ptr = AS_MAP_ENTRIES(*hdrs_v)[i].value;
+            if (hv_ptr && hv_ptr->type == VAL_STRING) {
+                snprintf(line, sizeof(line), "%s: %s\r\n", hk, hv_ptr->as.string);
                 wb_buf_str(&out, &olen, &ocap, line);
             }
         }
     }
 
-    // Cookies from res["cookies"] array (v1.1.1) — one Set-Cookie line per
-    // entry, since a map (res["headers"]) can only hold one value per key
-    // and a response may need to set more than one cookie.
+    // Cookies from res["cookies"] array (v1.1.1)
     Value *cookies_v = map_get(res_map, "cookies");
     if (cookies_v && cookies_v->type == VAL_ARRAY) {
-        for (int i = 0; i < cookies_v->as.array.count; i++) {
-            Value cv = cookies_v->as.array.items[i];
+        for (int i = 0; i < AS_ARRAY_COUNT(*cookies_v); i++) {
+            Value cv = AS_ARRAY_ITEMS(*cookies_v)[i];
             if (cv.type == VAL_STRING) {
                 snprintf(line, sizeof(line), "Set-Cookie: %s\r\n", cv.as.string);
                 wb_buf_str(&out, &olen, &ocap, line);
@@ -504,7 +502,7 @@ static Value wb_curl_request(const char *method, const char *url,
 // v1.1 Extended request natives — POSIX
 // ---------------------------------------------------------------------------
 
-static void fn_http_get_h(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_get_h(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "http_get_h", 2, argc)) { *result = value_nil(); return; }
     const char *url, *headers;
     if (!wb_str_arg(interp, "http_get_h", 0, args[0], &url)) { *result = value_nil(); return; }
@@ -512,7 +510,7 @@ static void fn_http_get_h(Value *result, Interpreter *interp, int argc, Value *a
     *result = wb_curl_request("GET", url, NULL, NULL, headers);
 }
 
-static void fn_http_post_h(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_post_h(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "http_post_h", 3, argc)) { *result = value_nil(); return; }
     const char *url, *body, *headers;
     if (!wb_str_arg(interp, "http_post_h", 0, args[0], &url))     { *result = value_nil(); return; }
@@ -521,7 +519,7 @@ static void fn_http_post_h(Value *result, Interpreter *interp, int argc, Value *
     *result = wb_curl_request("POST", url, body, NULL, headers);
 }
 
-static void fn_http_put_h(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_put_h(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "http_put_h", 3, argc)) { *result = value_nil(); return; }
     const char *url, *body, *headers;
     if (!wb_str_arg(interp, "http_put_h", 0, args[0], &url))     { *result = value_nil(); return; }
@@ -530,7 +528,7 @@ static void fn_http_put_h(Value *result, Interpreter *interp, int argc, Value *a
     *result = wb_curl_request("PUT", url, body, NULL, headers);
 }
 
-static void fn_http_put_json(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_put_json(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "http_put_json", 2, argc)) { *result = value_nil(); return; }
     const char *url;
     if (!wb_str_arg(interp, "http_put_json", 0, args[0], &url)) { *result = value_nil(); return; }
@@ -540,7 +538,7 @@ static void fn_http_put_json(Value *result, Interpreter *interp, int argc, Value
     free(json_body);
 }
 
-static void fn_http_patch(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_patch(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "http_patch", 2, argc)) { *result = value_nil(); return; }
     const char *url, *body;
     if (!wb_str_arg(interp, "http_patch", 0, args[0], &url))  { *result = value_nil(); return; }
@@ -548,7 +546,7 @@ static void fn_http_patch(Value *result, Interpreter *interp, int argc, Value *a
     *result = wb_curl_request("PATCH", url, body, "Content-Type: application/x-www-form-urlencoded", NULL);
 }
 
-static void fn_http_patch_json(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_patch_json(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "http_patch_json", 2, argc)) { *result = value_nil(); return; }
     const char *url;
     if (!wb_str_arg(interp, "http_patch_json", 0, args[0], &url)) { *result = value_nil(); return; }
@@ -558,7 +556,7 @@ static void fn_http_patch_json(Value *result, Interpreter *interp, int argc, Val
     free(json_body);
 }
 
-static void fn_http_delete_h(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_delete_h(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "http_delete_h", 2, argc)) { *result = value_nil(); return; }
     const char *url, *headers;
     if (!wb_str_arg(interp, "http_delete_h", 0, args[0], &url))     { *result = value_nil(); return; }
@@ -566,7 +564,7 @@ static void fn_http_delete_h(Value *result, Interpreter *interp, int argc, Value
     *result = wb_curl_request("DELETE", url, NULL, NULL, headers);
 }
 
-static void fn_http_head(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_head(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "http_head", 1, argc)) { *result = value_nil(); return; }
     const char *url;
     if (!wb_str_arg(interp, "http_head", 0, args[0], &url)) { *result = value_nil(); return; }
@@ -589,7 +587,7 @@ static void fn_http_head(Value *result, Interpreter *interp, int argc, Value *ar
 //   5. Builds the HTTP response from the returned map
 //   6. Sends it back and closes the connection
 // ---------------------------------------------------------------------------
-static void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "http_serve", 2, argc)) { *result = value_nil(); return; }
 
     if (args[0].type != VAL_NUMBER) {
@@ -810,14 +808,14 @@ static Value wh_request(const char *method, const char *url,
     return result;
 }
 
-static void fn_http_get_h(Value *r, Interpreter *i, int argc, Value *args) {
+void fn_http_get_h(Value *r, Interpreter *i, int argc, Value *args) {
     if (!wb_check(i, "http_get_h", 2, argc)) { *r = value_nil(); return; }
     const char *url, *h;
     if (!wb_str_arg(i, "http_get_h", 0, args[0], &url)) { *r = value_nil(); return; }
     if (!wb_str_arg(i, "http_get_h", 1, args[1], &h))   { *r = value_nil(); return; }
     *r = wh_request("GET", url, NULL, NULL, h);
 }
-static void fn_http_post_h(Value *r, Interpreter *i, int argc, Value *args) {
+void fn_http_post_h(Value *r, Interpreter *i, int argc, Value *args) {
     if (!wb_check(i, "http_post_h", 3, argc)) { *r = value_nil(); return; }
     const char *url, *body, *h;
     if (!wb_str_arg(i, "http_post_h", 0, args[0], &url))  { *r = value_nil(); return; }
@@ -825,7 +823,7 @@ static void fn_http_post_h(Value *r, Interpreter *i, int argc, Value *args) {
     if (!wb_str_arg(i, "http_post_h", 2, args[2], &h))    { *r = value_nil(); return; }
     *r = wh_request("POST", url, body, NULL, h);
 }
-static void fn_http_put_h(Value *r, Interpreter *i, int argc, Value *args) {
+void fn_http_put_h(Value *r, Interpreter *i, int argc, Value *args) {
     if (!wb_check(i, "http_put_h", 3, argc)) { *r = value_nil(); return; }
     const char *url, *body, *h;
     if (!wb_str_arg(i, "http_put_h", 0, args[0], &url))  { *r = value_nil(); return; }
@@ -833,7 +831,7 @@ static void fn_http_put_h(Value *r, Interpreter *i, int argc, Value *args) {
     if (!wb_str_arg(i, "http_put_h", 2, args[2], &h))    { *r = value_nil(); return; }
     *r = wh_request("PUT", url, body, NULL, h);
 }
-static void fn_http_put_json(Value *r, Interpreter *i, int argc, Value *args) {
+void fn_http_put_json(Value *r, Interpreter *i, int argc, Value *args) {
     if (!wb_check(i, "http_put_json", 2, argc)) { *r = value_nil(); return; }
     const char *url;
     if (!wb_str_arg(i, "http_put_json", 0, args[0], &url)) { *r = value_nil(); return; }
@@ -842,14 +840,14 @@ static void fn_http_put_json(Value *r, Interpreter *i, int argc, Value *args) {
     *r = wh_request("PUT", url, j ? j : "{}", "Content-Type: application/json", NULL);
     free(j);
 }
-static void fn_http_patch(Value *r, Interpreter *i, int argc, Value *args) {
+void fn_http_patch(Value *r, Interpreter *i, int argc, Value *args) {
     if (!wb_check(i, "http_patch", 2, argc)) { *r = value_nil(); return; }
     const char *url, *body;
     if (!wb_str_arg(i, "http_patch", 0, args[0], &url))  { *r = value_nil(); return; }
     if (!wb_str_arg(i, "http_patch", 1, args[1], &body)) { *r = value_nil(); return; }
     *r = wh_request("PATCH", url, body, "Content-Type: application/x-www-form-urlencoded", NULL);
 }
-static void fn_http_patch_json(Value *r, Interpreter *i, int argc, Value *args) {
+void fn_http_patch_json(Value *r, Interpreter *i, int argc, Value *args) {
     if (!wb_check(i, "http_patch_json", 2, argc)) { *r = value_nil(); return; }
     const char *url;
     if (!wb_str_arg(i, "http_patch_json", 0, args[0], &url)) { *r = value_nil(); return; }
@@ -858,14 +856,14 @@ static void fn_http_patch_json(Value *r, Interpreter *i, int argc, Value *args) 
     *r = wh_request("PATCH", url, j ? j : "{}", "Content-Type: application/json", NULL);
     free(j);
 }
-static void fn_http_delete_h(Value *r, Interpreter *i, int argc, Value *args) {
+void fn_http_delete_h(Value *r, Interpreter *i, int argc, Value *args) {
     if (!wb_check(i, "http_delete_h", 2, argc)) { *r = value_nil(); return; }
     const char *url, *h;
     if (!wb_str_arg(i, "http_delete_h", 0, args[0], &url)) { *r = value_nil(); return; }
     if (!wb_str_arg(i, "http_delete_h", 1, args[1], &h))   { *r = value_nil(); return; }
     *r = wh_request("DELETE", url, NULL, NULL, h);
 }
-static void fn_http_head(Value *r, Interpreter *i, int argc, Value *args) {
+void fn_http_head(Value *r, Interpreter *i, int argc, Value *args) {
     if (!wb_check(i, "http_head", 1, argc)) { *r = value_nil(); return; }
     const char *url;
     if (!wb_str_arg(i, "http_head", 0, args[0], &url)) { *r = value_nil(); return; }
@@ -873,7 +871,7 @@ static void fn_http_head(Value *r, Interpreter *i, int argc, Value *args) {
 }
 
 // Windows server — Winsock + real webi_handle call
-static void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "http_serve", 2, argc)) { *result = value_nil(); return; }
     if (args[0].type != VAL_NUMBER) { *result = value_nil(); return; }
     int port = (int)args[0].as.number;
@@ -1095,7 +1093,7 @@ static const char *wb_mime_for_path(const char *path) {
 }
 
 // Khan: _webi_mime_type(path) -> string
-static void fn_webi_mime_type(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_webi_mime_type(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "_webi_mime_type", 1, argc)) { *result = value_nil(); return; }
     const char *path;
     if (!wb_str_arg(interp, "_webi_mime_type", 0, args[0], &path)) { *result = value_nil(); return; }
@@ -1128,7 +1126,7 @@ static int wb_realpath(const char *path, char *out, size_t out_cap) {
 // callers that need "the directory of whichever .kh file is currently
 // running" as a value (e.g. render_file()'s containment boundary) don't
 // have to fake it by resolving ".".
-static void fn_webi_script_dir(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_webi_script_dir(Value *result, Interpreter *interp, int argc, Value *args) {
     (void)args;
     if (!wb_check(interp, "_webi_script_dir", 0, argc)) { *result = value_nil(); return; }
     if (interp->current_import_dir[0] != '\0') {
@@ -1151,7 +1149,7 @@ static void fn_webi_script_dir(Value *result, Interpreter *interp, int argc, Val
 // (base_path), so it works the same regardless of what directory `khan`
 // happens to be invoked from. Falls back to the path unchanged (resolved
 // relative to the process's current directory) if neither is set.
-static void fn_webi_resolve_path(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_webi_resolve_path(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "_webi_resolve_path", 1, argc)) { *result = value_nil(); return; }
     const char *path;
     if (!wb_str_arg(interp, "_webi_resolve_path", 0, args[0], &path)) { *result = value_nil(); return; }
@@ -1183,7 +1181,7 @@ static void fn_webi_resolve_path(Value *result, Interpreter *interp, int argc, V
 // returns nil for anything else — traversal attempts (encoded or not),
 // absolute-path/drive-letter escapes, symlink escapes (POSIX), missing
 // files, or directories.
-static void fn_webi_safe_static_path(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_webi_safe_static_path(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "_webi_safe_static_path", 2, argc)) { *result = value_nil(); return; }
     const char *folder, *rel;
     if (!wb_str_arg(interp, "_webi_safe_static_path", 0, args[0], &folder)) { *result = value_nil(); return; }
@@ -1277,7 +1275,7 @@ static int wb_fill_random_bytes(unsigned char *buf, int n) {
 }
 
 // Khan: secure_token(num_bytes = 32) -> hex string (num_bytes*2 chars)
-static void fn_secure_token(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_secure_token(Value *result, Interpreter *interp, int argc, Value *args) {
     int nbytes = 32; /* 256 bits by default */
     if (argc >= 1) {
         if (args[0].type != VAL_NUMBER) {
@@ -1384,7 +1382,7 @@ static int wb_rate_limit_check(const char *key, int max_requests, int window_sec
 }
 
 // Khan: rate_limit_check(key, max_requests, window_seconds) -> bool
-static void fn_rate_limit_check(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_rate_limit_check(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!wb_check(interp, "rate_limit_check", 3, argc)) { *result = value_nil(); return; }
     const char *key;
     if (!wb_str_arg(interp, "rate_limit_check", 0, args[0], &key)) { *result = value_nil(); return; }

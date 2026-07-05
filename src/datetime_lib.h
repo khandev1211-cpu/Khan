@@ -11,4 +11,13 @@
 //   timestamp()          -> number (Unix timestamp as float)
 void datetime_register_all(Environment *env);
 
+/* Export function pointers for VM registration */
+void fn_now(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_utcnow(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_timestamp(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_date_format(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_date_parse(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_date_diff(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_date_add(Value *result, Interpreter *interp, int argc, Value *args);
+
 #endif

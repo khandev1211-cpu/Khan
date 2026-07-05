@@ -27,7 +27,7 @@ static Value tm_to_map(struct tm *t, time_t ts) {
 // ---------------------------------------------------------------------------
 // now() -> date map in local time
 // ---------------------------------------------------------------------------
-static void fn_now(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_now(Value *result, Interpreter *interp, int argc, Value *args) {
     (void)interp; (void)argc; (void)args;
     time_t ts = time(NULL);
     struct tm *t = localtime(&ts);
@@ -37,7 +37,7 @@ static void fn_now(Value *result, Interpreter *interp, int argc, Value *args) {
 // ---------------------------------------------------------------------------
 // utcnow() -> date map in UTC
 // ---------------------------------------------------------------------------
-static void fn_utcnow(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_utcnow(Value *result, Interpreter *interp, int argc, Value *args) {
     (void)interp; (void)argc; (void)args;
     time_t ts = time(NULL);
     struct tm *t = gmtime(&ts);
@@ -47,7 +47,7 @@ static void fn_utcnow(Value *result, Interpreter *interp, int argc, Value *args)
 // ---------------------------------------------------------------------------
 // timestamp() -> current Unix timestamp as a float
 // ---------------------------------------------------------------------------
-static void fn_timestamp(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_timestamp(Value *result, Interpreter *interp, int argc, Value *args) {
     (void)interp; (void)argc; (void)args;
     *result = value_number((double)time(NULL));
 }
@@ -56,7 +56,7 @@ static void fn_timestamp(Value *result, Interpreter *interp, int argc, Value *ar
 // date_format(date_map, format_string) -> string
 // Uses strftime format codes: %Y %m %d %H %M %S %A %B etc.
 // ---------------------------------------------------------------------------
-static void fn_date_format(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_date_format(Value *result, Interpreter *interp, int argc, Value *args) {
     if (argc != 2 || args[0].type != VAL_MAP || args[1].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: date_format(date_map, fmt) expects a map and a string\n");
         interp->had_runtime_error = 1;
@@ -92,7 +92,7 @@ static void fn_date_format(Value *result, Interpreter *interp, int argc, Value *
 // ---------------------------------------------------------------------------
 // date_parse(string, format) -> date map
 // ---------------------------------------------------------------------------
-static void fn_date_parse(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_date_parse(Value *result, Interpreter *interp, int argc, Value *args) {
     if (argc != 2 || args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
         fprintf(stderr, "Runtime error: date_parse(str, fmt) expects two strings\n");
         interp->had_runtime_error = 1;
@@ -125,7 +125,7 @@ static void fn_date_parse(Value *result, Interpreter *interp, int argc, Value *a
 // ---------------------------------------------------------------------------
 // date_diff(map1, map2) -> seconds (map1 - map2), positive if map1 is later
 // ---------------------------------------------------------------------------
-static void fn_date_diff(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_date_diff(Value *result, Interpreter *interp, int argc, Value *args) {
     if (argc != 2 || args[0].type != VAL_MAP || args[1].type != VAL_MAP) {
         fprintf(stderr, "Runtime error: date_diff(d1, d2) expects two date maps\n");
         interp->had_runtime_error = 1;
@@ -146,7 +146,7 @@ static void fn_date_diff(Value *result, Interpreter *interp, int argc, Value *ar
 // date_add(date_map, key, amount) -> new date map
 // key: "seconds", "minutes", "hours", "days"
 // ---------------------------------------------------------------------------
-static void fn_date_add(Value *result, Interpreter *interp, int argc, Value *args) {
+void fn_date_add(Value *result, Interpreter *interp, int argc, Value *args) {
     if (argc != 3 || args[0].type != VAL_MAP ||
         args[1].type != VAL_STRING || args[2].type != VAL_NUMBER) {
         fprintf(stderr, "Runtime error: date_add(date, unit, amount)\n");
