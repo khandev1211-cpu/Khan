@@ -1,20 +1,14 @@
 # Khan JSON Database
-# A simple NoSQL-style database using JSON files.
 # Usage: import "json_db"
-#
-# let db = db_open("data.json")
-# db_set(db, "users", [{"name": "Irfan"}])
-# db_save(db)
-
-import "fs"
-import "json"
 
 fn db_open(path):
     let content = read_file(path)
     let data = {}
-    if content != nil and len(content) > 0:
-        data = json_decode(content)
-        if data == nil: data = {}
+    if content != nil:
+        if len(content) > 0:
+            data = json_decode(content)
+            if data == nil:
+                data = {}
 
     return {
         "path": path,
@@ -34,8 +28,6 @@ fn db_has(db, key):
     return has(db["data"], key)
 
 fn db_delete(db, key):
-    # Khan maps don't have a native 'delete' yet, so we set to nil
-    # or recreate the map. For now, nil is a signal.
     db["data"][key] = nil
     return db
 

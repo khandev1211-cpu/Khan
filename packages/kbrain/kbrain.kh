@@ -1,9 +1,5 @@
 # Khan KBrain - Simple AI/ML Package
 # Usage: import "kbrain"
-#
-# let model = linear_regression()
-# model = train(model, [[1], [2], [3]], [2, 4, 6])
-# print predict(model, [4]) # Should be 8
 
 fn linear_regression():
     return {
@@ -16,7 +12,8 @@ fn linear_regression():
 fn train(model, x, y):
     # Simple gradient descent for y = wx + b
     let n = len(x)
-    if n == 0: return model
+    if n == 0:
+        return model
 
     let i = 0
     while i < model["epochs"]:

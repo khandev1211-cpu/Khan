@@ -1,0 +1,28 @@
+# Test for argparse package
+import "../packages/argparse/argparse.kh"
+import "../packages/test/test.kh"
+
+let t = test_suite("Argparse Suite")
+let parser = arg_parser("Test App")
+parser = add_arg(parser, "--port", "8080", "Port")
+parser = add_flag(parser, "--verbose", "Verbose")
+
+let mock_argv = ["--port", "9000", "--verbose"]
+let args = parse_args(parser, mock_argv)
+
+t = test_eq(t, "port is 9000", args["port"], "9000")
+t = test_true(t, "verbose is true", args["verbose"])
+t = test_false(t, "help is false", args["help"])
+
+# Test defaults
+let empty_argv = []
+let args2 = parse_args(parser, empty_argv)
+t = test_eq(t, "default port is 8080", args2["port"], "8080")
+t = test_false(t, "default verbose is false", args2["verbose"])
+
+# Test help flag
+let help_argv = ["-h"]
+let args3 = parse_args(parser, help_argv)
+t = test_true(t, "help is true with -h", args3["help"])
+
+test_run(t)
