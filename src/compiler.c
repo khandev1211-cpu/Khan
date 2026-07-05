@@ -191,12 +191,9 @@ static char *compiler_read_file(const char *path) {
 }
 
 static void compile_import(const char *path, int line) {
-    // Built-in imports (no-op as they are always in global scope)
+    // Built-in native-only imports (no-op)
     if (strcmp(path, "json") == 0) return;
     if (strcmp(path, "math") == 0) return;
-    if (strcmp(path, "requests") == 0) return;
-    if (strcmp(path, "datetime") == 0) return;
-    if (strcmp(path, "webi") == 0) return;
 
     // Prevent double imports
     for (int i = 0; i < current->imported_count; i++) {
@@ -228,15 +225,23 @@ static void compile_import(const char *path, int line) {
         int is_pkg = 1;
         for (const char *p = path; *p; p++) if (*p == '/' || *p == '\\' || *p == '.') { is_pkg = 0; break; }
         if (is_pkg) {
-            char *home = getenv("USERPROFILE");
-            if (!home) home = getenv("HOME");
-            if (!home) home = ".";
-#ifdef _WIN32
-            snprintf(full_path, sizeof(full_path), "%s\\.khan\\packages\\%s\\%s.kh", home, path, path);
-#else
-            snprintf(full_path, sizeof(full_path), "%s/.khan/packages/%s/%s.kh", home, path, path);
-#endif
+            // 1. Try local packages folder
+            snprintf(full_path, sizeof(full_path), "packages/%s/%s.kh", path, path);
             file = fopen(full_path, "rb");
+
+            if (!file) {
+                // 2. Try home directory cache
+                char *home = getenv("USERPROFILE");
+                if (!home) home = getenv("HOME");
+                if (home) {
+#ifdef _WIN32
+                    snprintf(full_path, sizeof(full_path), "%s\\.khan\\packages\\%s\\%s.kh", home, path, path);
+#else
+                    snprintf(full_path, sizeof(full_path), "%s/.khan/packages/%s/%s.kh", home, path, path);
+#endif
+                    file = fopen(full_path, "rb");
+                }
+            }
         }
     }
 
@@ -298,6 +303,23 @@ static void compile_import(const char *path, int line) {
 
     ast_free(program);
     free(source);
+}
+
+static void compile_from_import(const char *path, char **names, int name_count, int line) {
+    // Built-in special case
+    if (strcmp(path, "webi") == 0) {
+        for (int i = 0; i < name_count; i++) {
+            if (strcmp(names[i], "webi") == 0) {
+                compile_import("webi", line);
+                return;
+            }
+        }
+    }
+
+    // Selective import logic is complex for the VM because it populates
+    // the global hash table directly. For now, we perform a full import
+    // to ensure all necessary functions are available to the VM.
+    compile_import(path, line);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -789,6 +811,12 @@ static void compile_stmt(AstNode *node) {
     /* ── import — handled at parse time; skip in VM mode ── */
     case AST_IMPORT_STMT:
         compile_import(node->data.import_path, line);
+        break;
+
+    case AST_FROM_IMPORT_STMT:
+        compile_from_import(node->data.from_import.path,
+                            node->data.from_import.names,
+                            node->data.from_import.name_count, line);
         break;
 
     /* ── program root ── */

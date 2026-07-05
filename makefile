@@ -53,7 +53,7 @@ kh$(EXT): $(KH_SRCS)
 
 clean:
 ifeq ($(OS),Windows_NT)
-	-del /Q /F src\*.o khan.exe kh.exe khan_vm.exe 2>nul
+	-del /Q /F src\*.o khan.exe kh.exe 2>nul
 else
-	rm -f src/*.o khan kh khan_vm
+	rm -f src/*.o khan kh
 endif
