@@ -27,7 +27,12 @@ let _env_cache = {}
 fn env(key):
     return _env_cache[key]
 
-# trim helper if not in stdlib
 fn trim(s):
-    # simple version
-    return s
+    if type(s) != "string": return s
+    let start = 0
+    while start < len(s) and substring(s, start, start + 1) == " ":
+        start = start + 1
+    let end = len(s)
+    while end > start and substring(s, end - 1, end) == " ":
+        end = end - 1
+    return substring(s, start, end)

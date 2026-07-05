@@ -8,7 +8,8 @@ fn is_email(s):
     if type(s) != "string":
         return false
 
-    let parts = split(s, "@")
+    let email = trim(s)
+    let parts = split(email, "@")
     if len(parts) != 2:
         return false
 
@@ -19,16 +20,28 @@ fn is_email(s):
     return true
 
 fn is_min_length(s, min_len):
-    return len(s) >= min_len
+    return len(str(s)) >= min_len
 
 fn is_max_length(s, max_len):
-    return len(s) <= max_len
+    return len(str(s)) <= max_len
 
 fn is_numeric(s):
     if type(s) == "number":
         return true
     if type(s) != "string":
         return false
-    # Try to convert to number
     let n = num(s)
     return n != nil
+
+fn trim(s):
+    if type(s) != "string": return s
+    # Simplified trim: remove leading/trailing spaces
+    let start = 0
+    while start < len(s) and substring(s, start, start + 1) == " ":
+        start = start + 1
+
+    let end = len(s)
+    while end > start and substring(s, end - 1, end) == " ":
+        end = end - 1
+
+    return substring(s, start, end)

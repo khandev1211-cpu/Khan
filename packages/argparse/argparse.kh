@@ -1,37 +1,53 @@
 # Khan Argparse Package
 # Usage: import "argparse"
 #
-# let parser = arg_parser("My App")
-# parser = add_arg(parser, "--port", "8080")
-# parser = add_arg(parser, "--host", "localhost")
+# let parser = arg_parser("My App Description")
+# parser = add_arg(parser, "--port", "8080", "Port to listen on")
+# parser = add_arg(parser, "--host", "localhost", "Host to bind to")
+#
+# if has_arg(argv, "--help"):
+#     arg_help(parser)
+#     exit(0)
+#
 # let args = parse_args(parser, argv)
-# print args["port"]
+# print "Running on " + args["host"] + ":" + args["port"]
 
 fn arg_parser(description):
     return {
         "description": description,
-        "defaults": {},
-        "current": {}
+        "args": {},
+        "help": {}
     }
 
-fn add_arg(parser, flag, default_val):
-    # flag like "--port"
-    let key = substring(flag, 2, len(flag))
-    parser["defaults"][key] = default_val
+fn add_arg(parser, flag, default_val, help_text):
+    let key = flag
+    if substring(flag, 0, 2) == "--":
+        key = substring(flag, 2, len(flag))
+
+    parser["args"][key] = default_val
+    parser["help"][key] = help_text
     return parser
+
+fn has_arg(args_list, flag):
+    for a in args_list:
+        if a == flag: return true
+    return false
 
 fn parse_args(parser, args_list):
     let result = {}
     # Load defaults
-    for k in keys(parser["defaults"]):
-        result[k] = parser["defaults"][k]
+    for k in keys(parser["args"]):
+        result[k] = parser["args"][k]
 
     # Parse argv
     let i = 0
     while i < len(args_list):
         let arg = args_list[i]
+        let key = ""
         if substring(arg, 0, 2) == "--":
-            let key = substring(arg, 2, len(arg))
+            key = substring(arg, 2, len(arg))
+
+        if has(result, key):
             if i + 1 < len(args_list):
                 result[key] = args_list[i+1]
                 i = i + 1
@@ -39,7 +55,14 @@ fn parse_args(parser, args_list):
 
     return result
 
-# Substring helper if not in stdlib (checking stdlib now...)
-# Looking at khan_stdlib.c, I don't see substring. I should check if it exists.
-# Wait, I saw substring in requests.kh earlier.
-# Let's check khan_stdlib.c again.
+fn arg_help(parser):
+    print "Usage: khan your_script.kh [options]"
+    print ""
+    print parser["description"]
+    print ""
+    print "Options:"
+    for k in keys(parser["args"]):
+        print "  --" + k + " (default: " + str(parser["args"][k]) + ")"
+        print "      " + parser["help"][k]
+    print "  --help"
+    print "      Show this help message"

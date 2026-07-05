@@ -1,0 +1,11 @@
+{
+  "name": "openai",
+  "version": "1.0.0",
+  "description": "Clean wrapper for the OpenAI API. Supports GPT-3.5/4 chat completions with native header support.",
+  "author": "khandev1211-cpu",
+  "developer": "Irfan Khan",
+  "main": "openai.kh",
+  "files": [
+    "openai.kh"
+  ]
+}
