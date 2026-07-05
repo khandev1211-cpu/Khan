@@ -191,6 +191,13 @@ static char *compiler_read_file(const char *path) {
 }
 
 static void compile_import(const char *path, int line) {
+    // Built-in imports (no-op as they are always in global scope)
+    if (strcmp(path, "json") == 0) return;
+    if (strcmp(path, "math") == 0) return;
+    if (strcmp(path, "requests") == 0) return;
+    if (strcmp(path, "datetime") == 0) return;
+    if (strcmp(path, "webi") == 0) return;
+
     // Prevent double imports
     for (int i = 0; i < current->imported_count; i++) {
         if (strcmp(current->imported_paths[i], path) == 0) return;

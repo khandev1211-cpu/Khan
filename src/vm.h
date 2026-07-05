@@ -52,6 +52,7 @@ void            vm_free(VM *vm);
 /* Register Khan's stdlib native functions into the VM's global table */
 void            vm_register_builtins(VM *vm);
 void            vm_global_set_native(VM *vm, const char *name, NativeFn fn);
+void            vm_global_set(VM *vm, const char *name, Value val);
 
 void json_register_all_vm(VM *vm);
 void datetime_register_all_vm(VM *vm);

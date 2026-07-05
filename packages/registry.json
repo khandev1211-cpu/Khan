@@ -286,6 +286,14 @@
       "description": "gRPC client for high-performance RPC",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/grpc/grpc.kh"
+    },
+    {
+      "name": "sqlite",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "SQL Database bridge for high-speed local data persistence",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/sqlite/sqlite.kh"
     }
   ]
 }

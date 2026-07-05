@@ -157,6 +157,10 @@ void vm_global_set_native(VM *vm, const char *name, NativeFn fn) {
     global_set(vm, name, v);
 }
 
+void vm_global_set(VM *vm, const char *name, Value val) {
+    global_set(vm, name, val);
+}
+
 void vm_init(VM *vm) {
     vm->stack_top   = vm->stack;
     vm->frame_count = 0;

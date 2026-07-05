@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────
 #  Khan Language — Makefile
-#  Builds: khan.exe (interpreter + webi) and kh.exe (package manager)
+#  Builds: khan.exe (The High-Performance Bytecode VM)
 # ─────────────────────────────────────────────────────────────
 
 CC      = gcc
@@ -18,55 +18,42 @@ else
     EXT      =
 endif
 
-# Core language files (unchanged)
-COMMON_SRCS = \
+# All Source Files for the unified High-Performance Khan
+SRCS = \
     src/lexer.c         \
     src/parser.c        \
-    src/ast.c
-
-# Tree-walk interpreter
-INTERP_SRCS = \
-    src/interpreter.c   \
-    src/khan_stdlib.c
-
-# Bytecode VM (New)
-VM_SRCS = \
-    src/vm.c            \
-    src/compiler.c      \
+    src/ast.c           \
     src/chunk.c         \
     src/value.c         \
-    src/vm_libs.c
-
-# Native C libraries — all use interpreter.h Value / Environment API
-NATIVE_SRCS = \
+    src/compiler.c      \
+    src/vm.c            \
+    src/vm_libs.c       \
+    src/interpreter.c   \
+    src/khan_stdlib.c   \
     src/json_lib.c      \
     src/datetime_lib.c  \
     src/requests_lib.c  \
-    src/webi_lib.c
+    src/webi_lib.c      \
+    src/sqlite_lib.c    \
+    src/main.c
 
-MAIN_SRC = src/main.c
-MAIN_VM_SRC = src/main_vm.c
-KH_SRCS  = src/kh.c
+KH_SRCS = src/kh.c
 
-.PHONY: all khan kh khan_vm clean
+.PHONY: all khan kh clean
 
-all: khan$(EXT) kh$(EXT) khan_vm$(EXT)
+all: khan$(EXT) kh$(EXT)
 
-khan$(EXT): $(COMMON_SRCS) $(INTERP_SRCS) $(NATIVE_SRCS) $(MAIN_SRC)
+khan$(EXT): $(SRCS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
-	@echo "  Built $@"
-
-khan_vm$(EXT): $(COMMON_SRCS) $(INTERP_SRCS) $(VM_SRCS) $(NATIVE_SRCS) $(MAIN_VM_SRC)
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
-	@echo "  Built $@"
+	@echo "  Built khan$(EXT) (High-Performance VM Edition)"
 
 kh$(EXT): $(KH_SRCS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
-	@echo "  Built $@"
+	@echo "  Built kh$(EXT) (Package Manager)"
 
 clean:
 ifeq ($(OS),Windows_NT)
-	-del /Q /F src\*.o khan.exe kh.exe 2>nul
+	-del /Q /F src\*.o khan.exe kh.exe khan_vm.exe 2>nul
 else
-	rm -f src/*.o khan kh
+	rm -f src/*.o khan kh khan_vm
 endif

@@ -30,6 +30,7 @@ void fn_trim(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_contains(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_substring(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_split(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_str_replace(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_input(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_read_file(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_write_file(Value *result, Interpreter *interp, int argc, Value *args);

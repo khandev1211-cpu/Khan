@@ -1,0 +1,13 @@
+# Khan SQLite Package
+# Usage: import "sqlite"
+
+fn db_open(path):
+    return sqlite_open(path)
+
+fn db_exec(db, sql):
+    return sqlite_exec(db, sql)
+
+# Helper for migrations
+fn db_init(db):
+    print "[SQLITE] Initializing database at " + db["path"]
+    return true

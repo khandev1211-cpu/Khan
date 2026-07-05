@@ -4,6 +4,7 @@
 #include "datetime_lib.h"
 #include "requests_lib.h"
 #include "webi_lib.h"
+#include "sqlite_lib.h"
 
 void vm_register_builtins(VM *vm) {
     // Standard Library
@@ -31,6 +32,7 @@ void vm_register_builtins(VM *vm) {
     vm_global_set_native(vm, "contains",   fn_contains);
     vm_global_set_native(vm, "substring",  fn_substring);
     vm_global_set_native(vm, "split",      fn_split);
+    vm_global_set_native(vm, "str_replace",fn_str_replace);
     vm_global_set_native(vm, "input",      fn_input);
     vm_global_set_native(vm, "read_file",  fn_read_file);
     vm_global_set_native(vm, "write_file", fn_write_file);
