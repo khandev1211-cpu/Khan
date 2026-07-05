@@ -203,6 +203,54 @@ fn mw_request_id(req):
 app = use(app, mw_request_id)
 ```
 
+### After-hooks — the other end of the request (v1.1.3)
+
+Middleware only ever sees `req`, before the handler runs — it can't
+read or react to the response. **After-hooks** are the opposite:
+`fn(req, res) -> res`, run once the handler has already produced a
+response, in registration order, each one seeing the previous hook's
+result.
+
+```khan
+fn hook_add_header(req, res):
+    res = res_with_header(res, "X-Request-Id", req["request_id"])
+    return res
+
+app = after(app, hook_add_header)
+```
+
+This is what makes real post-response logging — status code, elapsed
+time, response size, the things Node's `morgan` logs — possible as an
+ordinary installable package instead of something wired into webi's
+core. `req["_start_clock"]` (a `clock()` reading taken before
+middleware/dispatch even run) is stamped onto every request specifically
+so an after-hook can compute elapsed time without webi needing to know
+anything about logging.
+
+**`morgos`** is exactly that — a separate package, one function:
+
+```bash
+kh install morgos
+```
+
+```khan
+from webi import webi
+import "morgos"
+
+let app = webi_app()
+app = after(app, morgos)
+```
+
+```
+GET /users/42 200 12.48 ms - 1024
+```
+
+Unlike `webi_debug()`'s built-in logging, `morgos` logs every request
+unconditionally (no debug flag needed), and — being an ordinary
+after-hook — can be swapped out, combined with another after-hook (a
+file logger via the `logger` package, say), or removed, without
+touching webi itself.
+
 ---
 
 ## Security
@@ -333,7 +381,7 @@ it's exposed mainly so tests can dispatch a request without actually
 opening a socket (see `examples/webi_phase3_test.kh` for an example).
 
 ```khan
-print webi_version()    # "webi/1.1.2 (Khan)"
+print webi_version()    # "webi/1.1.3 (Khan)"
 print webi_routes(app)  # list every registered route, for debugging
 ```
 

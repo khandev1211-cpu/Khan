@@ -4,7 +4,7 @@
 ![Build](https://img.shields.io/badge/build-make-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 ![Status](https://img.shields.io/badge/status-stable--release-green)
-![Packages](https://img.shields.io/badge/packages-12-purple)
+![Packages](https://img.shields.io/badge/packages-13-purple)
 
 **Khan** is a custom, indentation-based programming language built entirely from scratch in C11. Created by **Irfan Khan**, this project is a hands-on exploration of compiler design, lexer construction, parser development, runtime interpretation, and standard library implementation. The language draws inspiration from Python's clean indentation syntax and Lua's simplicity, while keeping a minimal footprint in pure C.
 
@@ -123,7 +123,8 @@ print PI                # 3.14159...
 | `events` | 1.0.0 | Event emitter system: on, emit, once, off, history |
 | `logger` | 1.0.0 | Structured logger: debug/info/warn/error levels, file output, silent mode |
 | `uuid` | 1.0.0 | Unique ID generation: uuid_v4, short IDs, sequential counters |
-| `webi` | 1.1.2 | Web framework: routing, security, templates, static files, HTTP server — see [docs/webi.md](docs/webi.md) |
+| `webi` | 1.1.3 | Web framework: routing, security, templates, static files, HTTP server — see [docs/webi.md](docs/webi.md) |
+| `morgos` | 1.0.0 | Morgan-style request logger for webi — colored status, elapsed time, response size, as a swappable `after()` hook |
 
 ### math
 
@@ -549,6 +550,7 @@ Khan/
 │   ├── events/
 │   ├── logger/
 │   ├── uuid/
+│   ├── morgos/
 │   └── webi/
 │       ├── package.json
 │       ├── webi.kh            # entry point — pulls in every file below
@@ -572,6 +574,7 @@ Khan/
 │   ├── webi_security_test.kh
 │   ├── webi_from_import_test.kh
 │   ├── webi_phase3_test.kh
+│   ├── webi_after_hook_test.kh
 │   └── todo_app/
 │       ├── main.kh
 │       ├── todo_core.kh
@@ -699,6 +702,7 @@ package.
 | `webi` security — CSRF, rate limiting, API keys, CORS, `secure_token()` | ✅ Complete |
 | `webi` templates — `render()` / `render_file()` | ✅ Complete |
 | `webi` static files — `serve_static()`, MIME table, path-traversal protection | ✅ Complete |
+| `webi` `after()` hooks — post-response middleware, `morgos` request logger | ✅ Complete |
 | `webi` threaded server (thread-per-connection, concurrency cap) | 🔲 Planned |
 | Error handling (`try`/`catch`) | 🔲 Planned |
 | Bytecode compiler + VM | 🔲 Planned |

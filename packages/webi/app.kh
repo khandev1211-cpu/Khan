@@ -5,7 +5,8 @@
 #             app["host"]        bind address (default "0.0.0.0")
 #             app["port"]        port number
 #             app["debug"]       bool
-#             app["middlewares"] list of middleware fn references
+#             app["middlewares"] list of middleware fn references (run before the handler)
+#             app["after_hooks"] list of after-hook fn references  (run after the handler)  (v1.1.3)
 #             app["not_found"]   custom 404 handler fn (optional)
 #             app["error"]       custom 500 handler fn (optional)
 
@@ -17,6 +18,7 @@ fn webi_app():
     return {
         "routes":      [],
         "middlewares": [],
+        "after_hooks": [],
         "host":        "0.0.0.0",
         "port":        8080,
         "debug":       false,

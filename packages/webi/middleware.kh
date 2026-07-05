@@ -17,6 +17,30 @@ fn use(app, middleware_fn):
     return app
 
 # ---------------------------------------------------------------------------
+# after(app, hook_fn) -> app                                        (v1.1.3)
+# Add an after-hook. After-hooks run once the route handler has already
+# produced a response — the opposite end of the request from
+# middleware, which only ever sees `req` before the handler runs and
+# never sees a response at all.
+#
+# hook signature: fn my_hook(req, res) -> res
+# Return the (possibly modified) res map to pass it along. Hooks run in
+# registration order, each one seeing the previous hook's result.
+#
+# This is what makes real post-response logging (status code, elapsed
+# time, response size — the things Node's `morgan` logs) possible as an
+# ordinary installable package instead of something baked into webi's
+# core: see the `morgos` package.
+#
+#   from webi import webi
+#   import "morgos"
+#   app = after(app, morgos)
+# ---------------------------------------------------------------------------
+fn after(app, hook_fn):
+    app["after_hooks"] = push(app["after_hooks"], hook_fn)
+    return app
+
+# ---------------------------------------------------------------------------
 # Internal: run all middlewares on a request
 #
 # v1.1.1: also stamps req["_app"] = app so built-in middlewares (CORS,
@@ -38,6 +62,23 @@ fn _webi_run_middlewares(app, req):
             return req
         i = i + 1
     return req
+
+# ---------------------------------------------------------------------------
+# Internal: run all after-hooks on a response, once the route handler (or
+# a short-circuited middleware) has already produced it.                (v1.1.3)
+#
+# Unlike _webi_run_middlewares, there's no short-circuit path here — a
+# response already exists by the time after-hooks run, so there's
+# nothing left to reject; every hook just gets a chance to observe or
+# modify the response (log it, add a header, ...) and pass it along.
+# ---------------------------------------------------------------------------
+fn _webi_run_after_hooks(app, req, res):
+    let hooks = app["after_hooks"]
+    let i = 0
+    while i < len(hooks):
+        res = hooks[i](req, res)
+        i = i + 1
+    return res
 
 # ===========================================================================
 # BUILT-IN MIDDLEWARE

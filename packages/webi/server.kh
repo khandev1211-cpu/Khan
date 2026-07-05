@@ -83,7 +83,6 @@ fn _webi_log(app, req, res, start_clock):
 # ---------------------------------------------------------------------------
 fn webi_handle(app, method, path, query_str, headers_str, body, ip):
     let start_clock = clock()
-
     # Build query params map from "key=val&key2=val2"
     let query = {}
     if len(query_str) > 0:
@@ -125,17 +124,19 @@ fn webi_handle(app, method, path, query_str, headers_str, body, ip):
             body_json = json_decode(body)
 
     let req = {
-        "method":    method,
-        "path":      path,
-        "query":     query,
-        "headers":   headers,
-        "body":      body,
-        "body_json": body_json,
-        "params":    {},
-        "ip":        ip
+        "method":      method,
+        "path":        path,
+        "query":       query,
+        "headers":     headers,
+        "body":        body,
+        "body_json":   body_json,
+        "params":      {},
+        "ip":          ip,
+        "_start_clock": start_clock
     }
 
     let res = _webi_dispatch(app, req)
+    res = _webi_run_after_hooks(app, req, res)
     _webi_log(app, req, res, start_clock)
     return res
 
