@@ -94,6 +94,7 @@ int  chunk_add_const(Chunk *c, Value v);  /* returns constant index */
    ───────────────────────────────────────────── */
 typedef struct KhanFunction {
     char  *name;
+    char  *source_dir;     /* Path directory of the .kh file this fn was defined in */
     int    arity;
     Chunk  chunk;
     int    is_native;      /* 0 = Khan bytecode, 1 = C native */

@@ -160,13 +160,17 @@ static void compiler_state_init(CompilerState *c, KhanFunction *fn,
 
     if (enclosing) {
         c->base_path = enclosing->base_path;
-        c->current_import_dir = enclosing->current_import_dir;
+        c->current_import_dir = enclosing->current_import_dir ? strdup(enclosing->current_import_dir) : NULL;
         c->imported_count = enclosing->imported_count;
         // Share imported paths with parent
     } else {
         c->base_path = NULL;
         c->current_import_dir = NULL;
         c->imported_count = 0;
+    }
+
+    if (c->current_import_dir) {
+        fn->source_dir = strdup(c->current_import_dir);
     }
 }
 
@@ -851,6 +855,10 @@ KhanFunction *compile(AstNode *program, const char *base_path) {
             state.base_path = malloc(len + 1);
             memcpy(state.base_path, base_path, len);
             state.base_path[len] = '\0';
+
+            // Also set as source_dir for the top-level script
+            if (script->source_dir) free(script->source_dir);
+            script->source_dir = strdup(state.base_path);
         }
     }
 

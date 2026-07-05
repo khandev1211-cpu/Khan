@@ -49,8 +49,17 @@ fn _morgos_color_status(status, text):
 # The logger itself — register it with after(app, morgos).
 # ---------------------------------------------------------------------------
 fn morgos(req, res):
-    let elapsed_ms = round((clock() - req["_start_clock"]) * 100000) / 100
+    let start = 0
+    if has(req, "_start_clock"):
+        start = req["_start_clock"]
+    else:
+        start = clock()
+
+    let elapsed_ms = round((clock() - start) * 100000) / 100
     let status_str = _morgos_color_status(res["status"], str(res["status"]))
-    let size = len(res["body"])
+    let size = 0
+    if has(res, "body"):
+        size = len(res["body"])
+
     print req["method"] + " " + req["path"] + " " + status_str + " " + str(elapsed_ms) + " ms - " + str(size)
     return res

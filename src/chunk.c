@@ -42,9 +42,10 @@ int chunk_add_const(Chunk *c, Value v) {
 
 KhanFunction *khanfn_new(const char *name, int arity) {
     KhanFunction *fn = malloc(sizeof(KhanFunction));
-    fn->name      = name ? strdup(name) : NULL;
-    fn->arity     = arity;
-    fn->is_native = 0;
+    fn->name       = name ? strdup(name) : NULL;
+    fn->source_dir = NULL;
+    fn->arity      = arity;
+    fn->is_native  = 0;
     chunk_init(&fn->chunk);
     return fn;
 }
@@ -52,6 +53,7 @@ KhanFunction *khanfn_new(const char *name, int arity) {
 void khanfn_free(KhanFunction *fn) {
     if (!fn) return;
     free(fn->name);
+    if (fn->source_dir) free(fn->source_dir);
     chunk_free(&fn->chunk);
     free(fn);
 }

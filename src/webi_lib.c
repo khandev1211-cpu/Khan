@@ -48,6 +48,8 @@ typedef int wb_sock_t;
 #endif
 
 #include "webi_lib.h"
+#include "vm.h"
+#include "json_lib.h"
 
 #ifndef S_ISREG
 #define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
@@ -98,14 +100,18 @@ static Value wb_safe_call_webi_handle(Interpreter *interp, Environment *env,
     // Check if we are in VM mode (interp is actually a VM pointer)
     // We check a magic field or use the fact that g_webi_env is NULL for VM
     if (interp && !env) {
-        res_map = vm_call_fn((struct VM*)interp, "webi_handle", argc, call_args);
+        res_map = vm_call_fn((VM*)interp, "webi_handle", argc, call_args);
+        if (((VM*)interp)->had_runtime_error) {
+            fprintf(stderr, "[webi] VM request handler error on %s %s\n", method ? method : "?", path ? path : "?");
+            ((VM*)interp)->had_runtime_error = 0;
+            value_free(res_map);
+            res_map = value_map_empty();
+            map_set(&res_map, "status",       value_number(500));
+            map_set(&res_map, "body",         value_string("500 Internal Server Error (VM Error)"));
+            map_set(&res_map, "content_type", value_string("text/plain"));
+            map_set(&res_map, "headers",      value_map_empty());
+        }
     } else {
-        res_map = khan_call_fn(interp, env, "webi_handle", argc, call_args);
-    }
-
-    if (interp && !env) {
-        // VM manages errors differently
-    } else if (interp && interp->had_runtime_error) {
         fprintf(stderr,
                 "[webi] request handler error on %s %s — request failed, "
                 "server continues running.\n",
@@ -1236,7 +1242,11 @@ void fn_webi_safe_static_path(Value *result, Interpreter *interp, int argc, Valu
     // let a sibling folder like "/mnt/static-evil" pass a check meant for
     // "/mnt/static".
     size_t flen = strlen(folder_real);
+#ifdef _WIN32
+    int contained = _strnicmp(candidate_real, folder_real, flen) == 0 &&
+#else
     int contained = strncmp(candidate_real, folder_real, flen) == 0 &&
+#endif
                     (candidate_real[flen] == '\0' ||
                      candidate_real[flen] == '/'  ||
                      candidate_real[flen] == '\\');

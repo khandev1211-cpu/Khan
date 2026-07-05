@@ -7,8 +7,8 @@
 #include "chunk.h"
 #include "value.h"
 
-#define VM_STACK_MAX  2048
-#define VM_FRAMES_MAX  256
+#define VM_STACK_MAX  16384
+#define VM_FRAMES_MAX  1024
 
 /* One activation record on the call stack */
 typedef struct {
@@ -31,6 +31,17 @@ typedef struct {
 
 /* ── The VM ── */
 typedef struct {
+    /* Fields shared with Interpreter for native library compatibility */
+    int       had_runtime_error;
+    const char *base_path;
+    int       is_returning;   /* unused in VM loop directly */
+    Value     return_value;   /* unused in VM loop directly */
+    int       is_breaking;    /* unused in VM loop directly */
+    int       is_continuing;  /* unused in VM loop directly */
+    void     *base_env;       /* NULL in VM mode */
+    char      current_import_dir[1024];
+
+    /* VM specific fields */
     CallFrame frames[VM_FRAMES_MAX];
     int       frame_count;
 

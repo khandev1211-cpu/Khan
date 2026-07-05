@@ -84,6 +84,25 @@ int main(int argc, char *argv[]) {
     VM vm;
     vm_init(&vm);
 
+    /* ── Resolve base path for imports ── */
+    char path_buf[2048];
+    GetFullPathNameA(argv[1], (DWORD)sizeof(path_buf), path_buf, NULL);
+
+    char *last_slash     = strrchr(path_buf, '/');
+    char *last_backslash = strrchr(path_buf, '\\');
+    char *sep = (last_slash > last_backslash) ? last_slash : last_backslash;
+    if (sep) {
+        *sep = '\0'; // path_buf now contains the absolute dir
+        vm.base_path = strdup(path_buf);
+        strncpy(vm.current_import_dir, path_buf, sizeof(vm.current_import_dir) - 1);
+        vm.current_import_dir[sizeof(vm.current_import_dir) - 1] = '\0';
+    } else {
+        vm.base_path = strdup(".");
+        strcpy(vm.current_import_dir, ".");
+    }
+
+    // printf("[DEBUG] base_path: %s, current_import_dir: %s\n", vm.base_path, vm.current_import_dir);
+
     /* ── Register built-ins and libraries ── */
     vm_register_builtins(&vm);
     json_register_all_vm(&vm);

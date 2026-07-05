@@ -162,6 +162,10 @@ void vm_global_set(VM *vm, const char *name, Value val) {
 }
 
 void vm_init(VM *vm) {
+    vm->had_runtime_error = 0;
+    vm->base_path = NULL;
+    vm->current_import_dir[0] = '\0';
+    vm->base_env = NULL;
     vm->stack_top   = vm->stack;
     vm->frame_count = 0;
     table_init(&vm->globals);
@@ -362,9 +366,16 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
 
         case OP_RETURN: {
             Value result = pop(vm);
-            vm->frame_count--;
-            if (vm->frame_count < initial_frame_count) return INTERPRET_OK;
+
+            // Clean up the stack: pop function and arguments
             vm->stack_top = frame->slots - 1;
+
+            vm->frame_count--;
+            if (vm->frame_count < initial_frame_count) {
+                push(vm, result);
+                return INTERPRET_OK;
+            }
+
             push(vm, result);
             frame = &vm->frames[vm->frame_count - 1];
             break;
@@ -431,6 +442,7 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
 
 InterpretResult vm_run(VM *vm, KhanFunction *script) {
     push(vm, value_nil());
+
     CallFrame *frame = &vm->frames[vm->frame_count++];
     frame->fn    = script;
     frame->ip    = script->chunk.code;
@@ -440,20 +452,44 @@ InterpretResult vm_run(VM *vm, KhanFunction *script) {
 
 Value vm_call_fn(VM *vm, const char *name, int argc, Value *args) {
     Value fn_val;
-    if (!global_get(vm, name, &fn_val)) return value_nil();
-    if (fn_val.type != VAL_FUNCTION) return value_nil();
+    if (!global_get(vm, name, &fn_val)) {
+        fprintf(stderr, "[VM] vm_call_fn: function '%s' not found\n", name);
+        return value_nil();
+    }
+    if (fn_val.type != VAL_FUNCTION) {
+        fprintf(stderr, "[VM] vm_call_fn: '%s' is not a function (type %d)\n", name, fn_val.type);
+        return value_nil();
+    }
 
-    for (int i = 0; i < argc; i++) push(vm, value_copy(args[i]));
+    /* Stack order MUST be: [fn][arg1][arg2]... */
     push(vm, value_copy(fn_val));
+    for (int i = 0; i < argc; i++) push(vm, value_copy(args[i]));
 
     KhanFunction *fn = (KhanFunction*)fn_val.as.function.body;
+    if (fn->arity != argc) {
+        fprintf(stderr, "[VM] vm_call_fn: '%s' expects %d args, got %d\n", name, fn->arity, argc);
+        // Clean up stack
+        for (int i = 0; i <= argc; i++) value_free(pop(vm));
+        return value_nil();
+    }
+
     CallFrame *new_frame = &vm->frames[vm->frame_count++];
     new_frame->fn    = fn;
     new_frame->ip    = fn->chunk.code;
     new_frame->slots = vm->stack_top - argc;
 
-    int current_frame_count = vm->frame_count;
-    run_loop(vm, current_frame_count);
+    int initial_frame_count = vm->frame_count;
+    InterpretResult res = run_loop(vm, initial_frame_count);
+
+    if (res != INTERPRET_OK) {
+        // Error occurred. run_loop exited early.
+        // We must manually pop the function and args to prevent stack leaks.
+        while (vm->frame_count >= initial_frame_count) {
+             CallFrame *f = &vm->frames[--vm->frame_count];
+             vm->stack_top = f->slots - 1;
+        }
+        return value_nil();
+    }
 
     return pop(vm);
 }

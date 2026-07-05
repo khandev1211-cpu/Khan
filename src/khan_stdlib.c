@@ -50,15 +50,25 @@ static int expect_string(Interpreter *interp, const char *name,
 // ===========================================================================
 
 static void value_to_str_recursive(Value v, char **buf, int *len, int *cap) {
+    if (v.type == VAL_STRING) {
+        size_t tlen = strlen(v.as.string);
+        if ((size_t)(*len) + tlen + 1 > (size_t)(*cap)) {
+            *cap = (*cap) ? (*cap) * 2 : 256;
+            if ((size_t)(*len) + tlen + 1 > (size_t)(*cap)) *cap = (int)((size_t)(*len) + tlen + 256);
+            *buf = realloc(*buf, (size_t)(*cap));
+        }
+        memcpy(*buf + *len, v.as.string, tlen);
+        *len += (int)tlen;
+        (*buf)[*len] = '\0';
+        return;
+    }
+
     char tmp[128];
     switch (v.type) {
         case VAL_NUMBER:
             if (v.as.number == (long long)v.as.number)
                 snprintf(tmp, sizeof(tmp), "%lld", (long long)v.as.number);
             else snprintf(tmp, sizeof(tmp), "%g", v.as.number);
-            break;
-        case VAL_STRING:
-            snprintf(tmp, sizeof(tmp), "%s", v.as.string);
             break;
         case VAL_BOOL:
             snprintf(tmp, sizeof(tmp), "%s", v.as.boolean ? "true" : "false");
@@ -82,13 +92,14 @@ static void value_to_str_recursive(Value v, char **buf, int *len, int *cap) {
             snprintf(tmp, sizeof(tmp), "<unknown>");
             break;
     }
-    int tlen = (int)strlen(tmp);
-    if (*len + tlen + 1 > *cap) {
-        *cap = *cap ? *cap * 2 : 256;
-        *buf = realloc(*buf, *cap);
+    size_t tlen2 = strlen(tmp);
+    if ((size_t)(*len) + tlen2 + 1 > (size_t)(*cap)) {
+        *cap = (*cap) ? (*cap) * 2 : 256;
+        if ((size_t)(*len) + tlen2 + 1 > (size_t)(*cap)) *cap = (int)((size_t)(*len) + tlen2 + 256);
+        *buf = realloc(*buf, (size_t)(*cap));
     }
-    memcpy(*buf + *len, tmp, tlen);
-    *len += tlen;
+    memcpy(*buf + *len, tmp, tlen2);
+    *len += (int)tlen2;
     (*buf)[*len] = '\0';
 }
 
