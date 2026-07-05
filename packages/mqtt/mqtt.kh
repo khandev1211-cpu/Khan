@@ -1,6 +1,19 @@
-# Khan MQTT - IoT Messaging
+# Khan MQTT Client
+# Lightweight protocol for IoT
 # Usage: import "mqtt"
 
-fn mqtt_publish(topic, msg):
-    print "MQTT: Publishing to " + topic
+fn mqtt_client(host, port):
+    return {
+        "host": host,
+        "port": port,
+        "subs": []
+    }
+
+fn mqtt_publish(client, topic, message):
+    print "[MQTT] " + client["host"] + " -> PUBLISH '" + message + "' to " + topic
     return true
+
+fn mqtt_subscribe(client, topic):
+    client["subs"] = push(client["subs"], topic)
+    print "[MQTT] Subscribed to " + topic
+    return client

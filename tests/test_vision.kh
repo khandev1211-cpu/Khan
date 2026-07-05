@@ -1,0 +1,13 @@
+# Test for vision package
+import "../packages/vision/vision.kh"
+import "../packages/test/test.kh"
+
+let t = test_suite("Vision Suite")
+
+let img = load_image("car.jpg")
+t = test_eq(t, "path check", img["path"], "car.jpg")
+
+let faces = detect_faces(img)
+t = test_eq(t, "should find 2 faces", len(faces), 2)
+
+test_run(t)

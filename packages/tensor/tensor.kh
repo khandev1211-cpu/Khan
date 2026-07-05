@@ -1,12 +1,39 @@
-# Khan Tensor - Multi-dimensional array math
+# Khan Tensor Package
+# High-speed math for AI (Matrices and Vectors)
 # Usage: import "tensor"
-#
-# let a = [1, 2]
-# let b = [3, 4]
-# print dot(a, b)
 
+# Matrix multiplication C = A * B
+fn matmul(A, B):
+    let rows_A = len(A)
+    let cols_A = len(A[0])
+    let rows_B = len(B)
+    let cols_B = len(B[0])
+
+    if cols_A != rows_B:
+        print "Error: Matrix dimensions mismatch for matmul"
+        return nil
+
+    let result = []
+    let i = 0
+    while i < rows_A:
+        let row = []
+        let j = 0
+        while j < cols_B:
+            let sum = 0
+            let k = 0
+            while k < cols_A:
+                sum = sum + A[i][k] * B[k][j]
+                k = k + 1
+            row = push(row, sum)
+            j = j + 1
+        result = push(result, row)
+        i = i + 1
+    return result
+
+# Vector dot product
 fn dot(a, b):
-    if len(a) != len(b): return nil
+    if len(a) != len(b):
+        return nil
     let sum = 0
     let i = 0
     while i < len(a):
@@ -14,10 +41,21 @@ fn dot(a, b):
         i = i + 1
     return sum
 
+# Element-wise addition
 fn add(a, b):
     let res = []
     let i = 0
     while i < len(a):
         res = push(res, a[i] + b[i])
         i = i + 1
+    return res
+
+# Scalar multiplication
+fn scale(A, s):
+    let res = []
+    for row in A:
+        let new_row = []
+        for val in row:
+            new_row = push(new_row, val * s)
+        res = push(res, new_row)
     return res
