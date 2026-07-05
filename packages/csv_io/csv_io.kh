@@ -1,0 +1,35 @@
+# Khan CSV I/O Package
+# Usage: import "csv_io"
+#
+# let rows = csv_read("data.csv")
+# print rows[0]["Name"]
+
+import "fs"
+
+fn csv_read(path):
+    let content = read_file(path)
+    if content == nil: return []
+
+    let lines = split(content, "\n")
+    if len(lines) == 0: return []
+
+    let headers = split(lines[0], ",")
+    let result = []
+
+    let i = 1
+    while i < len(lines):
+        let line = lines[i]
+        if len(line) > 0:
+            let values = split(line, ",")
+            let row = {}
+            let j = 0
+            while j < len(headers) and j < len(values):
+                row[trim(headers[j])] = trim(values[j])
+                j = j + 1
+            result = push(result, row)
+        i = i + 1
+    return result
+
+fn trim(s):
+    # Basic trim for now
+    return s

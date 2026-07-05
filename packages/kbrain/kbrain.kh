@@ -1,0 +1,33 @@
+# Khan KBrain - Simple AI/ML Package
+# Usage: import "kbrain"
+#
+# let model = linear_regression()
+# model = train(model, [[1], [2], [3]], [2, 4, 6])
+# print predict(model, [4]) # Should be 8
+
+fn linear_regression():
+    return {
+        "weights": 0,
+        "bias": 0,
+        "lr": 0.01
+    }
+
+fn train(model, x, y):
+    # Simple gradient descent for y = wx + b
+    let i = 0
+    while i < 1000: # Iterations
+        let j = 0
+        while j < len(x):
+            let xi = x[j][0]
+            let yi = y[j]
+            let pred = model["weights"] * xi + model["bias"]
+            let error = pred - yi
+
+            model["weights"] = model["weights"] - model["lr"] * error * xi
+            model["bias"] = model["bias"] - model["lr"] * error
+            j = j + 1
+        i = i + 1
+    return model
+
+fn predict(model, x):
+    return model["weights"] * x[0] + model["bias"]

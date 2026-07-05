@@ -142,6 +142,46 @@
       "description": "Data validation utilities: emails, lengths, numeric checks",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/validation/validation.kh"
+    },
+    {
+      "name": "argparse",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Command-line argument parser",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/argparse/argparse.kh"
+    },
+    {
+      "name": "dotenv",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Load environment variables from .env files",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/dotenv/dotenv.kh"
+    },
+    {
+      "name": "json_db",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Simple NoSQL database using JSON files",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/json_db/json_db.kh"
+    },
+    {
+      "name": "csv_io",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "CSV file reader and writer",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/csv_io/csv_io.kh"
+    },
+    {
+      "name": "kbrain",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Simple machine learning and AI utilities",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/kbrain/kbrain.kh"
     }
   ]
 }

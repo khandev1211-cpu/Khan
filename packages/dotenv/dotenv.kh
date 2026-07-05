@@ -1,0 +1,33 @@
+# Khan Dotenv Package
+# Usage: import "dotenv"
+#
+# load_env(".env")
+# print env("API_KEY")
+
+import "fs"
+
+fn load_env(path):
+    let content = read_file(path)
+    if content == nil:
+        return false
+
+    let lines = split(content, "\n")
+    for line in lines:
+        let parts = split(line, "=")
+        if len(parts) >= 2:
+            let key = trim(parts[0])
+            let val = trim(parts[1])
+            # We don't have a native setenv yet, so we store in a global map
+            # but for this version, we can just return the map.
+            _env_cache[key] = val
+    return true
+
+let _env_cache = {}
+
+fn env(key):
+    return _env_cache[key]
+
+# trim helper if not in stdlib
+fn trim(s):
+    # simple version
+    return s
