@@ -61,6 +61,23 @@ app = webi_debug(app, true)      # verbose per-request logging
 app = webi_name(app, "my-api")   # shown in logs
 ```
 
+`webi_debug(app, true)` also turns on an automatic, Morgan-style request
+log — no middleware needed — printed once per request straight from
+`webi_handle()` after the response is built:
+
+```
+[webi] GET /users/42 200 12.48 ms - 1024
+```
+
+Method, path, status (color-coded — green 2xx, cyan 3xx, yellow 4xx, red
+5xx), elapsed time covering the full request (middleware + routing +
+handler), and response body size in bytes. This is separate from
+`mw_logger` below, which is an opt-in pre-request middleware with no
+status/timing (it runs before the response exists) — turn on
+`webi_debug()` if you want the Morgan-style summary line, add
+`mw_logger` as well if you also want to see a request logged the moment
+it arrives, before the handler runs.
+
 Register routes with `route()`, or the per-method shortcuts:
 
 ```khan
@@ -171,7 +188,7 @@ route handler, in registration order. It can:
 Built-ins:
 
 ```khan
-app = use(app, mw_logger)      # print "[webi] GET /path -> 200" (in debug mode)
+app = use(app, mw_logger)      # print "[webi] GET /path" as each request comes in
 app = use(app, mw_cors)        # reflect your configured CORS origin, handle OPTIONS preflight
 app = use(app, mw_json_only)   # reject non-JSON requests with 415
 ```

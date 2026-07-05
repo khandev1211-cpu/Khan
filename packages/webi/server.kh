@@ -39,11 +39,38 @@ fn _webi_dispatch(app, req):
     return match["handler"](req)
 
 # ---------------------------------------------------------------------------
-# Internal: log a request (only in debug mode)
+# Internal: ANSI-color a status code string by its class, Morgan-style —
+# green 2xx, cyan 3xx, yellow 4xx, red 5xx. Self-contained (no dependency
+# on the separate `colors` package) since this is core framework output,
+# not optional app-level styling.
 # ---------------------------------------------------------------------------
-fn _webi_log(app, req, res):
+fn _webi_color_status(status, text):
+    if status >= 500:
+        return "\x1b[31m" + text + "\x1b[0m"
+    if status >= 400:
+        return "\x1b[33m" + text + "\x1b[0m"
+    if status >= 300:
+        return "\x1b[36m" + text + "\x1b[0m"
+    return "\x1b[32m" + text + "\x1b[0m"
+
+# ---------------------------------------------------------------------------
+# Internal: log a request (only in debug mode).
+#
+# Morgan-style dev-format line — method, path, colored status, elapsed
+# time, response size:
+#   [webi] GET /users/42 200 12.48 ms - 1024
+#
+# `start_clock` is a clock() reading taken at the very start of
+# webi_handle(), before middleware/dispatch run, so the elapsed time
+# covers the full request — middleware, route matching, and the handler
+# itself — not just the handler in isolation.
+# ---------------------------------------------------------------------------
+fn _webi_log(app, req, res, start_clock):
     if app["debug"]:
-        print "[webi] " + req["method"] + " " + req["path"] + " -> " + str(res["status"])
+        let elapsed_ms = round((clock() - start_clock) * 100000) / 100
+        let status_str = _webi_color_status(res["status"], str(res["status"]))
+        let size = len(res["body"])
+        print "[webi] " + req["method"] + " " + req["path"] + " " + status_str + " " + str(elapsed_ms) + " ms - " + str(size)
 
 # ---------------------------------------------------------------------------
 # webi_handle(app, method, path, query, headers, body, ip) -> response map
@@ -55,6 +82,8 @@ fn _webi_log(app, req, res):
 # You normally don't call this directly — use webi_run() instead.
 # ---------------------------------------------------------------------------
 fn webi_handle(app, method, path, query_str, headers_str, body, ip):
+    let start_clock = clock()
+
     # Build query params map from "key=val&key2=val2"
     let query = {}
     if len(query_str) > 0:
@@ -107,7 +136,7 @@ fn webi_handle(app, method, path, query_str, headers_str, body, ip):
     }
 
     let res = _webi_dispatch(app, req)
-    _webi_log(app, req, res)
+    _webi_log(app, req, res, start_clock)
     return res
 
 # ---------------------------------------------------------------------------
