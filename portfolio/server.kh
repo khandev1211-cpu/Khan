@@ -1,7 +1,8 @@
 from webi import webi
+import "morgos"
 
 let app = webi_app()
-app = webi_debug(app, true)
+app = after(app, morgos)
 
 fn fn_index(req):
     let vars = {
@@ -10,7 +11,7 @@ fn fn_index(req):
         "tagline":      "Full-Stack Developer & Khan Language Creator",
         "bio":          "I build modern web applications and create programming languages. Passionate about open-source, clean code, and developer tools that make a difference.",
         "about_text":   "I'm a passionate software developer with expertise in full-stack web development, programming language design, and system architecture. I created the Khan programming language — a modern, expressive language that bridges the gap between simplicity and power. When I'm not coding, I enjoy contributing to open-source projects and exploring new technologies.",
-        "email":        "irfan@example.com",
+        "email":        "khandev1211@gmail.com",
         "location":     "Karachi, Pakistan",
         "freelance":    "Available",
         "github":       "https://github.com/khandev1211-cpu",
