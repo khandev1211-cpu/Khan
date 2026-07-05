@@ -3,6 +3,8 @@
 
 #include "interpreter.h"
 
+struct VM;
+
 // ===========================================================================
 // webi_lib — native HTTP server backend for the webi Khan package
 //

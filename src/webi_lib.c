@@ -98,7 +98,7 @@ static Value wb_safe_call_webi_handle(Interpreter *interp, Environment *env,
     // Check if we are in VM mode (interp is actually a VM pointer)
     // We check a magic field or use the fact that g_webi_env is NULL for VM
     if (interp && !env) {
-        res_map = vm_call_fn((VM*)interp, "webi_handle", argc, call_args);
+        res_map = vm_call_fn((struct VM*)interp, "webi_handle", argc, call_args);
     } else {
         res_map = khan_call_fn(interp, env, "webi_handle", argc, call_args);
     }
@@ -694,7 +694,8 @@ void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *args) {
 
         /* Call Khan webi_handle(app, method, path, query, headers, body, ip) */
         Value res_map;
-        if (g_webi_env) {
+        // In VM mode, g_webi_env is NULL, but we have the VM pointer in 'interp'
+        if (g_webi_env || interp) {
             res_map = wb_safe_call_webi_handle(interp, g_webi_env, call_args, 7, method, path);
         } else {
             res_map = value_map_empty();
@@ -974,7 +975,8 @@ void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *args) {
         call_args[6] = value_string(client_ip);
 
         Value res_map;
-        if (g_webi_env) {
+        // In VM mode, g_webi_env is NULL, but we have the VM pointer in 'interp'
+        if (g_webi_env || interp) {
             res_map = wb_safe_call_webi_handle(interp, g_webi_env, call_args, 7, method, path);
         } else {
             res_map = value_map_empty();
