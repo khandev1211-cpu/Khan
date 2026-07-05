@@ -1,0 +1,37 @@
+# Khan OpenAI Package
+# Usage: import "openai"
+#
+# let client = openai_client("your-api-key")
+# let response = openai_chat(client, "user", "Hello, how are you?")
+# print response["choices"][0]["message"]["content"]
+
+import "requests"
+import "json"
+
+fn openai_client(api_key):
+    return {
+        "api_key": api_key,
+        "base_url": "https://api.openai.com/v1"
+    }
+
+fn openai_chat(client, role, content):
+    let url = client["base_url"] + "/chat/completions"
+    let headers = {
+        "Authorization": "Bearer " + client["api_key"],
+        "Content-Type": "application/json"
+    }
+    let body = {
+        "model": "gpt-3.5-turbo",
+        "messages": [
+            {"role": role, "content": content}
+        ]
+    }
+
+    # We use the new http_request with custom headers
+    let res = http_request("POST", url, json_encode(body), headers)
+
+    if res["success"]:
+        return json_decode(res["body"])
+    else:
+        print "OpenAI Error: " + res["body"]
+        return nil

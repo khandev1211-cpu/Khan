@@ -1,0 +1,34 @@
+# Khan Validation Package
+# Usage: import "validation"
+#
+# if is_email("test@example.com"):
+#     print "Valid email"
+
+fn is_email(s):
+    if type(s) != "string":
+        return false
+
+    let parts = split(s, "@")
+    if len(parts) != 2:
+        return false
+
+    let domain_parts = split(parts[1], ".")
+    if len(domain_parts) < 2:
+        return false
+
+    return true
+
+fn is_min_length(s, min_len):
+    return len(s) >= min_len
+
+fn is_max_length(s, max_len):
+    return len(s) <= max_len
+
+fn is_numeric(s):
+    if type(s) == "number":
+        return true
+    if type(s) != "string":
+        return false
+    # Try to convert to number
+    let n = num(s)
+    return n != nil

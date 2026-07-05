@@ -118,7 +118,7 @@ static Value winhttp_request(Interpreter *interp,
                               const char *method,
                               const char *url,
                               const char *body,
-                              const char *ctype) {
+                              Value headers) {
     (void)interp;
 
     const char *host_start = url;
@@ -171,13 +171,24 @@ static Value winhttp_request(Interpreter *interp,
                                              NULL, NULL, NULL,
                                              use_https ? WINHTTP_FLAG_SECURE : 0);
         if (hReq) {
-            if (ctype) {
-                int ctlen = MultiByteToWideChar(CP_UTF8, 0, ctype, -1, NULL, 0);
-                wchar_t *wct = malloc(ctlen * sizeof(wchar_t));
-                MultiByteToWideChar(CP_UTF8, 0, ctype, -1, wct, ctlen);
-                WinHttpAddRequestHeaders(hReq, wct, (DWORD)-1,
-                                         WINHTTP_ADDREQ_FLAG_ADD);
-                free(wct);
+            // Add custom headers if provided
+            if (headers.type == VAL_MAP) {
+                for (int i = 0; i < headers.as.map.count; i++) {
+                    char hbuf[1024];
+                    const char *val = "";
+                    if (headers.as.map.entries[i].value.type == VAL_STRING) {
+                        val = headers.as.map.entries[i].value.as.string;
+                    }
+                    snprintf(hbuf, sizeof(hbuf), "%s: %s",
+                             headers.as.map.entries[i].key, val);
+
+                    int hwlen = MultiByteToWideChar(CP_UTF8, 0, hbuf, -1, NULL, 0);
+                    wchar_t *wh = malloc(hwlen * sizeof(wchar_t));
+                    MultiByteToWideChar(CP_UTF8, 0, hbuf, -1, wh, hwlen);
+                    WinHttpAddRequestHeaders(hReq, wh, (DWORD)-1,
+                                             WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
+                    free(wh);
+                }
             }
 
             DWORD blen = body ? (DWORD)strlen(body) : 0;
@@ -220,7 +231,7 @@ static void fn_http_get(Value *result, Interpreter *interp, int argc, Value *arg
         fprintf(stderr, "Runtime error: http_get(url) expects a string\n");
         interp->had_runtime_error = 1; *result = value_nil(); return;
     }
-    *result = winhttp_request(interp, "GET", args[0].as.string, NULL, NULL);
+    *result = winhttp_request(interp, "GET", args[0].as.string, NULL, value_nil());
 }
 
 static void fn_http_post(Value *result, Interpreter *interp, int argc, Value *args) {
@@ -229,8 +240,10 @@ static void fn_http_post(Value *result, Interpreter *interp, int argc, Value *ar
         fprintf(stderr, "Runtime error: http_post(url, body) - both must be strings\n");
         interp->had_runtime_error = 1; *result = value_nil(); return;
     }
-    *result = winhttp_request(interp, "POST", args[0].as.string, args[1].as.string,
-                               "Content-Type: application/x-www-form-urlencoded");
+    Value h = value_map_empty();
+    map_set(&h, "Content-Type", value_string("application/x-www-form-urlencoded"));
+    *result = winhttp_request(interp, "POST", args[0].as.string, args[1].as.string, h);
+    value_free(h);
 }
 
 static void fn_http_put(Value *result, Interpreter *interp, int argc, Value *args) {
@@ -239,8 +252,10 @@ static void fn_http_put(Value *result, Interpreter *interp, int argc, Value *arg
         fprintf(stderr, "Runtime error: http_put(url, body) - both must be strings\n");
         interp->had_runtime_error = 1; *result = value_nil(); return;
     }
-    *result = winhttp_request(interp, "PUT", args[0].as.string, args[1].as.string,
-                               "Content-Type: application/x-www-form-urlencoded");
+    Value h = value_map_empty();
+    map_set(&h, "Content-Type", value_string("application/x-www-form-urlencoded"));
+    *result = winhttp_request(interp, "PUT", args[0].as.string, args[1].as.string, h);
+    value_free(h);
 }
 
 static void fn_http_delete(Value *result, Interpreter *interp, int argc, Value *args) {
@@ -249,7 +264,7 @@ static void fn_http_delete(Value *result, Interpreter *interp, int argc, Value *
         fprintf(stderr, "Runtime error: http_delete(url) expects a string\n");
         interp->had_runtime_error = 1; *result = value_nil(); return;
     }
-    *result = winhttp_request(interp, "DELETE", args[0].as.string, NULL, NULL);
+    *result = winhttp_request(interp, "DELETE", args[0].as.string, NULL, value_nil());
 }
 
 static void fn_http_post_json(Value *result, Interpreter *interp, int argc, Value *args) {
@@ -260,10 +275,26 @@ static void fn_http_post_json(Value *result, Interpreter *interp, int argc, Valu
     }
     char *json_body = NULL; int jlen = 0, jcap = 0;
     req_json_encode(args[1], &json_body, &jlen, &jcap);
+    Value h = value_map_empty();
+    map_set(&h, "Content-Type", value_string("application/json"));
     *result = winhttp_request(interp, "POST", args[0].as.string,
-                               json_body ? json_body : "{}",
-                               "Content-Type: application/json");
+                               json_body ? json_body : "{}", h);
+    value_free(h);
     free(json_body);
+}
+
+static void fn_http_request(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!req_check(interp, "http_request", 2, argc)) { *result = value_nil(); return; }
+    if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
+        fprintf(stderr, "Runtime error: http_request(method, url, ...) - method and url must be strings\n");
+        interp->had_runtime_error = 1; *result = value_nil(); return;
+    }
+    const char *method = args[0].as.string;
+    const char *url = args[1].as.string;
+    const char *body = (argc > 2 && args[2].type == VAL_STRING) ? args[2].as.string : NULL;
+    Value headers = (argc > 3 && args[3].type == VAL_MAP) ? args[3] : value_nil();
+
+    *result = winhttp_request(interp, method, url, body, headers);
 }
 
 // ===========================================================================
@@ -315,8 +346,8 @@ static char *run_curl(const char **args, int nargs) {
 }
 
 static Value curl_request(const char *method, const char *url,
-                           const char *body, const char *ctype) {
-#define MAX_CURL_ARGS 16
+                           const char *body, Value headers) {
+#define MAX_CURL_ARGS 64
     const char *args[MAX_CURL_ARGS];
     int n = 0;
 
@@ -331,13 +362,35 @@ static Value curl_request(const char *method, const char *url,
         args[n++] = "-d";
         args[n++] = body;
     }
-    if (ctype) {
-        args[n++] = "-H";
-        args[n++] = ctype;
+
+    // Add custom headers
+    char **hstrings = NULL;
+    int hcount = 0;
+    if (headers.type == VAL_MAP) {
+        hstrings = malloc(sizeof(char *) * headers.as.map.count);
+        for (int i = 0; i < headers.as.map.count; i++) {
+            char hbuf[1024];
+            const char *val = "";
+            if (headers.as.map.entries[i].value.type == VAL_STRING) {
+                val = headers.as.map.entries[i].value.as.string;
+            }
+            snprintf(hbuf, sizeof(hbuf), "%s: %s",
+                     headers.as.map.entries[i].key, val);
+            hstrings[hcount++] = strdup(hbuf);
+            if (n < MAX_CURL_ARGS - 2) {
+                args[n++] = "-H";
+                args[n++] = hstrings[hcount - 1];
+            }
+        }
     }
+
     args[n++] = url;
 
     char *raw = run_curl(args, n);
+
+    // Cleanup header strings
+    for (int i = 0; i < hcount; i++) free(hstrings[i]);
+    free(hstrings);
 
     const char *marker = strstr(raw, "\n__KHAN_STATUS__");
     long status = 0;
@@ -364,7 +417,7 @@ static void fn_http_get(Value *result, Interpreter *interp, int argc, Value *arg
         fprintf(stderr, "Runtime error: http_get(url) expects a string\n");
         interp->had_runtime_error = 1; *result = value_nil(); return;
     }
-    *result = curl_request("GET", args[0].as.string, NULL, NULL);
+    *result = curl_request("GET", args[0].as.string, NULL, value_nil());
 }
 
 static void fn_http_post(Value *result, Interpreter *interp, int argc, Value *args) {
@@ -373,8 +426,10 @@ static void fn_http_post(Value *result, Interpreter *interp, int argc, Value *ar
         fprintf(stderr, "Runtime error: http_post(url, body) expects strings\n");
         interp->had_runtime_error = 1; *result = value_nil(); return;
     }
-    *result = curl_request("POST", args[0].as.string, args[1].as.string,
-                            "Content-Type: application/x-www-form-urlencoded");
+    Value h = value_map_empty();
+    map_set(&h, "Content-Type", value_string("application/x-www-form-urlencoded"));
+    *result = curl_request("POST", args[0].as.string, args[1].as.string, h);
+    value_free(h);
 }
 
 static void fn_http_put(Value *result, Interpreter *interp, int argc, Value *args) {
@@ -383,8 +438,10 @@ static void fn_http_put(Value *result, Interpreter *interp, int argc, Value *arg
         fprintf(stderr, "Runtime error: http_put(url, body) expects strings\n");
         interp->had_runtime_error = 1; *result = value_nil(); return;
     }
-    *result = curl_request("PUT", args[0].as.string, args[1].as.string,
-                            "Content-Type: application/x-www-form-urlencoded");
+    Value h = value_map_empty();
+    map_set(&h, "Content-Type", value_string("application/x-www-form-urlencoded"));
+    *result = curl_request("PUT", args[0].as.string, args[1].as.string, h);
+    value_free(h);
 }
 
 static void fn_http_delete(Value *result, Interpreter *interp, int argc, Value *args) {
@@ -393,7 +450,7 @@ static void fn_http_delete(Value *result, Interpreter *interp, int argc, Value *
         fprintf(stderr, "Runtime error: http_delete(url) expects a string\n");
         interp->had_runtime_error = 1; *result = value_nil(); return;
     }
-    *result = curl_request("DELETE", args[0].as.string, NULL, NULL);
+    *result = curl_request("DELETE", args[0].as.string, NULL, value_nil());
 }
 
 static void fn_http_post_json(Value *result, Interpreter *interp, int argc, Value *args) {
@@ -404,10 +461,26 @@ static void fn_http_post_json(Value *result, Interpreter *interp, int argc, Valu
     }
     char *json_body = NULL; int jlen = 0, jcap = 0;
     req_json_encode(args[1], &json_body, &jlen, &jcap);
+    Value h = value_map_empty();
+    map_set(&h, "Content-Type", value_string("application/json"));
     *result = curl_request("POST", args[0].as.string,
-                            json_body ? json_body : "{}",
-                            "Content-Type: application/json");
+                            json_body ? json_body : "{}", h);
+    value_free(h);
     free(json_body);
+}
+
+static void fn_http_request(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!req_check(interp, "http_request", 2, argc)) { *result = value_nil(); return; }
+    if (args[0].type != VAL_STRING || args[1].type != VAL_STRING) {
+        fprintf(stderr, "Runtime error: http_request(method, url, ...) - method and url must be strings\n");
+        interp->had_runtime_error = 1; *result = value_nil(); return;
+    }
+    const char *method = args[0].as.string;
+    const char *url = args[1].as.string;
+    const char *body = (argc > 2 && args[2].type == VAL_STRING) ? args[2].as.string : NULL;
+    Value headers = (argc > 3 && args[3].type == VAL_MAP) ? args[3] : value_nil();
+
+    *result = curl_request(method, url, body, headers);
 }
 
 #endif // !_WIN32
@@ -421,4 +494,5 @@ void requests_register_all(Environment *env) {
     env_define(env, "http_post_json", value_native("http_post_json", fn_http_post_json));
     env_define(env, "http_put",       value_native("http_put",       fn_http_put));
     env_define(env, "http_delete",    value_native("http_delete",    fn_http_delete));
+    env_define(env, "http_request",   value_native("http_request",   fn_http_request));
 }

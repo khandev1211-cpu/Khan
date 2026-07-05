@@ -126,6 +126,22 @@
       "description": "Morgan-style HTTP request logger for webi: colored status, elapsed time, response size \u2014 as a swappable after-hook",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/morgos/morgos.kh"
+    },
+    {
+      "name": "openai",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "OpenAI API wrapper for Chat Completions (GPT-3.5/4)",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/openai/openai.kh"
+    },
+    {
+      "name": "validation",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Data validation utilities: emails, lengths, numeric checks",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/validation/validation.kh"
     }
   ]
 }

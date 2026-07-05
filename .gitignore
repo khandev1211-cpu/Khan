@@ -1,0 +1,28 @@
+# Executables
+khan.exe
+kh.exe
+khan
+kh
+
+# Build artifacts
+*.o
+*.obj
+*.out
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local Package Cache
+.khan/
+
+# Data and Temp files
+*.dat
+*.log
+cache_requests.json
+
+# OS files
+.DS_Store
+Thumbs.db
