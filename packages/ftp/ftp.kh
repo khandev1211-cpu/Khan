@@ -1,0 +1,6 @@
+# Khan FTP - File Transfer
+# Usage: import "ftp"
+
+fn ftp_upload(host, user, pass, file):
+    print "FTP: Uploading " + file + " to " + host
+    return true

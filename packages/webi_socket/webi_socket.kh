@@ -1,0 +1,10 @@
+# Khan Webi Socket - Real-time networking
+# Usage: import "webi_socket"
+#
+# app = ws_route(app, "/chat", fn_chat)
+
+import "webi"
+
+fn ws_route(app, path, handler):
+    # Placeholders for WebSocket upgrades
+    return route(app, "GET", path, handler)

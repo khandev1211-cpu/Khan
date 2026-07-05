@@ -1,0 +1,6 @@
+# Khan SSH Client
+# Usage: import "ssh_client"
+
+fn ssh_exec(host, user, cmd):
+    print "SSH: Running '" + cmd + "' on " + host
+    return "Output placeholder"

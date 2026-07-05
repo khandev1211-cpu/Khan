@@ -1,0 +1,23 @@
+# Khan Tensor - Multi-dimensional array math
+# Usage: import "tensor"
+#
+# let a = [1, 2]
+# let b = [3, 4]
+# print dot(a, b)
+
+fn dot(a, b):
+    if len(a) != len(b): return nil
+    let sum = 0
+    let i = 0
+    while i < len(a):
+        sum = sum + a[i] * b[i]
+        i = i + 1
+    return sum
+
+fn add(a, b):
+    let res = []
+    let i = 0
+    while i < len(a):
+        res = push(res, a[i] + b[i])
+        i = i + 1
+    return res

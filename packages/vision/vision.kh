@@ -1,0 +1,13 @@
+# Khan Vision - Image Processing
+# Usage: import "vision"
+#
+# let img = load_image("car.jpg")
+# print detect_faces(img)
+
+fn load_image(path):
+    return {"path": path, "type": "image"}
+
+fn detect_faces(img):
+    # Placeholder for computer vision logic
+    print "Scanning " + img["path"] + " for faces..."
+    return []

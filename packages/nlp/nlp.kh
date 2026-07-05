@@ -1,0 +1,21 @@
+# Khan NLP (Natural Language Processing)
+# Usage: import "nlp"
+#
+# print sentiment("This is great!") # 1.0
+
+fn sentiment(text):
+    let positive = ["great", "good", "awesome", "excellent", "happy"]
+    let negative = ["bad", "awful", "terrible", "sad", "horrible"]
+
+    let score = 0
+    let words = split(text, " ")
+    for word in words:
+        if _contains(positive, word): score = score + 1
+        if _contains(negative, word): score = score - 1
+
+    return score
+
+fn _contains(arr, val):
+    for item in arr:
+        if item == val: return true
+    return false

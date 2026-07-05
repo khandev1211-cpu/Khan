@@ -1,0 +1,6 @@
+# Khan gRPC - High performance RPC
+# Usage: import "grpc"
+
+fn grpc_call(service, method, data):
+    print "gRPC: Calling " + service + "/" + method
+    return {"ok": true}

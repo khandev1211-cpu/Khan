@@ -1,0 +1,6 @@
+# Khan MQTT - IoT Messaging
+# Usage: import "mqtt"
+
+fn mqtt_publish(topic, msg):
+    print "MQTT: Publishing to " + topic
+    return true

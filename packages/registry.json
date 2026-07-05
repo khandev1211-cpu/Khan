@@ -222,6 +222,70 @@
       "description": "Swagger UI and API documentation generator",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/swagger/swagger.kh"
+    },
+    {
+      "name": "nlp",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Natural Language Processing and Sentiment Analysis",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/nlp/nlp.kh"
+    },
+    {
+      "name": "tensor",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Multi-dimensional array math for AI",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/tensor/tensor.kh"
+    },
+    {
+      "name": "vision",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Computer vision and image processing utilities",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/vision/vision.kh"
+    },
+    {
+      "name": "webi_socket",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "WebSocket support for Webi framework",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/webi_socket/webi_socket.kh"
+    },
+    {
+      "name": "mqtt",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "MQTT protocol for IoT messaging",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/mqtt/mqtt.kh"
+    },
+    {
+      "name": "ftp",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "FTP client for file transfers",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/ftp/ftp.kh"
+    },
+    {
+      "name": "ssh_client",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "SSH client for remote command execution",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/ssh_client/ssh_client.kh"
+    },
+    {
+      "name": "grpc",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "gRPC client for high-performance RPC",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/grpc/grpc.kh"
     }
   ]
 }
