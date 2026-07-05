@@ -180,13 +180,8 @@ void vm_free(VM *vm) {
                        (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
 #define READ_CONST()  (frame->fn->chunk.constants[READ_BYTE()])
 
-InterpretResult vm_run(VM *vm, KhanFunction *script) {
-    push(vm, value_nil());
-
-    CallFrame *frame = &vm->frames[vm->frame_count++];
-    frame->fn    = script;
-    frame->ip    = script->chunk.code;
-    frame->slots = vm->stack_top;
+static InterpretResult run_loop(VM *vm, int initial_frame_count) {
+    CallFrame *frame = &vm->frames[vm->frame_count - 1];
 
     for (;;) {
         uint8_t op = READ_BYTE();
@@ -342,7 +337,7 @@ InterpretResult vm_run(VM *vm, KhanFunction *script) {
                 NativeFn nfn = callee.as.native.function;
                 Value *args  = vm->stack_top - arg_count;
                 Value result = value_nil();
-                nfn(&result, NULL, arg_count, args);
+                nfn(&result, (Interpreter*)vm, arg_count, args);
                 for (int i = 0; i < arg_count; i++) value_free(pop(vm));
                 value_free(pop(vm));
                 push(vm, result);
@@ -368,7 +363,7 @@ InterpretResult vm_run(VM *vm, KhanFunction *script) {
         case OP_RETURN: {
             Value result = pop(vm);
             vm->frame_count--;
-            if (vm->frame_count == 0) return INTERPRET_OK;
+            if (vm->frame_count < initial_frame_count) return INTERPRET_OK;
             vm->stack_top = frame->slots - 1;
             push(vm, result);
             frame = &vm->frames[vm->frame_count - 1];
@@ -401,7 +396,7 @@ InterpretResult vm_run(VM *vm, KhanFunction *script) {
             Value obj = pop(vm);
             if (obj.type == VAL_ARRAY) {
                 int i = (int)idx.as.number;
-                push(vm, value_copy(obj.as.obj->as.array.items[i]));
+                push(vm, value_copy(AS_ARRAY_ITEMS(obj)[i]));
             } else if (obj.type == VAL_MAP) {
                 Value *found = map_get(&obj, idx.as.string);
                 if (found) push(vm, value_copy(*found));
@@ -417,8 +412,8 @@ InterpretResult vm_run(VM *vm, KhanFunction *script) {
             Value obj = pop(vm);
             if (obj.type == VAL_ARRAY) {
                 int i = (int)idx.as.number;
-                value_free(obj.as.obj->as.array.items[i]);
-                obj.as.obj->as.array.items[i] = value_copy(val);
+                value_free(AS_ARRAY_ITEMS(obj)[i]);
+                AS_ARRAY_ITEMS(obj)[i] = value_copy(val);
             } else if (obj.type == VAL_MAP) {
                 map_set(&obj, idx.as.string, value_copy(val));
             }
@@ -432,4 +427,33 @@ InterpretResult vm_run(VM *vm, KhanFunction *script) {
             return INTERPRET_RUNTIME_ERROR;
         }
     }
+}
+
+InterpretResult vm_run(VM *vm, KhanFunction *script) {
+    push(vm, value_nil());
+    CallFrame *frame = &vm->frames[vm->frame_count++];
+    frame->fn    = script;
+    frame->ip    = script->chunk.code;
+    frame->slots = vm->stack_top;
+    return run_loop(vm, 1);
+}
+
+Value vm_call_fn(VM *vm, const char *name, int argc, Value *args) {
+    Value fn_val;
+    if (!global_get(vm, name, &fn_val)) return value_nil();
+    if (fn_val.type != VAL_FUNCTION) return value_nil();
+
+    for (int i = 0; i < argc; i++) push(vm, value_copy(args[i]));
+    push(vm, value_copy(fn_val));
+
+    KhanFunction *fn = (KhanFunction*)fn_val.as.function.body;
+    CallFrame *new_frame = &vm->frames[vm->frame_count++];
+    new_frame->fn    = fn;
+    new_frame->ip    = fn->chunk.code;
+    new_frame->slots = vm->stack_top - argc;
+
+    int current_frame_count = vm->frame_count;
+    run_loop(vm, current_frame_count);
+
+    return pop(vm);
 }

@@ -93,9 +93,19 @@ static Environment *g_webi_env = NULL;
 static Value wb_safe_call_webi_handle(Interpreter *interp, Environment *env,
                                        Value *call_args, int argc,
                                        const char *method, const char *path) {
-    Value res_map = khan_call_fn(interp, env, "webi_handle", argc, call_args);
+    Value res_map;
 
-    if (interp->had_runtime_error) {
+    // Check if we are in VM mode (interp is actually a VM pointer)
+    // We check a magic field or use the fact that g_webi_env is NULL for VM
+    if (interp && !env) {
+        res_map = vm_call_fn((VM*)interp, "webi_handle", argc, call_args);
+    } else {
+        res_map = khan_call_fn(interp, env, "webi_handle", argc, call_args);
+    }
+
+    if (interp && !env) {
+        // VM manages errors differently
+    } else if (interp && interp->had_runtime_error) {
         fprintf(stderr,
                 "[webi] request handler error on %s %s — request failed, "
                 "server continues running.\n",
@@ -193,7 +203,7 @@ static int wb_check(Interpreter *interp, const char *fn, int min, int actual) {
     if (actual < min) {
         fprintf(stderr, "Runtime error: %s() expects at least %d argument(s), got %d\n",
                 fn, min, actual);
-        interp->had_runtime_error = 1;
+        if (interp) interp->had_runtime_error = 1;
         return 0;
     }
     return 1;
@@ -896,7 +906,7 @@ void fn_http_serve(Value *result, Interpreter *interp, int argc, Value *args) {
     bind(srv, (struct sockaddr *)&addr, sizeof(addr));
     listen(srv, 64);
 
-    g_webi_env = interp->base_env;
+    if (interp) g_webi_env = interp->base_env;
     printf("[webi] Listening on port %d\n", port);
     fflush(stdout);
 

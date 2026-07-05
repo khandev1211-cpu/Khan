@@ -62,6 +62,9 @@ void webi_register_all_vm(VM *vm);
 /* Run a compiled script function */
 InterpretResult vm_run(VM *vm, KhanFunction *script);
 
+/* Call a Khan function by name via the VM */
+Value           vm_call_fn(VM *vm, const char *name, int argc, Value *args);
+
 /* Used by compiler to register KhanFunction objects */
 void khanfn_register(KhanFunction *fn);
 int  khanfn_registry_index(void);
