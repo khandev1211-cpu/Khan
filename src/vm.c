@@ -191,7 +191,8 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
         uint8_t op = READ_BYTE();
 
         switch (op) {
-        case OP_CONST:  push(vm, value_copy(READ_CONST())); break;
+        case OP_CONST:      push(vm, value_copy(frame->fn->chunk.constants[READ_BYTE()])); break;
+        case OP_CONST_WIDE: push(vm, value_copy(frame->fn->chunk.constants[READ_SHORT()])); break;
         case OP_NIL:    push(vm, value_nil());    break;
         case OP_TRUE:   push(vm, value_bool(1));  break;
         case OP_FALSE:  push(vm, value_bool(0));  break;
@@ -260,9 +261,12 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             printf("\n");
             break;
 
-        case OP_DEF_GLOBAL: {
-            Value name_v = READ_CONST();
+        case OP_DEF_GLOBAL:
+        case OP_DEF_GLOBAL_WIDE: {
+            int name_idx = (op == OP_DEF_GLOBAL) ? READ_BYTE() : READ_SHORT();
+            Value name_v = frame->fn->chunk.constants[name_idx];
             Value val = pop(vm);
+
             if (val.type == VAL_NUMBER) {
                 int idx = (int)val.as.number;
                 if (idx >= 0 && idx < fn_registry_count) {
@@ -284,8 +288,10 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             break;
         }
 
-        case OP_GET_GLOBAL: {
-            Value name_v = READ_CONST();
+        case OP_GET_GLOBAL:
+        case OP_GET_GLOBAL_WIDE: {
+            int name_idx = (op == OP_GET_GLOBAL) ? READ_BYTE() : READ_SHORT();
+            Value name_v = frame->fn->chunk.constants[name_idx];
             Value val;
             if (!global_get(vm, name_v.as.string, &val)) {
                 char msg[256]; snprintf(msg, sizeof(msg), "Undefined variable '%s'", name_v.as.string);
@@ -295,8 +301,10 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             break;
         }
 
-        case OP_SET_GLOBAL: {
-            Value name_v = READ_CONST();
+        case OP_SET_GLOBAL:
+        case OP_SET_GLOBAL_WIDE: {
+            int name_idx = (op == OP_SET_GLOBAL) ? READ_BYTE() : READ_SHORT();
+            Value name_v = frame->fn->chunk.constants[name_idx];
             Value existing;
             if (global_get(vm, name_v.as.string, &existing)) {
                 value_free(existing);
@@ -361,7 +369,9 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
                 frame = new_frame;
                 break;
             }
-            return runtime_error(vm, "Can only call functions");
+            char msg[128];
+            snprintf(msg, sizeof(msg), "Can only call functions (got type %d)", callee.type);
+            return runtime_error(vm, msg);
         }
 
         case OP_RETURN: {
@@ -407,11 +417,23 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             Value obj = pop(vm);
             if (obj.type == VAL_ARRAY) {
                 int i = (int)idx.as.number;
+                int count = AS_ARRAY_COUNT(obj);
+                if (i < 0 || i >= count) {
+                    value_free(obj); value_free(idx);
+                    return runtime_error(vm, "Array index out of bounds");
+                }
                 push(vm, value_copy(AS_ARRAY_ITEMS(obj)[i]));
             } else if (obj.type == VAL_MAP) {
+                if (idx.type != VAL_STRING) {
+                    value_free(obj); value_free(idx);
+                    return runtime_error(vm, "Map index must be a string");
+                }
                 Value *found = map_get(&obj, idx.as.string);
                 if (found) push(vm, value_copy(*found));
                 else push(vm, value_nil());
+            } else {
+                value_free(obj); value_free(idx);
+                return runtime_error(vm, "Can only index arrays and maps");
             }
             value_free(obj); value_free(idx);
             break;
@@ -423,9 +445,18 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             Value obj = pop(vm);
             if (obj.type == VAL_ARRAY) {
                 int i = (int)idx.as.number;
+                int count = AS_ARRAY_COUNT(obj);
+                if (i < 0 || i >= count) {
+                    value_free(obj); value_free(idx); value_free(val);
+                    return runtime_error(vm, "Array index out of bounds");
+                }
                 value_free(AS_ARRAY_ITEMS(obj)[i]);
                 AS_ARRAY_ITEMS(obj)[i] = value_copy(val);
             } else if (obj.type == VAL_MAP) {
+                if (idx.type != VAL_STRING) {
+                    value_free(obj); value_free(idx); value_free(val);
+                    return runtime_error(vm, "Map index must be a string");
+                }
                 map_set(&obj, idx.as.string, value_copy(val));
             }
             push(vm, val);
@@ -446,7 +477,7 @@ InterpretResult vm_run(VM *vm, KhanFunction *script) {
     CallFrame *frame = &vm->frames[vm->frame_count++];
     frame->fn    = script;
     frame->ip    = script->chunk.code;
-    frame->slots = vm->stack_top;
+    frame->slots = vm->stack_top - 1;
     return run_loop(vm, 1);
 }
 
