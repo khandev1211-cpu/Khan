@@ -365,7 +365,7 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
                 CallFrame *new_frame = &vm->frames[vm->frame_count++];
                 new_frame->fn    = fn;
                 new_frame->ip    = fn->chunk.code;
-                new_frame->slots = vm->stack_top - arg_count;
+                new_frame->slots = vm->stack_top - arg_count - 1;
                 frame = new_frame;
                 break;
             }
@@ -507,7 +507,7 @@ Value vm_call_fn(VM *vm, const char *name, int argc, Value *args) {
     CallFrame *new_frame = &vm->frames[vm->frame_count++];
     new_frame->fn    = fn;
     new_frame->ip    = fn->chunk.code;
-    new_frame->slots = vm->stack_top - argc;
+    new_frame->slots = vm->stack_top - argc - 1;
 
     int initial_frame_count = vm->frame_count;
     InterpretResult res = run_loop(vm, initial_frame_count);
