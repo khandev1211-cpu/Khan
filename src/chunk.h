@@ -13,6 +13,7 @@
 typedef enum {
     /* Literals */
     OP_CONST,           /* push constants[READ_BYTE()] */
+    OP_CONST_WIDE,      /* push constants[READ_SHORT()] */
     OP_NIL,
     OP_TRUE,
     OP_FALSE,
@@ -40,8 +41,11 @@ typedef enum {
     OP_GET_LOCAL,       /* operand = stack-slot index (1 byte) */
     OP_SET_LOCAL,
     OP_GET_GLOBAL,      /* operand = constants index of name string (1 byte) */
+    OP_GET_GLOBAL_WIDE, /* 2 bytes */
     OP_SET_GLOBAL,
+    OP_SET_GLOBAL_WIDE,
     OP_DEF_GLOBAL,
+    OP_DEF_GLOBAL_WIDE,
 
     /* Control flow  — 2-byte big-endian offset operands */
     OP_JUMP,            /* unconditional forward jump  */

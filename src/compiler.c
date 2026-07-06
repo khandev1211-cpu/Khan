@@ -30,6 +30,13 @@ typedef struct {
     int loop_start;           /* for continue: where to jump back to */
 } LoopCtx;
 
+typedef struct {
+    char               *base_path;
+    char               *current_import_dir;
+    char               *imported_paths[MAX_IMPORTED];
+    int                 imported_count;
+} ImportCtx;
+
 typedef struct CompilerState {
     KhanFunction       *fn;           /* function being compiled */
     Local               locals[MAX_LOCALS];
@@ -42,11 +49,8 @@ typedef struct CompilerState {
 
     int                 had_error;
 
-    /* Import tracking */
-    char               *base_path;
-    char               *current_import_dir;
-    char               *imported_paths[MAX_IMPORTED];
-    int                 imported_count;
+    /* Import tracking (shared across frames) */
+    ImportCtx          *imports;
 } CompilerState;
 
 static CompilerState *current = NULL;
@@ -94,10 +98,21 @@ static void emit_loop(int loop_start, int line) {
     emit(offset & 0xFF, line);
 }
 
-/* Add a value to the constant pool and emit OP_CONST */
+/* emit a 2-byte big-endian operand */
+static void emit_short(uint16_t value, int line) {
+    emit((value >> 8) & 0xFF, line);
+    emit(value & 0xFF, line);
+}
+
+/* Add a value to the constant pool and emit OP_CONST or OP_CONST_WIDE */
 static void emit_const(Value v, int line) {
     int idx = chunk_add_const(cur_chunk(), v);
-    emit2(OP_CONST, (uint8_t)idx, line);
+    if (idx <= 255) {
+        emit2(OP_CONST, (uint8_t)idx, line);
+    } else {
+        emit(OP_CONST_WIDE, line);
+        emit_short((uint16_t)idx, line);
+    }
 }
 
 /* ── Scope helpers ── */
@@ -134,17 +149,32 @@ static void add_local(const char *name) {
 /* Emit name string to constants and GET/SET global */
 static void emit_global_get(const char *name, int line) {
     int idx = chunk_add_const(cur_chunk(), vm_val_string(name));
-    emit2(OP_GET_GLOBAL, (uint8_t)idx, line);
+    if (idx <= 255) {
+        emit2(OP_GET_GLOBAL, (uint8_t)idx, line);
+    } else {
+        emit(OP_GET_GLOBAL_WIDE, line);
+        emit_short((uint16_t)idx, line);
+    }
 }
 
 static void emit_global_set(const char *name, int line) {
     int idx = chunk_add_const(cur_chunk(), vm_val_string(name));
-    emit2(OP_SET_GLOBAL, (uint8_t)idx, line);
+    if (idx <= 255) {
+        emit2(OP_SET_GLOBAL, (uint8_t)idx, line);
+    } else {
+        emit(OP_SET_GLOBAL_WIDE, line);
+        emit_short((uint16_t)idx, line);
+    }
 }
 
 static void emit_global_def(const char *name, int line) {
     int idx = chunk_add_const(cur_chunk(), vm_val_string(name));
-    emit2(OP_DEF_GLOBAL, (uint8_t)idx, line);
+    if (idx <= 255) {
+        emit2(OP_DEF_GLOBAL, (uint8_t)idx, line);
+    } else {
+        emit(OP_DEF_GLOBAL_WIDE, line);
+        emit_short((uint16_t)idx, line);
+    }
 }
 
 /* ── CompilerState init/end ── */
@@ -159,18 +189,16 @@ static void compiler_state_init(CompilerState *c, KhanFunction *fn,
     c->had_error    = 0;
 
     if (enclosing) {
-        c->base_path = enclosing->base_path;
-        c->current_import_dir = enclosing->current_import_dir ? strdup(enclosing->current_import_dir) : NULL;
-        c->imported_count = enclosing->imported_count;
-        // Share imported paths with parent
+        c->imports = enclosing->imports;
     } else {
-        c->base_path = NULL;
-        c->current_import_dir = NULL;
-        c->imported_count = 0;
+        c->imports = malloc(sizeof(ImportCtx));
+        c->imports->base_path = NULL;
+        c->imports->current_import_dir = NULL;
+        c->imports->imported_count = 0;
     }
 
-    if (c->current_import_dir) {
-        fn->source_dir = strdup(c->current_import_dir);
+    if (c->imports->current_import_dir) {
+        fn->source_dir = strdup(c->imports->current_import_dir);
     }
 }
 
@@ -200,10 +228,10 @@ static void compile_import(const char *path, int line) {
     if (strcmp(path, "math") == 0) return;
 
     // Prevent double imports
-    for (int i = 0; i < current->imported_count; i++) {
-        if (strcmp(current->imported_paths[i], path) == 0) return;
+    for (int i = 0; i < current->imports->imported_count; i++) {
+        if (strcmp(current->imports->imported_paths[i], path) == 0) return;
     }
-    if (current->imported_count >= MAX_IMPORTED) {
+    if (current->imports->imported_count >= MAX_IMPORTED) {
         compiler_error("Too many imports", line);
         return;
     }
@@ -212,12 +240,12 @@ static void compile_import(const char *path, int line) {
     FILE *file = NULL;
 
     // Resolve path (logic from interpreter.c)
-    if (current->current_import_dir) {
-        snprintf(full_path, sizeof(full_path), "%s/%s", current->current_import_dir, path);
+    if (current->imports->current_import_dir) {
+        snprintf(full_path, sizeof(full_path), "%s/%s", current->imports->current_import_dir, path);
         file = fopen(full_path, "rb");
     }
-    if (!file && current->base_path) {
-        snprintf(full_path, sizeof(full_path), "%s/%s", current->base_path, path);
+    if (!file && current->imports->base_path) {
+        snprintf(full_path, sizeof(full_path), "%s/%s", current->imports->base_path, path);
         file = fopen(full_path, "rb");
     }
     if (!file) {
@@ -276,10 +304,10 @@ static void compile_import(const char *path, int line) {
     }
 
     // Mark as imported
-    current->imported_paths[current->imported_count++] = strdup(path);
+    current->imports->imported_paths[current->imports->imported_count++] = strdup(path);
 
     // Save old import dir
-    char *old_dir = current->current_import_dir ? strdup(current->current_import_dir) : NULL;
+    char *old_dir = current->imports->current_import_dir ? strdup(current->imports->current_import_dir) : NULL;
 
     // Set new import dir
     char *last_slash = strrchr(full_path, '/');
@@ -287,10 +315,10 @@ static void compile_import(const char *path, int line) {
     char *sep = (last_slash > last_backslash) ? last_slash : last_backslash;
     if (sep) {
         int dlen = (int)(sep - full_path);
-        if (current->current_import_dir) free(current->current_import_dir);
-        current->current_import_dir = malloc(dlen + 1);
-        memcpy(current->current_import_dir, full_path, dlen);
-        current->current_import_dir[dlen] = '\0';
+        if (current->imports->current_import_dir) free(current->imports->current_import_dir);
+        current->imports->current_import_dir = malloc(dlen + 1);
+        memcpy(current->imports->current_import_dir, full_path, dlen);
+        current->imports->current_import_dir[dlen] = '\0';
     }
 
     // Compile the imported program into the current chunk
@@ -302,8 +330,8 @@ static void compile_import(const char *path, int line) {
     }
 
     // Restore old import dir
-    if (current->current_import_dir) free(current->current_import_dir);
-    current->current_import_dir = old_dir;
+    if (current->imports->current_import_dir) free(current->imports->current_import_dir);
+    current->imports->current_import_dir = old_dir;
 
     ast_free(program);
     free(source);
@@ -470,8 +498,12 @@ static void compile_expr(AstNode *node) {
 
     /* ── Function call ── */
     case AST_CALL: {
-        /* Push callee (looked up by name) */
-        emit_global_get(node->data.call.callee, line);
+        /* Push callee */
+        if (node->data.call.callee) {
+            emit_global_get(node->data.call.callee, line);
+        } else {
+            compile_expr(node->data.call.callee_expr);
+        }
 
         int argc = 0;
         for (AstNodeList *arg = node->data.call.arguments; arg; arg = arg->next) {
@@ -798,8 +830,7 @@ static void compile_stmt(AstNode *node) {
         int fn_idx = khanfn_registry_index();
 
         emit_const(value_number((double)fn_idx), line);
-        int name_idx = chunk_add_const(cur_chunk(), value_string(fname));
-        emit2(OP_DEF_GLOBAL, (uint8_t)name_idx, line);
+        emit_global_def(fname, line);
         break;
     }
 
@@ -852,13 +883,13 @@ KhanFunction *compile(AstNode *program, const char *base_path) {
         char *sep = (last_slash > last_backslash) ? last_slash : last_backslash;
         if (sep) {
             int len = (int)(sep - base_path);
-            state.base_path = malloc(len + 1);
-            memcpy(state.base_path, base_path, len);
-            state.base_path[len] = '\0';
+            state.imports->base_path = malloc(len + 1);
+            memcpy(state.imports->base_path, base_path, len);
+            state.imports->base_path[len] = '\0';
 
             // Also set as source_dir for the top-level script
             if (script->source_dir) free(script->source_dir);
-            script->source_dir = strdup(state.base_path);
+            script->source_dir = strdup(state.imports->base_path);
         }
     }
 
