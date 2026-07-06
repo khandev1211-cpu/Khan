@@ -479,8 +479,6 @@ void fn_read_file(Value *result, Interpreter *interp, int argc, Value *args) {
 
     FILE *f = fopen(path, "rb");
     if (!f) {
-        fprintf(stderr, "Runtime error: read_file() could not open '%s'\n", path);
-        if (interp) interp->had_runtime_error = 1;
         *result = value_nil();
         return;
     }

@@ -129,7 +129,7 @@
     },
     {
       "name": "openai",
-      "version": "2.0.0",
+      "version": "1.0.0",
       "developer": "Irfan Khan",
       "description": "OpenAI API wrapper for Chat Completions (GPT-3.5/4)",
       "author": "khandev1211-cpu",
