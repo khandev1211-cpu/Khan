@@ -27,6 +27,7 @@ static void enable_ansi(void) {}
 #include "ast.h"
 #include "compiler.h"
 #include "vm.h"
+#include "vision_lib.h"
 
 /* ── Read entire file into a heap-allocated string ── */
 static char *read_file(const char *path) {
@@ -110,6 +111,7 @@ int main(int argc, char *argv[]) {
     requests_register_all_vm(&vm);
     webi_register_all_vm(&vm);
     sqlite_register_all_vm(&vm);
+    vision_register_all_vm(&vm);
 
     /* ── Pass command line arguments as global 'argv' ── */
     Value argv_val = value_array(NULL, 0);
