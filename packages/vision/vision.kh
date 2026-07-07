@@ -40,14 +40,35 @@
 #
 # This file adds higher-level, file-in/file-out convenience on top —
 # same relationship `requests.kh` has to the native http_* functions.
+#
+# Path handling: every function below resolves the paths you pass it
+# relative to *this running script's own directory* — not the shell's
+# current directory — the same convention `webi`'s render_file() and
+# serve_static() use. So `image_info("photo.png")` looks for photo.png
+# next to the .kh file that called it, regardless of which folder you
+# ran `khan` from. Pass an absolute path to bypass this.
+#
+# The raw vision_load()/vision_save() natives do NOT do this — like
+# read_file()/write_file(), they use the literal path relative to
+# whatever directory the process itself was launched from. This file's
+# functions call _resolve() first specifically so you don't have to
+# think about that distinction.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Internal: resolve a path relative to this script's directory (or leave
+# it unchanged if already absolute). Thin wrapper around the same native
+# helper `webi` uses for render_file()/serve_static().
+# ---------------------------------------------------------------------------
+fn _vision_resolve(path):
+    return _webi_resolve_path(path)
 
 # ---------------------------------------------------------------------------
 # image_info(path) -> {"width","height","channels"} or nil
 # Reads just the metadata; frees the native buffer immediately.
 # ---------------------------------------------------------------------------
 fn image_info(path):
-    let img = vision_load(path)
+    let img = vision_load(_vision_resolve(path))
     if img == nil:
         return nil
     let info = {"width": img["width"], "height": img["height"], "channels": img["channels"]}
@@ -58,11 +79,11 @@ fn image_info(path):
 # convert_to_grayscale(input_path, output_path) -> bool
 # ---------------------------------------------------------------------------
 fn convert_to_grayscale(input_path, output_path):
-    let img = vision_load(input_path)
+    let img = vision_load(_vision_resolve(input_path))
     if img == nil:
         return false
     let gray = vision_grayscale(img)
-    let ok = vision_save(gray, output_path)
+    let ok = vision_save(gray, _vision_resolve(output_path))
     vision_free(img)
     vision_free(gray)
     return ok
@@ -71,11 +92,11 @@ fn convert_to_grayscale(input_path, output_path):
 # invert_colors(input_path, output_path) -> bool
 # ---------------------------------------------------------------------------
 fn invert_colors(input_path, output_path):
-    let img = vision_load(input_path)
+    let img = vision_load(_vision_resolve(input_path))
     if img == nil:
         return false
     let inv = vision_invert(img)
-    let ok = vision_save(inv, output_path)
+    let ok = vision_save(inv, _vision_resolve(output_path))
     vision_free(img)
     vision_free(inv)
     return ok
@@ -84,11 +105,11 @@ fn invert_colors(input_path, output_path):
 # resize_file(input_path, output_path, width, height) -> bool
 # ---------------------------------------------------------------------------
 fn resize_file(input_path, output_path, width, height):
-    let img = vision_load(input_path)
+    let img = vision_load(_vision_resolve(input_path))
     if img == nil:
         return false
     let resized = vision_resize(img, width, height)
-    let ok = vision_save(resized, output_path)
+    let ok = vision_save(resized, _vision_resolve(output_path))
     vision_free(img)
     vision_free(resized)
     return ok
@@ -98,7 +119,7 @@ fn resize_file(input_path, output_path, width, height):
 # Resizes so the longer side is at most max_dimension, keeping aspect ratio.
 # ---------------------------------------------------------------------------
 fn thumbnail(input_path, output_path, max_dimension):
-    let img = vision_load(input_path)
+    let img = vision_load(_vision_resolve(input_path))
     if img == nil:
         return false
 
@@ -117,7 +138,7 @@ fn thumbnail(input_path, output_path, max_dimension):
             new_w = round(w * (max_dimension / h))
 
     let resized = vision_resize(img, new_w, new_h)
-    let ok = vision_save(resized, output_path)
+    let ok = vision_save(resized, _vision_resolve(output_path))
     vision_free(img)
     vision_free(resized)
     return ok
@@ -126,14 +147,14 @@ fn thumbnail(input_path, output_path, max_dimension):
 # crop_file(input_path, output_path, x, y, w, h) -> bool
 # ---------------------------------------------------------------------------
 fn crop_file(input_path, output_path, x, y, w, h):
-    let img = vision_load(input_path)
+    let img = vision_load(_vision_resolve(input_path))
     if img == nil:
         return false
     let cropped = vision_crop(img, x, y, w, h)
     if cropped == nil:
         vision_free(img)
         return false
-    let ok = vision_save(cropped, output_path)
+    let ok = vision_save(cropped, _vision_resolve(output_path))
     vision_free(img)
     vision_free(cropped)
     return ok
@@ -145,7 +166,7 @@ fn crop_file(input_path, output_path, x, y, w, h):
 # per-pixel Khan loop.
 # ---------------------------------------------------------------------------
 fn is_grayscale(path, tolerance):
-    let img = vision_load(path)
+    let img = vision_load(_vision_resolve(path))
     if img == nil:
         return nil
     let result = vision_is_grayscale(img, tolerance)
@@ -158,7 +179,7 @@ fn is_grayscale(path, tolerance):
 # per-pixel Khan loop.
 # ---------------------------------------------------------------------------
 fn histogram_stats(path):
-    let img = vision_load(path)
+    let img = vision_load(_vision_resolve(path))
     if img == nil:
         return nil
     let stats = vision_brightness_stats(img)

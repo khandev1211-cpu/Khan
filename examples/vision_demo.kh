@@ -1,12 +1,15 @@
-# Example usage of the rewritten vision package (v2.0.0).
-# Point INPUT_PATH at any real PNG/JPEG/BMP/GIF/TGA on disk.
+# Example usage of the vision package (v2.0.1).
+#
+# Put a real image named "photo.png" next to THIS file (examples/photo.png)
+# — paths here resolve relative to this script's own directory, not
+# whatever folder you happen to run `khan` from.
 import "vision"
 
 let INPUT_PATH = "photo.png"
 
 let info = image_info(INPUT_PATH)
 if info == nil:
-    print "Could not open " + INPUT_PATH
+    print "Could not open " + INPUT_PATH + " (expected at: examples/" + INPUT_PATH + ")"
     exit(1)
 
 print "Loaded: " + str(info["width"]) + "x" + str(info["height"]) + " (" + str(info["channels"]) + " channels)"
