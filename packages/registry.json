@@ -77,7 +77,7 @@
       "name": "events",
       "version": "1.0.0",
       "developer": "Irfan Khan",
-      "description": "Event emitter system: on, emit, once, off, history \u2014 built for Khan Engine game events",
+      "description": "Event emitter system: on, emit, once, off, history — built for Khan Engine game events",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/events/events.kh"
     },
@@ -123,15 +123,15 @@
       "name": "morgos",
       "version": "1.0.0",
       "developer": "Irfan Khan",
-      "description": "Morgan-style HTTP request logger for webi: colored status, elapsed time, response size \u2014 as a swappable after-hook",
+      "description": "Morgan-style HTTP request logger for webi: colored status, elapsed time, response size — as a swappable after-hook",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/morgos/morgos.kh"
     },
     {
       "name": "openai",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "developer": "Irfan Khan",
-      "description": "OpenAI API wrapper for Chat Completions (GPT-3.5/4)",
+      "description": "Production-grade OpenAI API client: chat completions, multi-turn conversations, embeddings, moderation, and model listing, with structured error handling and automatic retry/backoff.",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/openai/openai.kh"
     },
@@ -241,9 +241,9 @@
     },
     {
       "name": "vision",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "developer": "Irfan Khan",
-      "description": "Computer vision and image processing utilities",
+      "description": "Real image I/O and pixel processing (load/save PNG/JPEG/BMP/GIF/TGA, get/set pixels, grayscale, invert, crop, resize, flip, brightness stats) backed by a native decoder. No face/object detection.",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/vision/vision.kh"
     },
@@ -296,4 +296,4 @@
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/sqlite/sqlite.kh"
     }
   ]
-}
+}
