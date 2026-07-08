@@ -241,9 +241,9 @@
     },
     {
       "name": "vision",
-      "version": "2.0.0",
+      "version": "3.0.0",
       "developer": "Irfan Khan",
-      "description": "Real image I/O and pixel processing (load/save PNG/JPEG/BMP/GIF/TGA, get/set pixels, grayscale, invert, crop, resize, flip, brightness stats) backed by a native decoder. No face/object detection.",
+      "description": "Full classical computer-vision toolkit: image I/O, filters (blur/sharpen/emboss/edges), thresholding (fixed/Otsu/adaptive), morphology, connected-component blob detection, histograms, drawing, template matching, HSV color-range detection, and real Haar-cascade face detection (Viola-Jones). All native/fast, no ML framework required.",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/vision/vision.kh"
     },

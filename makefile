@@ -36,6 +36,8 @@ SRCS = \
     src/webi_lib.c      \
     src/sqlite_lib.c    \
     src/vision_lib.c    \
+    src/vision_cv.c     \
+    src/vision_cascade.c \
     src/main.c
 
 KH_SRCS = src/kh.c

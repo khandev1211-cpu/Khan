@@ -472,12 +472,10 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
 }
 
 InterpretResult vm_run(VM *vm, KhanFunction *script) {
-    push(vm, value_nil());
-
     CallFrame *frame = &vm->frames[vm->frame_count++];
     frame->fn    = script;
     frame->ip    = script->chunk.code;
-    frame->slots = vm->stack_top - 1;
+    frame->slots = vm->stack_top;
     return run_loop(vm, 1);
 }
 

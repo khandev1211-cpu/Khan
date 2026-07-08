@@ -1,11 +1,23 @@
 {
   "name": "vision",
-  "version": "2.0.0",
-  "description": "Real image I/O and pixel processing (load/save PNG/JPEG/BMP/GIF/TGA, get/set pixels, grayscale, invert, crop, resize, flip, brightness stats) backed by a native decoder. No face/object detection — that needs a trained model, and the old version's detect_faces() was a hardcoded fake.",
+  "version": "3.0.0",
+  "description": "Full classical computer-vision toolkit: image I/O, filters (blur/sharpen/emboss/edges), thresholding (fixed/Otsu/adaptive), morphology, connected-component blob detection, histograms, drawing, template matching, HSV color-range detection, and real Haar-cascade face detection (Viola-Jones). All native/fast, no ML framework required.",
   "author": "khandev1211-cpu",
   "developer": "Irfan Khan",
   "main": "vision.kh",
   "files": [
-    "vision.kh"
+    "vision.kh",
+    "core.kh",
+    "color.kh",
+    "transform.kh",
+    "filters.kh",
+    "threshold.kh",
+    "morphology.kh",
+    "contours.kh",
+    "histogram.kh",
+    "draw.kh",
+    "match.kh",
+    "detect.kh",
+    "data/haarcascade_frontalface_default.xml"
   ]
 }

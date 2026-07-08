@@ -1,187 +1,80 @@
-# Khan vision package v2.0.0
+# Khan vision package v3.0.0
 # Usage: import "vision"
 #
-# Real image I/O and pixel processing, backed by a native decoder
-# (stb_image) compiled directly into khan.exe — no external DLLs, no
-# system image libraries required. Supports loading PNG/JPEG/BMP/GIF/TGA
-# and saving PNG/BMP/JPEG/TGA.
+# A real classical computer-vision toolkit, not a simulation: genuine
+# image decode/encode, convolution filters, thresholding, morphology,
+# connected-component blob detection, histograms, drawing, template
+# matching, and real Haar-cascade face detection (Viola-Jones, the same
+# algorithm and cascade format OpenCV uses).
 #
-# The v1.0 version of this package was a simulation: load_image() never
-# opened the file, and detect_faces() returned two hardcoded boxes no
-# matter what you passed in. This rewrite only claims what it actually
-# does — there is still no face/object detection here, because doing
-# that for real needs a trained model, not a few hundred lines of pixel
-# math. If you need real detection, this package gives you real pixel
-# access to build on (see is_grayscale, histogram, etc. for the kind of
-# thing that's honestly achievable without one).
+# v1.0 of this package faked everything (detect_faces() returned two
+# hardcoded boxes regardless of input). v2.0 replaced that with real
+# pixel I/O and processing but no detection at all. v3.0 adds the rest of
+# a classical CV toolkit, including actual object detection — no ML
+# framework, no GPU, just the same well-established algorithms OpenCV
+# built its reputation on, implemented directly in Khan's native layer.
 #
 # ---------------------------------------------------------------------------
-# Core functions (native, always available, no import needed — listed
-# here because this package is the natural place to look for them):
+# Quick start
+# ---------------------------------------------------------------------------
 #
-#   vision_load(path)                    -> image or nil
-#   vision_new(width, height, channels)  -> blank black image or nil
-#   vision_free(image)                   -> nil   (call this when done!)
-#   vision_save(image, path)             -> bool  (format from extension)
-#   vision_get_pixel(image, x, y)        -> {"r","g","b"[,"a"]} or nil
-#   vision_set_pixel(image, x, y, r,g,b) -> bool
-#   vision_grayscale(image)              -> new image
-#   vision_invert(image)                 -> new image
-#   vision_crop(image, x, y, w, h)       -> new image or nil
-#   vision_resize(image, w, h)           -> new image (nearest-neighbor)
-#   vision_flip_h(image) / vision_flip_v(image) -> new image
-#   vision_average_brightness(image)     -> number 0-255
+#   import "vision"
 #
-# An "image" is a map: {"width", "height", "channels", ...}. The actual
-# pixel buffer lives on the native side (a full-resolution photo can be
-# tens of millions of bytes — too large to box as a Khan array) —
-# vision_free(image) releases it. Anything vision_* returns as a *new*
-# image needs its own vision_free() once you're done with it.
+#   # basic I/O + info
+#   let info = image_info("photo.png")
+#   print info["width"]
 #
-# This file adds higher-level, file-in/file-out convenience on top —
-# same relationship `requests.kh` has to the native http_* functions.
+#   # face detection
+#   let faces = detect_faces("photo.png")
+#   print len(faces)
+#   draw_faces("photo.png", "photo_annotated.png")
 #
-# Path handling: every function below resolves the paths you pass it
-# relative to *this running script's own directory* — not the shell's
-# current directory — the same convention `webi`'s render_file() and
-# serve_static() use. So `image_info("photo.png")` looks for photo.png
-# next to the .kh file that called it, regardless of which folder you
-# ran `khan` from. Pass an absolute path to bypass this.
+#   # classical pipeline: threshold -> clean up -> find shapes
+#   threshold_otsu_file("scan.png", "scan_bw.png")
+#   morph_open_file("scan_bw.png", "scan_clean.png", 3)
+#   let blobs = find_blobs("scan_clean.png", 50)
 #
-# The raw vision_load()/vision_save() natives do NOT do this — like
-# read_file()/write_file(), they use the literal path relative to
-# whatever directory the process itself was launched from. This file's
-# functions call _resolve() first specifically so you don't have to
-# think about that distinction.
+#   # color-based detection (no cascade needed)
+#   let red_things = find_color_regions("photo.png", 350, 10, 40, 100, 30, 100, 100)
+#
+# ---------------------------------------------------------------------------
+# File layout (each file's header documents its own functions in detail)
+# ---------------------------------------------------------------------------
+#
+#   core.kh        path resolution, image_info
+#   color.kh       grayscale, invert, HSV color-range masking/detection
+#   transform.kh   crop, resize, thumbnail, rotate, flip
+#   filters.kh     box/gaussian blur, sharpen, emboss, Sobel edges
+#   threshold.kh   fixed/Otsu/adaptive thresholding
+#   morphology.kh  erode, dilate, open, close
+#   contours.kh    connected-component blob/shape detection
+#   histogram.kh   brightness histogram + equalization
+#   draw.kh        rectangles/lines/circles/text + a draw-boxes pipeline
+#   match.kh       template matching (find a reference image inside another)
+#   detect.kh      real Haar-cascade face/object detection
+#
+# All heavy per-pixel work (filters, thresholding, morphology, blob
+# detection, cascade scanning) runs natively in C — none of it is a slow
+# per-pixel Khan loop, so it stays practical on real photo resolutions.
+#
+# What's still NOT here: no neural-network-based detection or
+# classification of any kind. Haar cascades (detect.kh) are real object
+# detection but a much older, less accurate technique than a modern
+# trained model — good for frontal faces in reasonable lighting, not a
+# general-purpose vision model.
+#
+# IMPORT ORDER MATTERS (as in `webi`): each file below only calls things
+# defined in a file that already came before it in this list.
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Internal: resolve a path relative to this script's directory (or leave
-# it unchanged if already absolute). Thin wrapper around the same native
-# helper `webi` uses for render_file()/serve_static().
-# ---------------------------------------------------------------------------
-fn _vision_resolve(path):
-    return _webi_resolve_path(path)
-
-# ---------------------------------------------------------------------------
-# image_info(path) -> {"width","height","channels"} or nil
-# Reads just the metadata; frees the native buffer immediately.
-# ---------------------------------------------------------------------------
-fn image_info(path):
-    let img = vision_load(_vision_resolve(path))
-    if img == nil:
-        return nil
-    let info = {"width": img["width"], "height": img["height"], "channels": img["channels"]}
-    vision_free(img)
-    return info
-
-# ---------------------------------------------------------------------------
-# convert_to_grayscale(input_path, output_path) -> bool
-# ---------------------------------------------------------------------------
-fn convert_to_grayscale(input_path, output_path):
-    let img = vision_load(_vision_resolve(input_path))
-    if img == nil:
-        return false
-    let gray = vision_grayscale(img)
-    let ok = vision_save(gray, _vision_resolve(output_path))
-    vision_free(img)
-    vision_free(gray)
-    return ok
-
-# ---------------------------------------------------------------------------
-# invert_colors(input_path, output_path) -> bool
-# ---------------------------------------------------------------------------
-fn invert_colors(input_path, output_path):
-    let img = vision_load(_vision_resolve(input_path))
-    if img == nil:
-        return false
-    let inv = vision_invert(img)
-    let ok = vision_save(inv, _vision_resolve(output_path))
-    vision_free(img)
-    vision_free(inv)
-    return ok
-
-# ---------------------------------------------------------------------------
-# resize_file(input_path, output_path, width, height) -> bool
-# ---------------------------------------------------------------------------
-fn resize_file(input_path, output_path, width, height):
-    let img = vision_load(_vision_resolve(input_path))
-    if img == nil:
-        return false
-    let resized = vision_resize(img, width, height)
-    let ok = vision_save(resized, _vision_resolve(output_path))
-    vision_free(img)
-    vision_free(resized)
-    return ok
-
-# ---------------------------------------------------------------------------
-# thumbnail(input_path, output_path, max_dimension) -> bool
-# Resizes so the longer side is at most max_dimension, keeping aspect ratio.
-# ---------------------------------------------------------------------------
-fn thumbnail(input_path, output_path, max_dimension):
-    let img = vision_load(_vision_resolve(input_path))
-    if img == nil:
-        return false
-
-    let w = img["width"]
-    let h = img["height"]
-    let new_w = w
-    let new_h = h
-
-    if w > h:
-        if w > max_dimension:
-            new_w = max_dimension
-            new_h = round(h * (max_dimension / w))
-    else:
-        if h > max_dimension:
-            new_h = max_dimension
-            new_w = round(w * (max_dimension / h))
-
-    let resized = vision_resize(img, new_w, new_h)
-    let ok = vision_save(resized, _vision_resolve(output_path))
-    vision_free(img)
-    vision_free(resized)
-    return ok
-
-# ---------------------------------------------------------------------------
-# crop_file(input_path, output_path, x, y, w, h) -> bool
-# ---------------------------------------------------------------------------
-fn crop_file(input_path, output_path, x, y, w, h):
-    let img = vision_load(_vision_resolve(input_path))
-    if img == nil:
-        return false
-    let cropped = vision_crop(img, x, y, w, h)
-    if cropped == nil:
-        vision_free(img)
-        return false
-    let ok = vision_save(cropped, _vision_resolve(output_path))
-    vision_free(img)
-    vision_free(cropped)
-    return ok
-
-# ---------------------------------------------------------------------------
-# is_grayscale(path, tolerance) -> bool or nil
-# True if every pixel's R, G, and B are within `tolerance` of each other.
-# Runs as a single native pass (fast even on real photos) rather than a
-# per-pixel Khan loop.
-# ---------------------------------------------------------------------------
-fn is_grayscale(path, tolerance):
-    let img = vision_load(_vision_resolve(path))
-    if img == nil:
-        return nil
-    let result = vision_is_grayscale(img, tolerance)
-    vision_free(img)
-    return result
-
-# ---------------------------------------------------------------------------
-# histogram_stats(path) -> {"min","max","average"} brightness (0-255), or nil
-# Runs as a single native pass (fast even on real photos) rather than a
-# per-pixel Khan loop.
-# ---------------------------------------------------------------------------
-fn histogram_stats(path):
-    let img = vision_load(_vision_resolve(path))
-    if img == nil:
-        return nil
-    let stats = vision_brightness_stats(img)
-    vision_free(img)
-    return stats
+import "core.kh"
+import "color.kh"
+import "transform.kh"
+import "filters.kh"
+import "threshold.kh"
+import "morphology.kh"
+import "contours.kh"
+import "histogram.kh"
+import "draw.kh"
+import "match.kh"
+import "detect.kh"

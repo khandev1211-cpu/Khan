@@ -45,4 +45,15 @@
 void vision_register_all(Environment *env);
 void vision_register_all_vm(VM *vm);
 
+/* ---------------------------------------------------------------------------
+ * Internal cross-file accessors (used by vision_cv.c, vision_cascade.c).
+ * Not part of the Khan-facing API.
+ * ------------------------------------------------------------------------- */
+int vision_internal_get_slot(Value img_map);
+unsigned char *vision_internal_data(int slot);
+int vision_internal_width(int slot);
+int vision_internal_height(int slot);
+int vision_internal_channels(int slot);
+Value vision_internal_wrap(unsigned char *data, int w, int h, int c); /* takes ownership of data */
+
 #endif

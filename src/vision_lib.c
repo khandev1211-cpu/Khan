@@ -81,6 +81,46 @@ static int vision_clamp_byte(double v) {
 }
 
 /* ===========================================================================
+ * Cross-file accessors — used by vision_cv.c and vision_cascade.c, which
+ * need to read/create image buffers without duplicating this registry.
+ * ========================================================================= */
+
+int vision_internal_get_slot(Value img_map) {
+    return vision_get_slot(img_map);
+}
+
+unsigned char *vision_internal_data(int slot) {
+    if (slot < 0 || slot >= VISION_MAX_IMAGES || !g_vision_images[slot].in_use) return NULL;
+    return g_vision_images[slot].data;
+}
+
+int vision_internal_width(int slot) {
+    if (slot < 0 || slot >= VISION_MAX_IMAGES || !g_vision_images[slot].in_use) return 0;
+    return g_vision_images[slot].width;
+}
+
+int vision_internal_height(int slot) {
+    if (slot < 0 || slot >= VISION_MAX_IMAGES || !g_vision_images[slot].in_use) return 0;
+    return g_vision_images[slot].height;
+}
+
+int vision_internal_channels(int slot) {
+    if (slot < 0 || slot >= VISION_MAX_IMAGES || !g_vision_images[slot].in_use) return 0;
+    return g_vision_images[slot].channels;
+}
+
+Value vision_internal_wrap(unsigned char *data, int w, int h, int c) {
+    int slot = vision_alloc_slot();
+    if (slot < 0) { free(data); return value_nil(); }
+    g_vision_images[slot].in_use   = 1;
+    g_vision_images[slot].data     = data;
+    g_vision_images[slot].width    = w;
+    g_vision_images[slot].height   = h;
+    g_vision_images[slot].channels = c;
+    return vision_make_handle(slot);
+}
+
+/* ===========================================================================
  * Native functions
  * ========================================================================= */
 
