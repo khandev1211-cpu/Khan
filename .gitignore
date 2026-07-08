@@ -2,8 +2,9 @@
 khan.exe
 kh.exe
 khan
-kh
+kh 
 
+*png
 *.exe
 # Build artifacts
 *.o
