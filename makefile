@@ -10,6 +10,10 @@ CFLAGS  = -std=c11 -Wall -Wextra -O2 -Isrc \
           -Wno-builtin-declaration-mismatch \
           -Wno-cast-function-type
 
+# Installation paths
+PREFIX ?= /usr/local
+BINDIR = $(PREFIX)/bin
+
 ifeq ($(OS),Windows_NT)
     LDFLAGS  = -lm -lwinhttp -lshell32 -lws2_32 -ladvapi32
     EXT      = .exe
@@ -53,6 +57,25 @@ khan$(EXT): $(SRCS)
 kh$(EXT): $(KH_SRCS)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 	@echo "  Built kh$(EXT) (Package Manager)"
+
+install: all
+ifeq ($(OS),Windows_NT)
+	@echo "Please add the current directory to your PATH manually on Windows."
+else
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 khan$(EXT) $(DESTDIR)$(BINDIR)/khan
+	install -m 755 kh$(EXT) $(DESTDIR)$(BINDIR)/kh
+	@echo "Khan and Kh installed to $(DESTDIR)$(BINDIR)"
+endif
+
+uninstall:
+ifeq ($(OS),Windows_NT)
+	@echo "Please remove the files manually on Windows."
+else
+	rm -f $(DESTDIR)$(BINDIR)/khan
+	rm -f $(DESTDIR)$(BINDIR)/kh
+	@echo "Khan and Kh removed from $(DESTDIR)$(BINDIR)"
+endif
 
 clean:
 ifeq ($(OS),Windows_NT)

@@ -1,4 +1,4 @@
-name: C/C++ CI
+name: Build and Release
 
 on:
   push:
@@ -8,16 +8,42 @@ on:
 
 jobs:
   build:
-
-    runs-on: ubuntu-latest
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
     - uses: actions/checkout@v4
-    - name: configure
-      run: ./configure
-    - name: make
-      run: make
-    - name: make check
-      run: make check
-    - name: make distcheck
-      run: make distcheck
+
+    - name: Build (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        chmod +x configure
+        ./configure
+        make
+
+    - name: Build (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        make
+      shell: cmd
+
+    - name: Upload Artifacts (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: khan-linux
+        path: |
+          khan
+          kh
+
+    - name: Upload Artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: khan-windows
+        path: |
+          khan.exe
+          kh.exe

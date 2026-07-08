@@ -53,6 +53,9 @@ git clone https://github.com/khandev1211-cpu/Khan.git
 cd Khan
 make
 
+# Install globally (Linux/macOS)
+sudo make install
+
 # Run a script
 khan examples/hello.kh
 
@@ -607,15 +610,26 @@ Khan/
 - **Windows only**: links `-lwinhttp` and `-lshell32` (both ship with Windows)
 - **Linux/macOS**: links `-lm`, uses `curl` for HTTP
 
-### Build
+### Build & Install
 
+#### Windows
+1. Make sure you have **GCC** (MinGW-w64) installed and in your PATH.
+2. Run the provided build script:
+   ```cmd
+   build.bat
+   ```
+
+#### Linux / macOS
 ```bash
 git clone https://github.com/khandev1211-cpu/Khan.git
 cd Khan
+chmod +x configure
+./configure
 make
-```
 
-Produces `khan.exe` (interpreter) and `kh.exe` (package manager) on Windows, or `khan` and `kh` on Linux/macOS.
+# Install globally
+sudo make install
+```
 
 ```bash
 make clean   # remove build artifacts
