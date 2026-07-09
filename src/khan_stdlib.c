@@ -579,6 +579,16 @@ void fn_keys(Value *result, Interpreter *interp, int argc, Value *args) {
 
 void fn_has(Value *result, Interpreter *interp, int argc, Value *args) {
     if (!check_arg_count(interp, "has", 2, argc)) { *result = value_nil(); return; }
+    if (args[0].type == VAL_NIL) {
+        /* A nil "map" reasonably means "nothing to look up" — treat it as
+           key-not-found rather than a type error. This matters because
+           query_get()/header_get()/param_get() (and similar) build their
+           default-value fallback on top of has(), and are documented to
+           gracefully return the default rather than erroring when the
+           underlying map is absent. */
+        *result = value_bool(0);
+        return;
+    }
     if (args[0].type != VAL_MAP) {
         fprintf(stderr, "Runtime error: has() first argument must be a map\n");
         if (interp) interp->had_runtime_error = 1;

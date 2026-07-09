@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "value.h"
+#include "chunk.h" /* for KhanClosure — VM closure capture, see value_copy/value_free */
 
 static Obj *obj_new(ValueType type) {
     Obj *obj = malloc(sizeof(Obj));
@@ -82,6 +83,9 @@ Value value_copy(Value v) {
     if (v.type == VAL_FUNCTION) {
         Value copy = v;
         copy.as.function.name = strdup(v.as.function.name);
+        if (copy.as.function.closure) {
+            khanclosure_retain((KhanClosure *)copy.as.function.closure);
+        }
         return copy;
     }
     if (v.type == VAL_NATIVE) {
@@ -116,6 +120,9 @@ void value_free(Value v) {
         free((void*)v.as.string);
     } else if (v.type == VAL_FUNCTION) {
         free((void*)v.as.function.name);
+        if (v.as.function.closure) {
+            khanclosure_release((KhanClosure *)v.as.function.closure);
+        }
     } else if (v.type == VAL_NATIVE) {
         free((void*)v.as.native.name);
     }

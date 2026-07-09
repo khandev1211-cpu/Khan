@@ -367,16 +367,18 @@ static Value curl_request(const char *method, const char *url,
     // Add custom headers
     char **hstrings = NULL;
     int hcount = 0;
-    if (headers.type == VAL_MAP) {
-        hstrings = malloc(sizeof(char *) * headers.as.map.count);
-        for (int i = 0; i < headers.as.map.count; i++) {
+    if (headers.type == VAL_MAP && headers.as.obj) {
+        int mcount = headers.as.obj->as.map.count;
+        hstrings = malloc(sizeof(char *) * mcount);
+        for (int i = 0; i < mcount; i++) {
             char hbuf[1024];
             const char *val = "";
-            if (headers.as.map.entries[i].value.type == VAL_STRING) {
-                val = headers.as.map.entries[i].value.as.string;
+            MapEntry *entry = &headers.as.obj->as.map.entries[i];
+            if (entry->value->type == VAL_STRING) {
+                val = entry->value->as.string;
             }
             snprintf(hbuf, sizeof(hbuf), "%s: %s",
-                     headers.as.map.entries[i].key, val);
+                     entry->key, val);
             hstrings[hcount++] = strdup(hbuf);
             if (n < MAX_CURL_ARGS - 2) {
                 args[n++] = "-H";

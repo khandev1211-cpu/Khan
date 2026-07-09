@@ -15,6 +15,10 @@ typedef struct {
     KhanFunction *fn;
     uint8_t      *ip;       /* instruction pointer into fn->chunk.code */
     Value        *slots;    /* base of this frame's locals on vm.stack  */
+    Value        *upvalues; /* captured values for this closure instance
+                                (borrowed from the KhanClosure the callee
+                                Value pointed at; NULL for non-capturing
+                                functions) — indexed by fn->upvalues[]   */
 } CallFrame;
 
 /* ── Global variable store (Hash Table) ── */

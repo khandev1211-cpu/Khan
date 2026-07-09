@@ -43,9 +43,12 @@ fn dt_to_parts(ts):
         "day_of_week": day_of_week
     }
 
-fn dt_seconds(parts):  return parts["seconds"]
-fn dt_minutes(parts):  return parts["minutes"]
-fn dt_hours(parts):    return parts["hours"]
+fn dt_seconds(parts):
+    return parts["seconds"]
+fn dt_minutes(parts):
+    return parts["minutes"]
+fn dt_hours(parts):
+    return parts["hours"]
 
 fn dt_day_name(parts):
     let days = ["Thursday", "Friday", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday"]
@@ -57,7 +60,8 @@ fn dt_day_name(parts):
 # ─────────────────────────────────────────────────────────────
 
 fn _dt_pad(n):
-    if n < 10: return "0" + str(floor(n))
+    if n < 10:
+        return "0" + str(floor(n))
     return str(floor(n))
 
 fn dt_format(ts):

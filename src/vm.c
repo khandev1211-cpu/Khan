@@ -146,6 +146,22 @@ static InterpretResult runtime_error(VM *vm, const char *msg) {
     int line     = (offset >= 0 && offset < f->fn->chunk.count)
                    ? f->fn->chunk.lines[offset] : 0;
     fprintf(stderr, "[line %d] Runtime error: %s\n", line, msg);
+
+    /* Stack trace: walk every active call frame, innermost first. Each
+       frame's ip already points just past the instruction that's either
+       executing now (innermost) or that called into the next frame in
+       (every other frame) — either way, offset-1 is the right line. */
+    if (vm->frame_count > 1) {
+        fprintf(stderr, "Stack trace (most recent call first):\n");
+        for (int i = vm->frame_count - 1; i >= 0; i--) {
+            CallFrame *cf = &vm->frames[i];
+            int coff = (int)(cf->ip - cf->fn->chunk.code) - 1;
+            int cline = (coff >= 0 && coff < cf->fn->chunk.count)
+                        ? cf->fn->chunk.lines[coff] : 0;
+            const char *fname = (cf->fn->name && cf->fn->name[0]) ? cf->fn->name : "<script>";
+            fprintf(stderr, "  at %s (line %d)\n", fname, cline);
+        }
+    }
     return INTERPRET_RUNTIME_ERROR;
 }
 
@@ -278,6 +294,28 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
                         fv.as.function.closure = NULL;
                         fv.as.function.body    = (struct AstNode*)fn_registry[idx];
                         fv.as.function.params  = NULL;
+
+                        /* If this function captures free variables from
+                           the function currently executing (the one
+                           whose body this OP_DEF_GLOBAL lives in), snapshot
+                           those values now — this is what makes nested
+                           `fn` declarations that reference an enclosing
+                           function's parameters/locals actually work. */
+                        if (fn_registry[idx]->upvalue_count > 0) {
+                            KhanClosure *cl = khanclosure_new(fn_registry[idx]->upvalue_count);
+                            for (int u = 0; u < fn_registry[idx]->upvalue_count; u++) {
+                                UpvalueDesc *d = &fn_registry[idx]->upvalues[u];
+                                if (d->is_local) {
+                                    cl->values[u] = value_copy(frame->slots[d->index]);
+                                } else {
+                                    cl->values[u] = frame->upvalues
+                                        ? value_copy(frame->upvalues[d->index])
+                                        : value_nil();
+                                }
+                            }
+                            fv.as.function.closure = (Environment*)cl;
+                        }
+
                         global_set(vm, gname, fv);
                         value_free(val);
                         break;
@@ -325,6 +363,21 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             break;
         }
 
+        case OP_GET_UPVALUE: {
+            uint8_t slot = READ_BYTE();
+            Value v = frame->upvalues ? frame->upvalues[slot] : value_nil();
+            push(vm, value_copy(v));
+            break;
+        }
+        case OP_SET_UPVALUE: {
+            uint8_t slot = READ_BYTE();
+            if (frame->upvalues) {
+                value_free(frame->upvalues[slot]);
+                frame->upvalues[slot] = value_copy(peek(vm, 0));
+            }
+            break;
+        }
+
         case OP_JUMP: {
             uint16_t off = READ_SHORT();
             frame->ip += off;
@@ -366,6 +419,9 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
                 new_frame->fn    = fn;
                 new_frame->ip    = fn->chunk.code;
                 new_frame->slots = vm->stack_top - arg_count;
+                new_frame->upvalues = callee.as.function.closure
+                    ? ((KhanClosure*)callee.as.function.closure)->values
+                    : NULL;
                 frame = new_frame;
                 break;
             }
@@ -476,6 +532,7 @@ InterpretResult vm_run(VM *vm, KhanFunction *script) {
     frame->fn    = script;
     frame->ip    = script->chunk.code;
     frame->slots = vm->stack_top;
+    frame->upvalues = NULL;
     return run_loop(vm, 1);
 }
 
@@ -506,6 +563,9 @@ Value vm_call_fn(VM *vm, const char *name, int argc, Value *args) {
     new_frame->fn    = fn;
     new_frame->ip    = fn->chunk.code;
     new_frame->slots = vm->stack_top - argc;
+    new_frame->upvalues = fn_val.as.function.closure
+        ? ((KhanClosure*)fn_val.as.function.closure)->values
+        : NULL;
 
     int initial_frame_count = vm->frame_count;
     InterpretResult res = run_loop(vm, initial_frame_count);

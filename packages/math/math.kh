@@ -62,20 +62,29 @@ fn math_abs(n):
         return 0 - n
     return n
 
-fn math_floor(n):    return floor(n)
-fn math_ceil(n):     return ceil(n)
-fn math_round(n):    return floor(n + 0.5)
-fn math_max(a, b):   if a > b: return a
-                     return b
-fn math_min(a, b):   if a < b: return a
-                     return b
+fn math_floor(n):
+    return floor(n)
+fn math_ceil(n):
+    return ceil(n)
+fn math_round(n):
+    return floor(n + 0.5)
+fn math_max(a, b):
+    if a > b:
+        return a
+    return b
+fn math_min(a, b):
+    if a < b:
+        return a
+    return b
 
 fn math_clamp(val, lo, hi):
     return math_max(lo, math_min(hi, val))
 
 fn math_sign(n):
-    if n > 0: return 1
-    elif n < 0: return -1
+    if n > 0:
+        return 1
+    elif n < 0:
+        return -1
     return 0
 
 fn math_gcd(a, b):
@@ -91,12 +100,16 @@ fn math_lcm(a, b):
     return math_abs(a * b) / math_gcd(a, b)
 
 fn math_is_prime(n):
-    if n < 2: return false
-    if n == 2: return true
-    if n % 2 == 0: return false
+    if n < 2:
+        return false
+    if n == 2:
+        return true
+    if n % 2 == 0:
+        return false
     let i = 3
     while i * i <= n:
-        if n % i == 0: return false
+        if n % i == 0:
+            return false
         i = i + 2
     return true
 
@@ -107,11 +120,13 @@ fn math_sum(arr):
     return total
 
 fn math_mean(arr):
-    if len(arr) == 0: return nil
+    if len(arr) == 0:
+        return nil
     return math_sum(arr) / len(arr)
 
 fn math_factorial(n):
-    if n <= 1: return 1
+    if n <= 1:
+        return 1
     return n * math_factorial(n - 1)
 
 fn math_range(start, stop, step):
@@ -191,12 +206,15 @@ fn math_atan(x):
 
 fn math_atan2(y, x):
     if math_abs(x) < EPSILON:
-        if y > 0: return PI / 2.0
-        if y < 0: return 0 - PI / 2.0
+        if y > 0:
+            return PI / 2.0
+        if y < 0:
+            return 0 - PI / 2.0
         return 0
     let a = math_atan(y / x)
     if x < 0:
-        if y >= 0: return a + PI
+        if y >= 0:
+            return a + PI
         return a - PI
     return a
 
@@ -224,7 +242,8 @@ fn vec2_len(v):
 
 fn vec2_norm(v):
     let l = vec2_len(v)
-    if l < EPSILON: return vec2(0, 0)
+    if l < EPSILON:
+        return vec2(0, 0)
     return vec2_scale(v, 1.0 / l)
 
 fn vec2_dist(a, b):
@@ -285,7 +304,8 @@ fn vec3_len_sq(v):
 
 fn vec3_norm(v):
     let l = vec3_len(v)
-    if l < EPSILON: return vec3(0, 0, 0)
+    if l < EPSILON:
+        return vec3(0, 0, 0)
     return vec3_scale(v, 1.0 / l)
 
 fn vec3_dist(a, b):
@@ -311,9 +331,9 @@ fn vec3_project(v, onto):
     return vec3_scale(onto, d)
 
 fn vec3_eq(a, b):
-    return math_abs(a["x"] - b["x"]) < EPSILON and
-           math_abs(a["y"] - b["y"]) < EPSILON and
-           math_abs(a["z"] - b["z"]) < EPSILON
+    return (math_abs(a["x"] - b["x"]) < EPSILON and
+            math_abs(a["y"] - b["y"]) < EPSILON and
+            math_abs(a["z"] - b["z"]) < EPSILON)
 
 fn vec3_str(v):
     return "vec3(" + str(v["x"]) + ", " + str(v["y"]) + ", " + str(v["z"]) + ")"
@@ -348,7 +368,8 @@ fn vec4_len(v):
 
 fn vec4_norm(v):
     let l = vec4_len(v)
-    if l < EPSILON: return vec4(0,0,0,0)
+    if l < EPSILON:
+        return vec4(0,0,0,0)
     return vec4_scale(v, 1.0 / l)
 
 fn color(r, g, b, a):
@@ -387,7 +408,8 @@ fn quat_len(q):
 
 fn quat_norm(q):
     let l = quat_len(q)
-    if l < EPSILON: return quat_identity()
+    if l < EPSILON:
+        return quat_identity()
     return quat(q["w"]/l, q["x"]/l, q["y"]/l, q["z"]/l)
 
 fn quat_from_axis_angle(axis, angle):
@@ -612,7 +634,8 @@ fn ease_out(t):
     return t * (2.0 - t)
 
 fn ease_in_out(t):
-    if t < 0.5: return 2.0 * t * t
+    if t < 0.5:
+        return 2.0 * t * t
     return 0 - 1.0 + (4.0 - 2.0 * t) * t
 
 fn bezier(p0, p1, p2, p3, t):
@@ -643,14 +666,14 @@ fn aabb_size(box):
     return vec3_sub(box["max"], box["min"])
 
 fn aabb_contains(box, point):
-    return point["x"] >= box["min"]["x"] and point["x"] <= box["max"]["x"] and
-           point["y"] >= box["min"]["y"] and point["y"] <= box["max"]["y"] and
-           point["z"] >= box["min"]["z"] and point["z"] <= box["max"]["z"]
+    return (point["x"] >= box["min"]["x"] and point["x"] <= box["max"]["x"] and
+            point["y"] >= box["min"]["y"] and point["y"] <= box["max"]["y"] and
+            point["z"] >= box["min"]["z"] and point["z"] <= box["max"]["z"])
 
 fn aabb_intersects(a, b):
-    return a["min"]["x"] <= b["max"]["x"] and a["max"]["x"] >= b["min"]["x"] and
-           a["min"]["y"] <= b["max"]["y"] and a["max"]["y"] >= b["min"]["y"] and
-           a["min"]["z"] <= b["max"]["z"] and a["max"]["z"] >= b["min"]["z"]
+    return (a["min"]["x"] <= b["max"]["x"] and a["max"]["x"] >= b["min"]["x"] and
+            a["min"]["y"] <= b["max"]["y"] and a["max"]["y"] >= b["min"]["y"] and
+            a["min"]["z"] <= b["max"]["z"] and a["max"]["z"] >= b["min"]["z"])
 
 fn sphere(center, radius):
     return {"center": center, "radius": radius}
@@ -667,7 +690,8 @@ fn ray_sphere(r, s):
     let b  = 2.0 * vec3_dot(oc, r["dir"])
     let c  = vec3_dot(oc, oc) - s["radius"] * s["radius"]
     let disc = b*b - 4*a*c
-    if disc < 0: return nil
+    if disc < 0:
+        return nil
     return (0 - b - math_sqrt(disc)) / (2.0 * a)
 
 fn ray_aabb(r, box):
@@ -684,5 +708,6 @@ fn ray_aabb(r, box):
             let t2 = (box["max"][ax] - r["origin"][ax]) / d
             tmin = math_max(tmin, math_min(t1, t2))
             tmax = math_min(tmax, math_max(t1, t2))
-    if tmax < tmin: return nil
+    if tmax < tmin:
+        return nil
     return tmin

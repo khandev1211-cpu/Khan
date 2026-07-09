@@ -1,0 +1,50 @@
+# tests/suites/arrays_maps.kh — array and map literals, indexing, mutation.
+import "test"
+
+fn suite_arrays_maps():
+    let t = test_suite("Arrays & Maps")
+
+    # ── arrays ─────────────────────────────────────────────────────────
+    let arr = [1, 2, 3]
+    t = test_eq(t, "array literal length", len(arr), 3)
+    t = test_eq(t, "array indexing [0]", arr[0], 1)
+    t = test_eq(t, "array indexing [2]", arr[2], 3)
+
+    arr[1] = 99
+    t = test_eq(t, "array index assignment", arr[1], 99)
+
+    let pushed = push(arr, 4)
+    t = test_eq(t, "push appends and returns the array", len(pushed), 4)
+    t = test_eq(t, "push preserves earlier elements", pushed[0], 1)
+    t = test_eq(t, "push appended value is last", pushed[3], 4)
+
+    let nested = [[1, 2], [3, 4]]
+    t = test_eq(t, "nested array indexing", nested[1][0], 3)
+
+    let mixed = [1, "two", true, nil, {"x": 1}]
+    t = test_eq(t, "mixed-type array: number", mixed[0], 1)
+    t = test_eq(t, "mixed-type array: string", mixed[1], "two")
+    t = test_eq(t, "mixed-type array: bool", mixed[2], true)
+    t = test_eq(t, "mixed-type array: nil", mixed[3], nil)
+    t = test_eq(t, "mixed-type array: map", mixed[4]["x"], 1)
+
+    # ── maps ───────────────────────────────────────────────────────────
+    let m = {"a": 1, "b": 2}
+    t = test_eq(t, "map literal indexing", m["a"], 1)
+
+    m["c"] = 3
+    t = test_eq(t, "map new-key assignment", m["c"], 3)
+
+    m["a"] = 100
+    t = test_eq(t, "map existing-key assignment overwrites", m["a"], 100)
+
+    t = test_true(t, "has() finds an existing key", has(m, "b"))
+    t = test_false(t, "has() correctly reports a missing key", has(m, "z"))
+
+    let ks = keys(m)
+    t = test_eq(t, "keys() returns the right count", len(ks), 3)
+
+    let deep = {"outer": {"inner": [1, 2, {"deepest": 42}]}}
+    t = test_eq(t, "deeply nested map/array access", deep["outer"]["inner"][2]["deepest"], 42)
+
+    return t

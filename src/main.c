@@ -21,6 +21,10 @@ static void enable_ansi(void) {}
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
+#include <limits.h>
+#include <stdlib.h> /* realpath */
+#endif
 
 #include "lexer.h"
 #include "parser.h"
@@ -88,8 +92,20 @@ int main(int argc, char *argv[]) {
     vm_init(&vm);
 
     /* ── Resolve base path for imports ── */
+#ifdef _WIN32
     char path_buf[2048];
     GetFullPathNameA(argv[1], (DWORD)sizeof(path_buf), path_buf, NULL);
+#else
+    /* realpath() requires a destination buffer of at least PATH_MAX
+       bytes (glibc's fortified _chk variant enforces this exactly). */
+    char path_buf[PATH_MAX];
+    if (!realpath(argv[1], path_buf)) {
+        /* Fall back to the raw argument if realpath fails (e.g. file
+           does not exist yet or path is already relative-safe). */
+        strncpy(path_buf, argv[1], sizeof(path_buf) - 1);
+        path_buf[sizeof(path_buf) - 1] = '\0';
+    }
+#endif
 
     char *last_slash     = strrchr(path_buf, '/');
     char *last_backslash = strrchr(path_buf, '\\');

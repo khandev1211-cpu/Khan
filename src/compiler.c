@@ -28,6 +28,8 @@ typedef struct {
     int continue_patches[MAX_BREAKS];
     int continue_count;
     int loop_start;           /* for continue: where to jump back to */
+    int scope_depth;          /* scope depth just before the loop's per-iteration
+                                  scope begins — break/continue pop back to this */
 } LoopCtx;
 
 typedef struct {
@@ -43,6 +45,12 @@ typedef struct CompilerState {
     int                 local_count;
     int                 scope_depth;  /* 0 = global */
     struct CompilerState *enclosing;
+
+    /* Compile-time record of free variables this function captures from
+       an enclosing function — mirrored at runtime into fn->upvalues so
+       the VM knows what to snapshot into each closure instance. */
+    UpvalueDesc          upvalues[MAX_LOCALS];
+    int                  upvalue_count;
 
     LoopCtx             loops[16];
     int                 loop_depth;
@@ -135,6 +143,47 @@ static int resolve_local(CompilerState *c, const char *name) {
     return -1;
 }
 
+/* Record (or reuse) a captured-variable slot on function `c`, returning
+   its upvalue index. `is_local` = 1 means it comes straight from the
+   enclosing frame's local stack slot `index`; = 0 means it's forwarded
+   from the enclosing function's own upvalue slot `index` (multi-level
+   nesting). */
+static int add_upvalue(CompilerState *c, int is_local, int index) {
+    for (int i = 0; i < c->upvalue_count; i++) {
+        if (c->upvalues[i].is_local == is_local && c->upvalues[i].index == index)
+            return i;
+    }
+    if (c->upvalue_count >= MAX_LOCALS) {
+        compiler_error("Too many captured variables in one function", 0);
+        return 0;
+    }
+    c->upvalues[c->upvalue_count].is_local = is_local;
+    c->upvalues[c->upvalue_count].index    = index;
+    return c->upvalue_count++;
+}
+
+/* Walks the chain of enclosing compiler states looking for `name` as a
+   local variable (a parameter or `let`) of some ancestor function. If
+   found, threads an upvalue capture through every function between here
+   and there, so nested functions more than one level deep still resolve
+   correctly. Returns the upvalue index in `c`, or -1 if `name` isn't a
+   local anywhere in the enclosing chain (i.e. it's a global). */
+static int resolve_upvalue(CompilerState *c, const char *name) {
+    if (!c->enclosing) return -1;
+
+    int local = resolve_local(c->enclosing, name);
+    if (local >= 0) {
+        return add_upvalue(c, 1, local);
+    }
+
+    int outer_upvalue = resolve_upvalue(c->enclosing, name);
+    if (outer_upvalue >= 0) {
+        return add_upvalue(c, 0, outer_upvalue);
+    }
+
+    return -1;
+}
+
 static void add_local(const char *name) {
     if (current->local_count >= MAX_LOCALS) {
         compiler_error("Too many local variables", 0);
@@ -185,6 +234,7 @@ static void compiler_state_init(CompilerState *c, KhanFunction *fn,
     c->local_count  = 0;
     c->scope_depth  = 0;
     c->enclosing    = enclosing;
+    c->upvalue_count = 0;
     c->loop_depth   = 0;
     c->had_error    = 0;
 
@@ -223,9 +273,13 @@ static char *compiler_read_file(const char *path) {
 }
 
 static void compile_import(const char *path, int line) {
-    // Built-in native-only imports (no-op)
+    // Built-in native-only imports (no-op). NOTE: "math" is intentionally
+    // NOT here — packages/math/math.kh is a real package (vec2/vec3/mat4/
+    // quaternion/etc.) and must be compiled normally like any other import.
+    // It used to be special-cased here under the assumption that "math"
+    // only meant native functions (sqrt/pow/abs/...), which silently
+    // defeated the real package every time it was imported.
     if (strcmp(path, "json") == 0) return;
-    if (strcmp(path, "math") == 0) return;
 
     // Prevent double imports
     for (int i = 0; i < current->imports->imported_count; i++) {
@@ -337,21 +391,113 @@ static void compile_import(const char *path, int line) {
     free(source);
 }
 
-static void compile_from_import(const char *path, char **names, int name_count, int line) {
-    // Built-in special case
-    if (strcmp(path, "webi") == 0) {
-        for (int i = 0; i < name_count; i++) {
-            if (strcmp(names[i], "webi") == 0) {
-                compile_import("webi", line);
-                return;
-            }
+// Import a sibling submodule file of a package (e.g. "requests" or "json"
+// next to "webi.kh") directly by its resolved path, independent of the
+// package-name-matches-filename convention that compile_import()'s
+// "is_pkg" branch assumes. Used to implement the "submodule flatten" case
+// of `from X import Y` (see docs/from-import.md, case 3). Returns 1 if a
+// matching submodule file was found and compiled, 0 if no such file exists
+// (in which case the caller should treat the name as a plain symbol).
+static int compile_submodule_import(const char *pkg, const char *sub, int line) {
+    char dedup_key[600];
+    snprintf(dedup_key, sizeof(dedup_key), "%s/%s", pkg, sub);
+
+    for (int i = 0; i < current->imports->imported_count; i++) {
+        if (strcmp(current->imports->imported_paths[i], dedup_key) == 0) return 1;
+    }
+    if (current->imports->imported_count >= MAX_IMPORTED) {
+        compiler_error("Too many imports", line);
+        return 1;
+    }
+
+    char full_path[1024];
+    snprintf(full_path, sizeof(full_path), "packages/%s/%s.kh", pkg, sub);
+    FILE *file = fopen(full_path, "rb");
+
+    if (!file) {
+        char *home = getenv("USERPROFILE");
+        if (!home) home = getenv("HOME");
+        if (home) {
+#ifdef _WIN32
+            snprintf(full_path, sizeof(full_path), "%s\\.khan\\packages\\%s\\%s.kh", home, pkg, sub);
+#else
+            snprintf(full_path, sizeof(full_path), "%s/.khan/packages/%s/%s.kh", home, pkg, sub);
+#endif
+            file = fopen(full_path, "rb");
         }
     }
 
-    // Selective import logic is complex for the VM because it populates
-    // the global hash table directly. For now, we perform a full import
-    // to ensure all necessary functions are available to the VM.
-    compile_import(path, line);
+    if (!file) return 0; // Not a submodule file — treat name as a plain symbol.
+    fclose(file);
+
+    char *source = compiler_read_file(full_path);
+    if (!source) {
+        compiler_error("Could not read import file", line);
+        return 1;
+    }
+
+    Lexer lexer;
+    lexer_init(&lexer, source);
+    Parser parser;
+    parser_init(&parser, &lexer);
+    AstNode *program = parser_parse(&parser);
+
+    if (parser.had_error) {
+        compiler_error("Syntax error in import", line);
+        free(source);
+        return 1;
+    }
+
+    current->imports->imported_paths[current->imports->imported_count++] = strdup(dedup_key);
+
+    char *old_dir = current->imports->current_import_dir ? strdup(current->imports->current_import_dir) : NULL;
+    char *last_slash = strrchr(full_path, '/');
+    char *last_backslash = strrchr(full_path, '\\');
+    char *sep = (last_slash > last_backslash) ? last_slash : last_backslash;
+    if (sep) {
+        int dlen = (int)(sep - full_path);
+        if (current->imports->current_import_dir) free(current->imports->current_import_dir);
+        current->imports->current_import_dir = malloc(dlen + 1);
+        memcpy(current->imports->current_import_dir, full_path, dlen);
+        current->imports->current_import_dir[dlen] = '\0';
+    }
+
+    if (program->type == AST_PROGRAM) {
+        for (AstNodeList *s = program->data.program_stmts; s; s = s->next)
+            compile_stmt(s->node);
+    } else {
+        compile_stmt(program);
+    }
+
+    if (current->imports->current_import_dir) free(current->imports->current_import_dir);
+    current->imports->current_import_dir = old_dir;
+
+    ast_free(program);
+    free(source);
+    return 1;
+}
+
+static void compile_from_import(const char *path, char **names, int name_count, int line) {
+    int imported_base = 0;
+
+    for (int i = 0; i < name_count; i++) {
+        // Case 2: the package's own name — full import of the whole package.
+        if (strcmp(names[i], path) == 0) {
+            compile_import(path, line);
+            imported_base = 1;
+            continue;
+        }
+        // Case 3: a sibling submodule file (e.g. `from webi import requests`
+        // pulling in packages/webi/requests.kh).
+        compile_submodule_import(path, names[i], line);
+    }
+
+    // Case 1 (plain symbols): the VM populates a single global table, so a
+    // plain-symbol name becomes available once the base package itself has
+    // been compiled somewhere. Ensure that's happened at least once — this
+    // also preserves the previous behavior for scripts that only ever used
+    // plain-symbol from-imports.
+    if (!imported_base) compile_import(path, line);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -394,10 +540,15 @@ static void compile_expr(AstNode *node) {
     case AST_IDENTIFIER: {
         const char *name = node->data.name;
         int slot = resolve_local(current, name);
-        if (slot >= 0)
+        if (slot >= 0) {
             emit2(OP_GET_LOCAL, (uint8_t)slot, line);
-        else
-            emit_global_get(name, line);
+        } else {
+            int up = resolve_upvalue(current, name);
+            if (up >= 0)
+                emit2(OP_GET_UPVALUE, (uint8_t)up, line);
+            else
+                emit_global_get(name, line);
+        }
         break;
     }
 
@@ -498,9 +649,24 @@ static void compile_expr(AstNode *node) {
 
     /* ── Function call ── */
     case AST_CALL: {
-        /* Push callee */
+        /* Push callee — check local first (a parameter/local holding a
+           function value), then fall back to global, exactly like a
+           plain AST_IDENTIFIER read. Without this, calling a function
+           through a parameter or local variable (the whole point of
+           higher-order functions: filter(arr, pred), callback(), a
+           middleware hook_fn, etc.) always incorrectly did a global
+           lookup instead and failed with "Undefined variable". */
         if (node->data.call.callee) {
-            emit_global_get(node->data.call.callee, line);
+            int slot = resolve_local(current, node->data.call.callee);
+            if (slot >= 0) {
+                emit2(OP_GET_LOCAL, (uint8_t)slot, line);
+            } else {
+                int up = resolve_upvalue(current, node->data.call.callee);
+                if (up >= 0)
+                    emit2(OP_GET_UPVALUE, (uint8_t)up, line);
+                else
+                    emit_global_get(node->data.call.callee, line);
+            }
         } else {
             compile_expr(node->data.call.callee_expr);
         }
@@ -519,10 +685,15 @@ static void compile_expr(AstNode *node) {
         compile_expr(node->data.assignment.value);
         const char *name = node->data.assignment.var_name;
         int slot = resolve_local(current, name);
-        if (slot >= 0)
+        if (slot >= 0) {
             emit2(OP_SET_LOCAL, (uint8_t)slot, line);
-        else
-            emit_global_set(name, line);
+        } else {
+            int up = resolve_upvalue(current, name);
+            if (up >= 0)
+                emit2(OP_SET_UPVALUE, (uint8_t)up, line);
+            else
+                emit_global_set(name, line);
+        }
         /* leave value on stack so it can be used as an expression */
         break;
     }
@@ -581,10 +752,15 @@ static void compile_stmt(AstNode *node) {
         compile_expr(node->data.assignment.value);
         const char *name = node->data.assignment.var_name;
         int slot = resolve_local(current, name);
-        if (slot >= 0)
+        if (slot >= 0) {
             emit2(OP_SET_LOCAL, (uint8_t)slot, line);
-        else
-            emit_global_set(name, line);
+        } else {
+            int up = resolve_upvalue(current, name);
+            if (up >= 0)
+                emit2(OP_SET_UPVALUE, (uint8_t)up, line);
+            else
+                emit_global_set(name, line);
+        }
         emit(OP_POP, line);
         break;
     }
@@ -635,6 +811,7 @@ static void compile_stmt(AstNode *node) {
         LoopCtx *ctx = &current->loops[current->loop_depth++];
         ctx->break_count    = 0;
         ctx->continue_count = 0;
+        ctx->scope_depth    = current->scope_depth;
 
         int loop_start = cur_chunk()->count;
         ctx->loop_start = loop_start;
@@ -647,11 +824,7 @@ static void compile_stmt(AstNode *node) {
 
         /* Patch continue jumps → top of loop */
         for (int i = 0; i < ctx->continue_count; i++) {
-            /* emit_loop equivalent for an already-emitted placeholder */
-            int off = cur_chunk()->count - ctx->continue_patches[i] + 2;
-            /* We emitted OP_JUMP placeholders for continues; patch them */
-            cur_chunk()->code[ctx->continue_patches[i]]     = (off >> 8) & 0xFF;
-            cur_chunk()->code[ctx->continue_patches[i] + 1] = off & 0xFF;
+            patch_jump(ctx->continue_patches[i]);
         }
 
         emit_loop(loop_start, line);
@@ -691,6 +864,7 @@ static void compile_stmt(AstNode *node) {
         LoopCtx *ctx = &current->loops[current->loop_depth++];
         ctx->break_count    = 0;
         ctx->continue_count = 0;
+        ctx->scope_depth    = current->scope_depth;
 
         int loop_start = cur_chunk()->count;
         ctx->loop_start = loop_start;
@@ -722,9 +896,7 @@ static void compile_stmt(AstNode *node) {
 
         /* patch continues */
         for (int i = 0; i < ctx->continue_count; i++) {
-            int off = cur_chunk()->count - ctx->continue_patches[i] + 2;
-            cur_chunk()->code[ctx->continue_patches[i]]     = (off >> 8) & 0xFF;
-            cur_chunk()->code[ctx->continue_patches[i] + 1] = off & 0xFF;
+            patch_jump(ctx->continue_patches[i]);
         }
 
         /* __i = __i + 1 */
@@ -757,7 +929,7 @@ static void compile_stmt(AstNode *node) {
         /* Pop locals that belong to the loop's inner scopes */
         int pops = 0;
         for (int i = current->local_count - 1; i >= 0; i--) {
-            if (current->locals[i].depth > ctx->loop_start) pops++;
+            if (current->locals[i].depth > ctx->scope_depth) pops++;
             else break;
         }
         for (int i = 0; i < pops; i++) emit(OP_POP, line);
@@ -775,7 +947,7 @@ static void compile_stmt(AstNode *node) {
         LoopCtx *ctx = &current->loops[current->loop_depth - 1];
         int pops = 0;
         for (int i = current->local_count - 1; i >= 0; i--) {
-            if (current->locals[i].depth > ctx->loop_start) pops++;
+            if (current->locals[i].depth > ctx->scope_depth) pops++;
             else break;
         }
         for (int i = 0; i < pops; i++) emit(OP_POP, line);
@@ -822,6 +994,16 @@ static void compile_stmt(AstNode *node) {
         emit(OP_RETURN, line);
 
         int fn_had_error = current->had_error;
+
+        /* Copy the free-variable capture list this function needs (if any)
+           from the compile-time scratch state into the KhanFunction itself,
+           so it survives after fn_state goes out of scope. */
+        if (fn_state.upvalue_count > 0) {
+            fn->upvalue_count = fn_state.upvalue_count;
+            fn->upvalues = malloc(sizeof(UpvalueDesc) * fn_state.upvalue_count);
+            memcpy(fn->upvalues, fn_state.upvalues, sizeof(UpvalueDesc) * fn_state.upvalue_count);
+        }
+
         current = fn_state.enclosing;
         if (fn_had_error) current->had_error = 1;
 
