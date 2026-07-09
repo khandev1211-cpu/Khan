@@ -146,6 +146,22 @@ static InterpretResult runtime_error(VM *vm, const char *msg) {
     int line     = (offset >= 0 && offset < f->fn->chunk.count)
                    ? f->fn->chunk.lines[offset] : 0;
     fprintf(stderr, "[line %d] Runtime error: %s\n", line, msg);
+
+    /* Stack trace: walk every active call frame, innermost first. Each
+       frame's ip already points just past the instruction that's either
+       executing now (innermost) or that called into the next frame in
+       (every other frame) — either way, offset-1 is the right line. */
+    if (vm->frame_count > 1) {
+        fprintf(stderr, "Stack trace (most recent call first):\n");
+        for (int i = vm->frame_count - 1; i >= 0; i--) {
+            CallFrame *cf = &vm->frames[i];
+            int coff = (int)(cf->ip - cf->fn->chunk.code) - 1;
+            int cline = (coff >= 0 && coff < cf->fn->chunk.count)
+                        ? cf->fn->chunk.lines[coff] : 0;
+            const char *fname = (cf->fn->name && cf->fn->name[0]) ? cf->fn->name : "<script>";
+            fprintf(stderr, "  at %s (line %d)\n", fname, cline);
+        }
+    }
     return INTERPRET_RUNTIME_ERROR;
 }
 

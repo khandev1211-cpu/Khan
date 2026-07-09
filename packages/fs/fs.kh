@@ -17,12 +17,14 @@ fn fs_read(path):
 
 fn fs_read_lines(path):
     let content = read_file(path)
-    if content == nil: return nil
+    if content == nil:
+        return nil
     return split(content, "\n")
 
 fn fs_read_json(path):
     let content = read_file(path)
-    if content == nil: return nil
+    if content == nil:
+        return nil
     return json_decode(content)
 
 # ─────────────────────────────────────────────────────────────
@@ -53,12 +55,14 @@ fn fs_exists(path):
 
 fn fs_is_empty(path):
     let content = read_file(path)
-    if content == nil: return true
+    if content == nil:
+        return true
     return len(content) == 0
 
 fn fs_size(path):
     let content = read_file(path)
-    if content == nil: return 0
+    if content == nil:
+        return 0
     return len(content)
 
 # ─────────────────────────────────────────────────────────────
@@ -67,16 +71,19 @@ fn fs_size(path):
 
 fn fs_basename(path):
     let parts = split(path, "/")
-    if len(parts) == 0: return path
+    if len(parts) == 0:
+        return path
     return parts[len(parts) - 1]
 
 fn fs_dirname(path):
     let parts = split(path, "/")
-    if len(parts) <= 1: return "."
+    if len(parts) <= 1:
+        return "."
     let result = ""
     let i = 0
     while i < len(parts) - 1:
-        if i > 0: result = result + "/"
+        if i > 0:
+            result = result + "/"
         result = result + parts[i]
         i = i + 1
     return result
@@ -84,17 +91,20 @@ fn fs_dirname(path):
 fn fs_extname(path):
     let base = fs_basename(path)
     let parts = split(base, ".")
-    if len(parts) <= 1: return ""
+    if len(parts) <= 1:
+        return ""
     return "." + parts[len(parts) - 1]
 
 fn fs_stem(path):
     let base = fs_basename(path)
     let ext  = fs_extname(path)
-    if len(ext) == 0: return base
+    if len(ext) == 0:
+        return base
     return substring(base, 0, len(base) - len(ext))
 
 fn fs_join(a, b):
-    if len(a) == 0: return b
+    if len(a) == 0:
+        return b
     let last = substring(a, len(a) - 1, 1)
     if last == "/":
         return a + b
@@ -106,7 +116,8 @@ fn fs_join(a, b):
 
 fn fs_copy(src, dst):
     let content = read_file(src)
-    if content == nil: return false
+    if content == nil:
+        return false
     return write_file(dst, content)
 
 # ─────────────────────────────────────────────────────────────
@@ -115,12 +126,14 @@ fn fs_copy(src, dst):
 
 fn fs_config_read(path):
     let data = fs_read_json(path)
-    if data == nil: return {}
+    if data == nil:
+        return {}
     return data
 
 fn fs_config_get(path, key, default_val):
     let cfg = fs_config_read(path)
-    if has(cfg, key): return cfg[key]
+    if has(cfg, key):
+        return cfg[key]
     return default_val
 
 fn fs_config_set(path, key, value):

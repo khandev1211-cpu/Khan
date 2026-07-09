@@ -45,14 +45,19 @@ fn logger_silent(log):
 # ─────────────────────────────────────────────────────────────
 
 fn _log_level_str(level):
-    if level == LOG_DEBUG: return "DEBUG"
-    if level == LOG_INFO:  return "INFO"
-    if level == LOG_WARN:  return "WARN"
-    if level == LOG_ERROR: return "ERROR"
+    if level == LOG_DEBUG:
+        return "DEBUG"
+    if level == LOG_INFO:
+        return "INFO"
+    if level == LOG_WARN:
+        return "WARN"
+    if level == LOG_ERROR:
+        return "ERROR"
     return "???"
 
 fn _log_write(log, level, msg):
-    if level < log["level"]: return log
+    if level < log["level"]:
+        return log
     let entry = {
         "level":   level,
         "label":   _log_level_str(level),
@@ -69,10 +74,14 @@ fn _log_write(log, level, msg):
 # LOG FUNCTIONS
 # ─────────────────────────────────────────────────────────────
 
-fn log_debug(log, msg): return _log_write(log, LOG_DEBUG, msg)
-fn log_info(log, msg):  return _log_write(log, LOG_INFO,  msg)
-fn log_warn(log, msg):  return _log_write(log, LOG_WARN,  msg)
-fn log_error(log, msg): return _log_write(log, LOG_ERROR, msg)
+fn log_debug(log, msg):
+    return _log_write(log, LOG_DEBUG, msg)
+fn log_info(log, msg):
+    return _log_write(log, LOG_INFO,  msg)
+fn log_warn(log, msg):
+    return _log_write(log, LOG_WARN,  msg)
+fn log_error(log, msg):
+    return _log_write(log, LOG_ERROR, msg)
 
 fn log_divider(log):
     return log_info(log, "────────────────────────────────────────")

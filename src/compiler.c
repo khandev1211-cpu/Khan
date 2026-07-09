@@ -28,6 +28,8 @@ typedef struct {
     int continue_patches[MAX_BREAKS];
     int continue_count;
     int loop_start;           /* for continue: where to jump back to */
+    int scope_depth;          /* scope depth just before the loop's per-iteration
+                                  scope begins — break/continue pop back to this */
 } LoopCtx;
 
 typedef struct {
@@ -223,9 +225,13 @@ static char *compiler_read_file(const char *path) {
 }
 
 static void compile_import(const char *path, int line) {
-    // Built-in native-only imports (no-op)
+    // Built-in native-only imports (no-op). NOTE: "math" is intentionally
+    // NOT here — packages/math/math.kh is a real package (vec2/vec3/mat4/
+    // quaternion/etc.) and must be compiled normally like any other import.
+    // It used to be special-cased here under the assumption that "math"
+    // only meant native functions (sqrt/pow/abs/...), which silently
+    // defeated the real package every time it was imported.
     if (strcmp(path, "json") == 0) return;
-    if (strcmp(path, "math") == 0) return;
 
     // Prevent double imports
     for (int i = 0; i < current->imports->imported_count; i++) {
@@ -498,9 +504,19 @@ static void compile_expr(AstNode *node) {
 
     /* ── Function call ── */
     case AST_CALL: {
-        /* Push callee */
+        /* Push callee — check local first (a parameter/local holding a
+           function value), then fall back to global, exactly like a
+           plain AST_IDENTIFIER read. Without this, calling a function
+           through a parameter or local variable (the whole point of
+           higher-order functions: filter(arr, pred), callback(), a
+           middleware hook_fn, etc.) always incorrectly did a global
+           lookup instead and failed with "Undefined variable". */
         if (node->data.call.callee) {
-            emit_global_get(node->data.call.callee, line);
+            int slot = resolve_local(current, node->data.call.callee);
+            if (slot >= 0)
+                emit2(OP_GET_LOCAL, (uint8_t)slot, line);
+            else
+                emit_global_get(node->data.call.callee, line);
         } else {
             compile_expr(node->data.call.callee_expr);
         }
@@ -635,6 +651,7 @@ static void compile_stmt(AstNode *node) {
         LoopCtx *ctx = &current->loops[current->loop_depth++];
         ctx->break_count    = 0;
         ctx->continue_count = 0;
+        ctx->scope_depth    = current->scope_depth;
 
         int loop_start = cur_chunk()->count;
         ctx->loop_start = loop_start;
@@ -647,11 +664,7 @@ static void compile_stmt(AstNode *node) {
 
         /* Patch continue jumps → top of loop */
         for (int i = 0; i < ctx->continue_count; i++) {
-            /* emit_loop equivalent for an already-emitted placeholder */
-            int off = cur_chunk()->count - ctx->continue_patches[i] + 2;
-            /* We emitted OP_JUMP placeholders for continues; patch them */
-            cur_chunk()->code[ctx->continue_patches[i]]     = (off >> 8) & 0xFF;
-            cur_chunk()->code[ctx->continue_patches[i] + 1] = off & 0xFF;
+            patch_jump(ctx->continue_patches[i]);
         }
 
         emit_loop(loop_start, line);
@@ -691,6 +704,7 @@ static void compile_stmt(AstNode *node) {
         LoopCtx *ctx = &current->loops[current->loop_depth++];
         ctx->break_count    = 0;
         ctx->continue_count = 0;
+        ctx->scope_depth    = current->scope_depth;
 
         int loop_start = cur_chunk()->count;
         ctx->loop_start = loop_start;
@@ -722,9 +736,7 @@ static void compile_stmt(AstNode *node) {
 
         /* patch continues */
         for (int i = 0; i < ctx->continue_count; i++) {
-            int off = cur_chunk()->count - ctx->continue_patches[i] + 2;
-            cur_chunk()->code[ctx->continue_patches[i]]     = (off >> 8) & 0xFF;
-            cur_chunk()->code[ctx->continue_patches[i] + 1] = off & 0xFF;
+            patch_jump(ctx->continue_patches[i]);
         }
 
         /* __i = __i + 1 */
@@ -757,7 +769,7 @@ static void compile_stmt(AstNode *node) {
         /* Pop locals that belong to the loop's inner scopes */
         int pops = 0;
         for (int i = current->local_count - 1; i >= 0; i--) {
-            if (current->locals[i].depth > ctx->loop_start) pops++;
+            if (current->locals[i].depth > ctx->scope_depth) pops++;
             else break;
         }
         for (int i = 0; i < pops; i++) emit(OP_POP, line);
@@ -775,7 +787,7 @@ static void compile_stmt(AstNode *node) {
         LoopCtx *ctx = &current->loops[current->loop_depth - 1];
         int pops = 0;
         for (int i = current->local_count - 1; i >= 0; i--) {
-            if (current->locals[i].depth > ctx->loop_start) pops++;
+            if (current->locals[i].depth > ctx->scope_depth) pops++;
             else break;
         }
         for (int i = 0; i < pops; i++) emit(OP_POP, line);

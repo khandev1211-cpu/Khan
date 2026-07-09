@@ -1,0 +1,45 @@
+# tests/suites/operators.kh — arithmetic, comparison, logical operators.
+import "test"
+
+fn suite_operators():
+    let t = test_suite("Operators")
+
+    # ── arithmetic ─────────────────────────────────────────────────────
+    t = test_eq(t, "addition", 2 + 3, 5)
+    t = test_eq(t, "subtraction", 5 - 3, 2)
+    t = test_eq(t, "multiplication", 4 * 5, 20)
+    t = test_eq(t, "division", 10 / 4, 2.5)
+    t = test_eq(t, "modulo", 10 % 3, 1)
+    t = test_eq(t, "unary minus", -5 + 10, 5)
+
+    # ── operator precedence ────────────────────────────────────────────
+    t = test_eq(t, "* binds tighter than +", 2 + 3 * 4, 14)
+    t = test_eq(t, "parentheses override precedence", (2 + 3) * 4, 20)
+    t = test_eq(t, "nested parentheses", (1 + 2) * (3 + 4), 21)
+
+    # ── comparison ─────────────────────────────────────────────────────
+    t = test_true(t, "greater than", 5 > 3)
+    t = test_true(t, "less than", 3 < 5)
+    t = test_true(t, "greater or equal (equal case)", 5 >= 5)
+    t = test_true(t, "less or equal (less case)", 3 <= 5)
+    t = test_true(t, "equality", 5 == 5)
+    t = test_true(t, "inequality", 5 != 6)
+    t = test_false(t, "equality across different values", 5 == 6)
+
+    # ── logical ────────────────────────────────────────────────────────
+    t = test_true(t, "and: both true", true and true)
+    t = test_false(t, "and: one false", true and false)
+    t = test_true(t, "or: one true", false or true)
+    t = test_false(t, "or: both false", false or false)
+    t = test_true(t, "not: negates false", not false)
+    t = test_false(t, "not: negates true", not true)
+
+    # ── short-circuit-sensitive combos ─────────────────────────────────
+    t = test_true(t, "compound: (a > b) or (c == d)", (1 > 2) or (3 == 3))
+    t = test_false(t, "compound: (a > b) and (c == d)", (1 > 2) and (3 == 3))
+
+    # ── string comparison ──────────────────────────────────────────────
+    t = test_true(t, "string equality", "abc" == "abc")
+    t = test_false(t, "string inequality", "abc" == "abd")
+
+    return t

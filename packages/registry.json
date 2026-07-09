@@ -3,7 +3,7 @@
   "packages": [
     {
       "name": "math",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "developer": "Irfan Khan",
       "description": "Advanced math functions: sqrt, pow, gcd, primes, factorial, mean",
       "author": "khandev1211-cpu",
@@ -51,7 +51,7 @@
     },
     {
       "name": "fs",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "developer": "Irfan Khan",
       "description": "File system utilities: read, write, append, copy, path helpers, JSON config",
       "author": "khandev1211-cpu",
@@ -59,7 +59,7 @@
     },
     {
       "name": "datetime",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "developer": "Irfan Khan",
       "description": "Date and time utilities: timer, elapsed, human-readable duration, sleep helpers",
       "author": "khandev1211-cpu",
@@ -75,7 +75,7 @@
     },
     {
       "name": "events",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "developer": "Irfan Khan",
       "description": "Event emitter system: on, emit, once, off, history — built for Khan Engine game events",
       "author": "khandev1211-cpu",
@@ -83,7 +83,7 @@
     },
     {
       "name": "logger",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "developer": "Irfan Khan",
       "description": "Structured logger: debug/info/warn/error levels, file output, silent mode",
       "author": "khandev1211-cpu",
@@ -91,7 +91,7 @@
     },
     {
       "name": "uuid",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "developer": "Irfan Khan",
       "description": "Unique ID generation: uuid_v4, short IDs, named entity IDs, sequential counters",
       "author": "khandev1211-cpu",
