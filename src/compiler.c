@@ -658,6 +658,7 @@ static void compile_expr(AstNode *node) {
            lookup instead and failed with "Undefined variable". */
         if (node->data.call.callee) {
             int slot = resolve_local(current, node->data.call.callee);
+<<<<<<< HEAD
             if (slot >= 0) {
                 emit2(OP_GET_LOCAL, (uint8_t)slot, line);
             } else {
@@ -667,6 +668,12 @@ static void compile_expr(AstNode *node) {
                 else
                     emit_global_get(node->data.call.callee, line);
             }
+=======
+            if (slot >= 0)
+                emit2(OP_GET_LOCAL, (uint8_t)slot, line);
+            else
+                emit_global_get(node->data.call.callee, line);
+>>>>>>> 6f4d8d6e8fdda6fc98450f4dfccdf9cfc8a0f801
         } else {
             compile_expr(node->data.call.callee_expr);
         }

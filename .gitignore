@@ -4,6 +4,7 @@ kh.exe
 khan
 kh
 
+*.txt
 *.png
 *jpg
 
@@ -36,3 +37,6 @@ cache_requests.json
 # OS files
 .DS_Store
 Thumbs.db
+
+# Ignore all json files
+*.json
