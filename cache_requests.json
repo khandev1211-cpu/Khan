@@ -1,9 +1,1 @@
-{
-    "ok": true,
-    "name": "requests",
-    "version": "2.34.2",
-    "summary": "Python HTTP for Humans.",
-    "author": "Kenneth Reitz <me@kennethreitz.org>",
-    "home_page": "(not listed)",
-    "fetched_at": 1782583949
-}
+{"ok": true, "name": "requests", "version": "2.34.2", "summary": "Python HTTP for Humans.", "author": "Kenneth Reitz <me@kennethreitz.org>", "home_page": "(not listed)", "fetched_at": 1782583949}

@@ -4,7 +4,6 @@ kh.exe
 khan
 kh
 
-*.txt
 *.png
 *jpg
 
@@ -38,5 +37,5 @@ cache_requests.json
 .DS_Store
 Thumbs.db
 
-# Ignore all json files
-*.json
+# Benchmark runner temp binaries
+benchmarks/_*_c_bin

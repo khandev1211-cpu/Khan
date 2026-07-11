@@ -51,7 +51,10 @@ static void table_init(Table *table) {
 
 static void table_free(Table *table) {
     for (int i = 0; i < table->capacity; i++) {
-        if (table->entries[i].key) free(table->entries[i].key);
+        if (table->entries[i].key) {
+            free(table->entries[i].key);
+            value_free(table->entries[i].val);
+        }
     }
     free(table->entries);
     table_init(table);
@@ -122,13 +125,40 @@ static int global_get(VM *vm, const char *key, Value *out) {
 
 /* ══════════════════════════════════════════════════════════════
    Stack helpers
-   ══════════════════════════════════════════════════════════════ */
+   ══════════════════════════════════════════════════════════════
+   push()/pop() previously had no bounds checking at all — writing
+   past the end of the fixed-size `stack[VM_STACK_MAX]` array (or
+   reading before its start) is undefined behavior, not a clean
+   error. Verified reproducible as a raw SIGSEGV with no diagnostic
+   whatsoever via deep recursion through a function with many locals
+   per frame (frame_count's own VM_FRAMES_MAX check doesn't help here,
+   since frame_count * locals-per-frame can exceed VM_STACK_MAX well
+   before frame_count itself reaches its limit).
 
+   These now fail safely: a clear message to stderr and a clean exit,
+   rather than corrupting adjacent memory. This can't be threaded back
+   as a normal catchable Khan-level runtime error without changing the
+   signature (and every call site) of push()/pop() throughout run_loop
+   — a much larger, riskier change. A hard, clearly-diagnosed abort is
+   a large, deliberate improvement over undefined behavior even without
+   that; it's the same tradeoff many embedded VMs make for genuine
+   resource exhaustion (as opposed to an ordinary, recoverable runtime
+   error like "undefined variable"). */
 static inline void push(VM *vm, Value v) {
+    if (vm->stack_top >= vm->stack + VM_STACK_MAX) {
+        fprintf(stderr, "Fatal: stack overflow (exceeded %d values) — likely runaway or "
+                         "too-deep recursion\n", VM_STACK_MAX);
+        exit(70);
+    }
     *vm->stack_top++ = v;
 }
 
 static inline Value pop(VM *vm) {
+    if (vm->stack_top <= vm->stack) {
+        fprintf(stderr, "Fatal: stack underflow — this indicates a compiler bug "
+                         "(bytecode popped more values than were pushed)\n");
+        exit(70);
+    }
     return *--vm->stack_top;
 }
 
@@ -254,13 +284,14 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
         case OP_MUL: NUMERIC_OP(value_number, *); break;
         case OP_DIV: {
             Value b = pop(vm), a = pop(vm);
-            if (b.as.number == 0.0) return runtime_error(vm, "Division by zero");
+            if (b.as.number == 0.0) { value_free(a); value_free(b); return runtime_error(vm, "Division by zero"); }
             push(vm, value_number(a.as.number / b.as.number));
             value_free(a); value_free(b);
             break;
         }
         case OP_MOD: {
             Value b = pop(vm), a = pop(vm);
+            if (b.as.number == 0.0) { value_free(a); value_free(b); return runtime_error(vm, "Modulo by zero"); }
             push(vm, value_number(fmod(a.as.number, b.as.number)));
             value_free(a); value_free(b);
             break;
@@ -282,6 +313,7 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             int name_idx = (op == OP_DEF_GLOBAL) ? READ_BYTE() : READ_SHORT();
             Value name_v = frame->fn->chunk.constants[name_idx];
             Value val = pop(vm);
+            const char *gname_for_free = name_v.as.string;
 
             if (val.type == VAL_NUMBER) {
                 int idx = (int)val.as.number;
@@ -316,10 +348,29 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
                             fv.as.function.closure = (Environment*)cl;
                         }
 
+                        // A nested `fn` compiles to OP_DEF_GLOBAL and gets
+                        // re-executed every time the enclosing function is
+                        // called, redefining the same global name each
+                        // time. Without freeing the previous value first,
+                        // every call after the first leaked the old
+                        // closure (and its captured values) — this is
+                        // what showed up as a per-call leak under
+                        // valgrind. OP_SET_GLOBAL already did this
+                        // correctly; OP_DEF_GLOBAL didn't.
+                        Value old;
+                        if (global_get(vm, gname_for_free, &old)) {
+                            value_free(old);
+                        }
                         global_set(vm, gname, fv);
                         value_free(val);
                         break;
                     }
+                }
+            }
+            {
+                Value old;
+                if (global_get(vm, gname_for_free, &old)) {
+                    value_free(old);
                 }
             }
             global_set(vm, name_v.as.string, val);
@@ -432,6 +483,31 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
 
         case OP_RETURN: {
             Value result = pop(vm);
+
+            // Free any locals still sitting in this frame's stack region
+            // before truncating it. `result` is a value_copy'd (properly
+            // retained) independent reference, so freeing everything in
+            // this range is always safe — it can't double-free `result`
+            // because `result` was already popped off before this loop
+            // runs and isn't in this range.
+            //
+            // This also frees the callee slot itself (frame->slots - 1),
+            // which OP_CALL populated with a retained value_copy of the
+            // function/closure being invoked — previously abandoned
+            // without freeing on every single call, leaking the callee's
+            // name string at minimum and its closure captures for any
+            // higher-order call. The top-level script frame has no such
+            // slot (nothing is pushed below it), so it's excluded.
+            //
+            // Without any of this, any local still "in scope" at the
+            // point of return (i.e. not already popped by a natural
+            // end_scope()) leaked its underlying allocation forever —
+            // most visible with closures/arrays/maps, since plain
+            // numbers/bools don't own any heap memory to leak.
+            Value *free_from = (vm->frame_count > 1) ? frame->slots - 1 : frame->slots;
+            for (Value *slot = free_from; slot < vm->stack_top; slot++) {
+                value_free(*slot);
+            }
 
             // Clean up the stack: pop function and arguments
             vm->stack_top = frame->slots - 1;
@@ -575,6 +651,9 @@ Value vm_call_fn(VM *vm, const char *name, int argc, Value *args) {
         // We must manually pop the function and args to prevent stack leaks.
         while (vm->frame_count >= initial_frame_count) {
              CallFrame *f = &vm->frames[--vm->frame_count];
+             for (Value *slot = f->slots; slot < vm->stack_top; slot++) {
+                 value_free(*slot);
+             }
              vm->stack_top = f->slots - 1;
         }
         return value_nil();

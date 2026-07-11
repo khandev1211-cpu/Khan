@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "compiler.h"
 #include "ast.h"
 #include "chunk.h"
@@ -513,6 +514,93 @@ static int list_count(AstNodeList *l) {
    Expression compilation
    ══════════════════════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════════════════════
+   Constant folding
+   ══════════════════════════════════════════════════════════════
+   Recursively evaluates a compile-time-constant numeric expression
+   tree (number literals, +, -, *, /, %, unary minus, and parenthesized
+   groupings of the same) and returns true with the result in *out if
+   the whole subtree folds. Deliberately conservative:
+     - only numbers in, numbers out (no string constant-folding, to
+       avoid any risk of subtly diverging from OP_ADD's runtime
+       string-concat semantics)
+     - division/modulo by a folded-zero divisor is NOT folded — it
+       falls through to normal codegen so the existing runtime error
+       path still fires, rather than silently producing NaN/Inf (or a
+       different error) at compile time
+     - AND/OR are intentionally excluded (already special-cased for
+       short-circuit codegen elsewhere; folding them isn't worth the
+       risk of interacting with that)
+   This lets `compile_expr` emit a single OP_CONST for something like
+   `60 * 60 * 24` instead of five constants and four ADD/MUL opcodes —
+   the classic first compiler optimization, and a safe one since it
+   can only ever produce the same value the unfolded bytecode would
+   have computed at runtime. */
+static int fold_constant_number(AstNode *node, double *out) {
+    if (!node) return 0;
+
+    switch (node->type) {
+        case AST_NUMBER:
+            *out = node->data.number_value;
+            return 1;
+
+        case AST_GROUPING:
+            return fold_constant_number(node->data.grouping, out);
+
+        case AST_UNARY: {
+            double r;
+            if (node->data.unary.op != OP_NEGATE) return 0; /* leave `not` to runtime */
+            if (!fold_constant_number(node->data.unary.right, &r)) return 0;
+            *out = -r;
+            return 1;
+        }
+
+        case AST_BINARY: {
+            double l, r;
+            AstOp op = node->data.binary.op;
+            if (op == OP_AND || op == OP_OR) return 0;
+            if (!fold_constant_number(node->data.binary.left, &l)) return 0;
+            if (!fold_constant_number(node->data.binary.right, &r)) return 0;
+            switch (op) {
+                case OP_PLUS:  *out = l + r; return 1;
+                case OP_MINUS: *out = l - r; return 1;
+                case OP_STAR:  *out = l * r; return 1;
+                case OP_SLASH:
+                    if (r == 0) return 0; /* let the runtime raise its own error */
+                    *out = l / r;
+                    return 1;
+                case OP_PERCENT:
+                    if (r == 0) return 0;
+                    *out = fmod(l, r);
+                    return 1;
+                default:
+                    return 0; /* comparisons handled separately below, not here */
+            }
+        }
+
+        default:
+            return 0;
+    }
+}
+
+/* Comparison folding is kept separate from fold_constant_number since
+   its result is a bool, not a number — same conservatism otherwise
+   (both sides must fold to constants). */
+static int fold_constant_comparison(AstOp op, AstNode *L, AstNode *R, int *out) {
+    double l, r;
+    if (!fold_constant_number(L, &l)) return 0;
+    if (!fold_constant_number(R, &r)) return 0;
+    switch (op) {
+        case OP_EQUAL_EQUAL:   *out = (l == r); return 1;
+        case OP_BANG_EQUAL:    *out = (l != r); return 1;
+        case OP_LESS:          *out = (l <  r); return 1;
+        case OP_LESS_EQUAL:    *out = (l <= r); return 1;
+        case OP_GREATER:       *out = (l >  r); return 1;
+        case OP_GREATER_EQUAL: *out = (l >= r); return 1;
+        default:               return 0;
+    }
+}
+
 static void compile_expr(AstNode *node) {
     if (!node) { emit(OP_NIL, 0); return; }
     int line = node->line;
@@ -563,6 +651,23 @@ static void compile_expr(AstNode *node) {
         AstNode *L  = node->data.binary.left;
         AstNode *R  = node->data.binary.right;
 
+        /* Constant folding: try arithmetic first, then comparisons.
+           Short-circuit AND/OR are excluded inside the fold helpers
+           themselves, so this is always safe to attempt before the
+           special-cased branches below. */
+        {
+            double folded;
+            if (fold_constant_number(node, &folded)) {
+                emit_const(vm_val_number(folded), line);
+                break;
+            }
+            int folded_bool;
+            if (fold_constant_comparison(op, L, R, &folded_bool)) {
+                emit(folded_bool ? OP_TRUE : OP_FALSE, line);
+                break;
+            }
+        }
+
         /* Short-circuit AND */
         if (op == OP_AND) {
             compile_expr(L);
@@ -607,7 +712,12 @@ static void compile_expr(AstNode *node) {
     }
 
     /* ── Unary operations ── */
-    case AST_UNARY:
+    case AST_UNARY: {
+        double folded;
+        if (node->data.unary.op == OP_NEGATE && fold_constant_number(node, &folded)) {
+            emit_const(vm_val_number(folded), line);
+            break;
+        }
         compile_expr(node->data.unary.right);
         switch (node->data.unary.op) {
             case OP_NEGATE: emit(OP_NEGATE_NUM, line); break;
@@ -615,6 +725,7 @@ static void compile_expr(AstNode *node) {
             default:        compiler_error("Unknown unary operator", line);
         }
         break;
+    }
 
     /* ── Array literal ── */
     case AST_ARRAY: {
@@ -658,7 +769,6 @@ static void compile_expr(AstNode *node) {
            lookup instead and failed with "Undefined variable". */
         if (node->data.call.callee) {
             int slot = resolve_local(current, node->data.call.callee);
-<<<<<<< HEAD
             if (slot >= 0) {
                 emit2(OP_GET_LOCAL, (uint8_t)slot, line);
             } else {
@@ -668,12 +778,6 @@ static void compile_expr(AstNode *node) {
                 else
                     emit_global_get(node->data.call.callee, line);
             }
-=======
-            if (slot >= 0)
-                emit2(OP_GET_LOCAL, (uint8_t)slot, line);
-            else
-                emit_global_get(node->data.call.callee, line);
->>>>>>> 6f4d8d6e8fdda6fc98450f4dfccdf9cfc8a0f801
         } else {
             compile_expr(node->data.call.callee_expr);
         }

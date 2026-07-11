@@ -69,29 +69,70 @@ this is now fixed and verified (`make clean && make` succeeds, `khan` runs).
 ## 3. AST — ❌ Not started
 - No audit of node independence for future optimization passes.
 
-## 4. Compiler optimizations — ❌ Not started
-- ❌ Constant folding (`2+3` → `5` at compile time)
-- ❌ Dead code elimination
-- ❌ Constant propagation
-- ❌ Peephole optimization
-- Two real correctness bugs were found and fixed in the compiler in the
-  prior session (continue-jump patching, higher-order function calls).
-- ✅ **(this session)** Found and fixed a third, larger one: **the
-  compiler had no concept of closures at all.** See #6 below — this is
-  the single biggest correctness finding of this session and arguably
-  belongs as much here as in "VM".
+## 4. Compiler optimizations — 🟡 Partial (was ❌ Not started)
+- ✅ **(session 4)** Implemented real constant folding: a compile-time
+  evaluator (`fold_constant_number`/`fold_constant_comparison` in
+  `compiler.c`) that recursively evaluates pure-numeric expression
+  trees (literals, `+ - * / %`, unary minus, parenthesized groupings,
+  and now also comparisons `< <= > >= == !=`) and emits a single
+  `OP_CONST`/`OP_TRUE`/`OP_FALSE` instead of the full unfolded
+  bytecode. Deliberately conservative: numbers only (no string constant
+  folding, to avoid any risk of diverging from `OP_ADD`'s runtime
+  string-concat semantics), and division/modulo by a folded-zero
+  divisor is explicitly excluded from folding so the existing runtime
+  error path still fires instead of silently producing NaN/Inf at
+  compile time — verified with a dedicated regression script
+  (`tests/regression_mod_div_zero.kh`) that a folded-zero divisor still
+  halts with a proper error, not a wrong answer.
+- ✅ **(session 4)** While verifying the divide-by-zero exclusion, found
+  and fixed a real, separate pre-existing bug: `OP_MOD` (modulo) had no
+  zero-check at all (unlike `OP_DIV`, right next to it in `vm.c`) —
+  `10 % 0` silently returned `-nan` instead of raising a runtime error.
+  Fixed to match `OP_DIV`'s existing pattern; also fixed `OP_DIV` itself
+  to free its operands before erroring (a minor leak on that specific
+  error path, caught while making the two consistent).
+- ❌ Dead code elimination — still not started
+- ❌ Constant propagation (folding a variable's *known* constant value
+  into later uses, as opposed to folding a literal-only expression
+  tree) — still not started; a natural follow-up to the folding above,
+  but a meaningfully different and larger piece of work (needs
+  reaching, data-flow-style analysis, not just a recursive tree walk)
+- ❌ Peephole optimization — still not started
+- Two real correctness bugs were found and fixed in the compiler in
+  session 2 (continue-jump patching, higher-order function calls), and
+  a third, larger one (closures) — see #6.
 
 ## 5. Bytecode — 🟡 Partial
 - ❌ No opcode count audit, no compactness pass.
-- ✅ **(this session)** Added two new opcodes (`OP_GET_UPVALUE`,
-  `OP_SET_UPVALUE`) as part of the closures fix — necessary, not
-  optional; noting here since it changes the opcode count baseline for
-  whenever #5's audit actually happens.
+- ✅ Added two new opcodes (`OP_GET_UPVALUE`, `OP_SET_UPVALUE`) in
+  session 2 as part of the closures fix — noting again since it changes
+  the baseline for whenever #5's audit actually happens. Full reference
+  for all 38 opcodes (2 reserved/unused) now exists: `docs/opcodes.md`
+  (session 3).
 
 ## 6. VM — 🟡 Partial
+- ✅ **(session 4)** Found and fixed a real, unguarded segfault: `push()`/
+  `pop()` in `vm.c` had **zero bounds checking** on the VM's fixed-size
+  value stack (`VM_STACK_MAX` = 16384). A function with many
+  parameters/locals recursing deeply can exceed that well before
+  `frame_count` reaches its own separate limit (`VM_FRAMES_MAX` = 1024)
+  — 1024 frames × ~20 locals/frame = 20,480 > 16,384. Verified
+  reproducible as a raw, undiagnosed `SIGSEGV` (exit 139) before the
+  fix. Now fails safely with a clear message and a clean exit (70)
+  instead of corrupting adjacent memory — see `tests/
+  regression_stack_overflow.kh` and the design tradeoff noted in the
+  fix's own comment (a hard abort rather than a catchable Khan-level
+  error, since threading a recoverable error through every `push()`/
+  `pop()` call site in `run_loop` would be a much larger, riskier
+  change than the safety win justifies here). Ordinary deep recursion
+  through a function with *few* locals still hits the pre-existing,
+  separate `frame_count` check first and produces the normal, already-
+  working catchable "Stack overflow" runtime error — that path was
+  never broken and isn't what this fix is for.
 - ❌ No computed-goto vs switch-dispatch benchmark
-- ❌ No stack overflow/underflow detection (frame-count overflow *is*
-  checked — `VM_FRAMES_MAX` — but not stack *value* overflow/underflow)
+- ✅ Stack **value** overflow/underflow detection — see session 4 entry
+  just above (frame-count overflow was already checked via
+  `VM_FRAMES_MAX`; the value stack itself wasn't, until now)
 - ❌ No tail call optimization
 - ❌ No inline-native-call optimization (e.g. `len()` still does a full
   global lookup every call)
@@ -136,24 +177,68 @@ this is now fixed and verified (`make clean && make` succeeds, `khan` runs).
     silently breaks any *future* code using a very natural, common
     pattern.
 
-## 7. Memory manager — ❌ Not started
-- No 10M-allocation stress test
-- No leak audit
-- No fragmentation testing
-- ✅ **(this session)** The new closure mechanism (#6) is ref-counted
-  (`khanclosure_retain`/`khanclosure_release`, mirroring existing
-  `value_copy`/`value_free` conventions) specifically to avoid adding a
-  new leak/double-free surface — but this has only been exercised by
-  the test suite below, not stress-tested independently.
-(Memory-safety tools ran ad hoc during debugging this session —
-ASAN/gdb were used to isolate a buffer-overflow bug and a silent
-runtime-error swallow — but that's not a systematic audit.)
+## 7. Memory manager — 🟡 Partial (was ❌ Not started)
+- 🟡 No 10M-allocation stress test, no fragmentation testing — still
+  outstanding
+- ✅ **(session 3)** Ran a real leak audit — not ad hoc this time. Method:
+  write a loop stress-testing recursion / array-building / closure
+  creation (1000 iterations each), run under `valgrind --leak-check=full`,
+  then re-run at double the iteration count and diff the leak totals. A
+  leak proportional to iteration count is a real unbounded-growth bug
+  (matters enormously for anything long-running, like `webi`'s server
+  loop); a fixed count is normal one-time startup cost. Found and fixed
+  **three real, runtime-scaling leaks**, all now verified flat (zero
+  growth) between 200 and 400 iterations:
+  1. `OP_RETURN` discarded every local still on the stack at the point
+     of return **without freeing them** — including the callee slot
+     itself (a retained copy of the function/closure being called).
+     This leaked on every single function call and return in the
+     language, worst for closures (leaked captured values too) but
+     present for any array/map/string local that outlived its natural
+     scope-end by returning through it.
+  2. `OP_DEF_GLOBAL` never freed the value it was replacing when
+     redefining an existing global — `OP_SET_GLOBAL` already did this
+     correctly, `OP_DEF_GLOBAL` didn't. This is what made the closures
+     feature (#6) leak specifically: a nested `fn` compiles to
+     `OP_DEF_GLOBAL` (see #9 below) and redefines the same global name
+     every time its enclosing function is called.
+  3. `table_free()` (process-exit teardown) freed each global's key
+     string but never its value — not a growing leak, but it made
+     every valgrind run report a large "indirectly lost" number
+     unrelated to any real bug. Fixed for a clean baseline.
+
+  Full writeup with call stacks and reproduction steps in
+  `docs/memory-notes.md`. Verified with both valgrind (leak-check=full)
+  and a separate ASAN pass (catches use-after-free/double-free, which
+  leak-checking alone can't) — zero errors from either after the fix,
+  full existing test suite (139 assertions + 137-assertion webi suite +
+  16-case from-import suite + vision suite) still green throughout.
+- ✅ **(session 3)** The remaining, *un*fixed leaks are now understood
+  and documented rather than unknown: fixed one-time parser/compiler/
+  native-registration bookkeeping (AST nodes, function registry
+  entries, `strdup`'d native function names), never growing with
+  runtime. Deliberately left as-is — see `docs/memory-notes.md` for the
+  reasoning (this is normal for a short-lived script interpreter; only
+  matters if Khan starts running many scripts in one long-lived
+  process, which it doesn't today).
+(Memory-safety tools ran ad hoc during session 2's debugging — ASAN/gdb
+were used to isolate a buffer-overflow bug and a silent runtime-error
+swallow. Session 3 turned this into an actual repeatable methodology,
+documented above and in `docs/memory-notes.md`.)
 
 ## 8. Garbage collector — ❌ Not started
 - Khan uses manual/ref-counted memory management, not a tracing GC, as
   far as I've seen — worth confirming with the maintainer whether GC is
   even on the roadmap or if manual management is the permanent design.
 - No circular-reference/huge-object/nested-array stress testing either way.
+- ✅ **(session 3)** The ref-counting *mechanism itself* (for arrays,
+  maps, and closures) is now verified correct under real stress via #7
+  above — not just "won't obviously crash" but "frees exactly what it
+  should, verified by iteration-count-independent leak totals." A
+  circular-reference test (an array containing a map that references
+  the array back) would still deadlock any pure-refcounting scheme
+  (never reaches 0) — untested here, flagging as the next thing to
+  check if this item gets picked up.
 
 ## 9. Value system — ❌ Not started
 - No review of the Value struct's tagging efficiency.
@@ -170,16 +255,52 @@ runtime-error swallow — but that's not a systematic audit.)
 
 ## 10. Strings — 🟡 Partial
 - ❌ No profiling of substring/replace/split/join/contains/starts_with/
-  ends_with/hash.
-- ✅ **(this session)** Smoke-tested the `strings` package end-to-end
+  ends_with/hash — the *functions* were smoke-tested (below), but not
+  profiled for performance.
+- ✅ **(session 3)** Smoke-tested the `strings` package end-to-end
   (`str_starts_with`, `str_ends_with`, `str_trim`, `str_repeat`,
   `str_pad_left/right`, `str_replace`, `str_contains`, `str_index_of`,
   `str_split`, `str_join`, `str_reverse`, `str_count`, `str_is_empty`,
   `str_capitalize`) — all correct. Not profiled, just confirmed working.
+- ✅ **(session 4)** Found and precisely traced a real performance bug
+  via `benchmarks/string_concat.kh`: `+`-concatenation (`OP_ADD`'s
+  string branch, `vm.c`) calls `strlen()` on the *accumulated* string
+  every single time, making repeated concatenation in a loop O(n²) —
+  verified empirically (5x more iterations took ~80x longer). Root
+  cause and why it wasn't fixed here (would need a length-tracking
+  string representation, a real Value-system change) written up in
+  `benchmarks/RESULTS.md`. This is the same category of bug as #11's
+  map finding below — something O(n) per call, called in a loop.
 
-## 11. Hash table — ❌ Not started
-- No O(1)-average verification, resize policy review, or collision
-  benchmark for the global/map implementation.
+## 11. Hash table — 🟡 Partial (was ❌ Not started)
+- ✅ **(session 4)** Full audit done — `docs/hash-table-audit.md`. The
+  finding is bigger than "check the collision handling": **there are
+  two unrelated data structures both informally called a
+  table/map, and only one is actually a hash table.**
+  - `Table` (`vm.c`, used only for the VM's globals) is a real,
+    correctly-implemented hash table: FNV-1a hashing, linear-probing
+    collision resolution, doubles at 75% load factor. Nothing wrong
+    found here.
+  - **The Khan-language `{}` map type — used everywhere in real Khan
+    programs — is a linear-scan array, not a hash table at all.**
+    `map_set`/`map_get` in `value.c` do a full O(n) scan of every
+    existing key on every call. Verified empirically: building a map
+    with 4,000 keys one at a time, then 8,000, showed clearly
+    super-linear (roughly quadratic) growth, not the O(n) a real hash
+    table would give.
+  - Not fixed here — it's a real Value-system-wide change (touches
+    `interpreter.h`'s map representation and every direct reader of it
+    across `value.c`, `vm.c`, `vision_lib.c`/`vision_cv.c`, `json_lib.c`
+    and likely more), and there's a real design question to resolve
+    first (the current linear array happens to preserve insertion
+    order on iteration; a naive hash-table swap would silently lose
+    that unless deliberately preserved). Fully written up with a
+    recommended approach in the audit doc — this is now the single
+    most concrete, well-scoped item on the whole roadmap for whoever
+    picks up performance work next.
+  - Added `benchmarks/map_scale.kh` (+ Python/JS equivalents) so this
+    is now a trackable, re-runnable metric rather than a one-time
+    finding.
 
 ## 12. Import system — ✅ Done (was 🟡 Partial)
 - ✅ Fixed a real bug where `import "math"` silently no-op'd instead of
@@ -353,33 +474,101 @@ runtime-error swallow — but that's not a systematic audit.)
   `res_cors`/`webi_handle` signatures changed, instead of it sitting
   silently broken.
 
-## 16. Performance benchmarks — ❌ Not started
-- No `benchmarks/` folder
-- No `loop.kh`, `json.kh`, `http.kh`, `sqlite.kh`, `strings.kh`, `vm.kh`
-  benchmark scripts
-- No comparison against Python/Lua/Node/Go/Rust/C
+## 16. Performance benchmarks — 🟡 Partial (was ❌ Not started)
+- ✅ **(session 4)** `benchmarks/` now exists: `loop.kh`, `fib.kh`,
+  `string_concat.kh`, `json_bench.kh`, `map_scale.kh`, each with a
+  Python and Node equivalent (and a C equivalent for `loop`/`fib`, as a
+  native-floor reference point) — plus `benchmarks/run.py`, a small
+  runner that times all of them and prints a comparison table, and
+  `benchmarks/RESULTS.md` with real, actually-executed numbers and
+  analysis (not placeholder numbers).
+- 🟡 **Only Python and Node** were available to compare against in this
+  environment — Lua/Go/Rust from the original ask are not installed
+  here. `run.py` is written so adding another language is a small,
+  repetitive addition following the existing pattern, not a rewrite.
+- ✅ This is where the string-concatenation quadratic-growth finding
+  (see #10) and the map linear-scan finding (see #11) actually came
+  from — benchmarking wasn't just a checkbox item, it's what surfaced
+  both of this session's two biggest performance findings.
+- 🟡 Deliberately not rigorous (no warmup, no statistical repeats/
+  variance) — explicitly documented as such in `RESULTS.md` rather than
+  presented as more precise than it is.
+- ❌ Not wired into CI as a tracked-over-time metric yet (the CI
+  memory-check job pattern from #17 could be extended similarly, but
+  wasn't done here — timing comparisons across different CI runner
+  hardware are noisier than a fixed pass/fail check, so this needs more
+  thought than copy-pasting the existing job pattern).
 
-## 17. CI — ❌ Not started
-- No GitHub Actions (or any CI) config
-- No automated Linux/Windows/Mac build matrix — **(this session)**
-  this gap is no longer theoretical: the project would not have built
-  on Linux at all without #0's fixes, and nothing would have caught
-  that automatically.
-- No automated test/benchmark/memory-check-on-push pipeline
+## 17. CI — 🟡 Partial (was ❌ Not started)
+- ✅ **(session 3)** There was actually already a `.github/workflows/
+  c-cpp.yml` — but it only ran `make` on Linux/Windows and uploaded the
+  binary. It never ran a single test. This is precisely the gap that
+  let a Linux build failure (#0) and a silently-broken 137-assertion
+  test file (#15) both sit undetected until someone ran things by hand
+  — a CI config that only checks "did it compile" would have stayed
+  green through both of those. Rewrote it to actually gate on:
+  - the 139-assertion core suite (`tests/run_all.kh`)
+  - the 137-assertion webi suite (`examples/webi_test.kh`)
+  - the from-import regression suite (`examples/webi_from_import_test.kh`)
+  - the vision suite (`tests/test_vision.kh`)
+  - every package importing cleanly (the same sweep used manually in
+    session 2, now automated)
+  — on Linux, Windows, **and now macOS** (the matrix only had two of
+  the three platforms the friend's list asked for).
+- ✅ **(session 3)** Added a separate `memory-check` job (Linux,
+  valgrind, `continue-on-error: true` since exact leak byte-counts can
+  shift across glibc versions from the expected one-time startup cost
+  described in #7 — but this would still catch anything that jumps by
+  a large multiple, which is what the real bugs in #7 looked like).
+- ✅ **(session 4)** Added two more required checks, both verifying a
+  bug stays fixed by checking for the *correct* failure mode, not just
+  "did it succeed": the div/mod-by-zero constant-folding-exclusion
+  regression (`tests/regression_mod_div_zero.kh`, expects clean exit 70
+  for both `div` and `mod` modes) and the stack-overflow safety fix
+  (`tests/regression_stack_overflow.kh`, expects exit 70, explicitly
+  fails the job if it sees exit 139/segfault instead). Verified both
+  shell blocks in isolation, matching how GitHub Actions actually runs
+  each step as its own subshell.
+- 🟡 Benchmarks still not wired in (see #16 — deliberately not done yet,
+  timing noise across CI hardware needs more thought first)
+- ❌ Unverified end-to-end — this was written and the underlying shell
+  logic/commands were tested locally (they all pass), but the workflow
+  YAML itself hasn't been run through actual GitHub Actions in this
+  environment (no such access here) — flagging this explicitly rather
+  than claiming more confidence than is warranted. This caveat has now
+  applied across two sessions in a row; if this project has any GitHub
+  Actions minutes available, actually pushing this and watching it run
+  once would be higher-value than most other things left on this list.
 
-## 18. Documentation — 🟡 Partial (was ❌ Not started)
-- ❌ No language specification
-- ❌ No formal grammar
-- ❌ No opcode documentation
-- ❌ No VM architecture doc
-- ✅ **(this session)** `docs/from-import.md` already existed and turned
-  out to be accurate/aspirational-but-correct — it documents the
-  intended 3-case behavior of `from X import Y` precisely, and was used
-  as the spec to fix #12 against. Worth noting since #18 was marked
-  "none of the docs above exist" — this one does, and is good.
-- ❌ Still no compiler architecture doc, and nothing documents the
-  closure-capture semantics or limitations added in #6 — that
-  documentation now needs to be written given the new feature.
+## 18. Documentation — 🟡 Partial (was 🟡 Partial, but thin)
+- ❌ No language specification, no formal grammar
+- ✅ `docs/from-import.md` (confirmed accurate in session 2 — documents
+  the intended 3-case behavior of `from X import Y` precisely, and was
+  used as the spec to fix the import-system bug it describes)
+- ✅ **(session 3)** `docs/opcodes.md` — a real opcode reference for all
+  38 opcodes (2 of which, `OP_BREAK`/`OP_CONTINUE`, are confirmed
+  dead/unused enum entries — `break`/`continue` actually compile to
+  `OP_JUMP` with patch-lists, documented as such). Covers stack effects,
+  the `OP_CALL` calling convention (including the callee-slot-before-
+  frame->slots subtlety that caused a real off-by-one bug previously),
+  and the `OP_DEF_GLOBAL` function-registry special case that's central
+  to how both regular functions and closures actually work at runtime.
+- ✅ **(session 3)** `docs/memory-notes.md` — full writeup of the #7
+  memory audit: what was found, why, the fix, and how to reproduce the
+  methodology for future audits.
+- ✅ **(session 4)** `docs/hash-table-audit.md` — full writeup of the
+  #11 finding (the Khan-language map type isn't a hash table).
+- ✅ **(session 4)** `benchmarks/RESULTS.md` — real, executed benchmark
+  numbers plus analysis, including the string-concatenation and map
+  quadratic-growth findings.
+- 🟡 Still no full VM architecture doc or compiler architecture doc,
+  though `opcodes.md` + `memory-notes.md` + `hash-table-audit.md` +
+  `benchmarks/RESULTS.md` together now cover a meaningful slice of "how
+  the VM actually works, and where it doesn't scale" that didn't exist
+  at the start of session 3.
+- ❌ Nothing documents the closure-capture semantics/limitations from
+  #6 in a dedicated language-features doc (it's described in the
+  roadmap here and in code comments, but not in end-user-facing docs).
 
 ## 19. v1.0 release criteria — ❌ Not met
 Per the friend's own checklist:
@@ -457,35 +646,161 @@ Per the friend's own checklist:
    other stdlib functions with the same "type check then hard-error"
    pattern.
 
+## What actually got done in session 3, concretely
+
+1. **Verified session 2's claims against real code rather than trusting
+   the writeup** — closures, the from-import fix, and the 137/137 webi
+   test were all independently re-run and confirmed correct before
+   building anything further on top of them.
+2. **Found and fixed three real, runtime-scaling memory leaks** via a
+   systematic (not ad hoc) valgrind methodology: `OP_RETURN` abandoning
+   locals and the callee slot without freeing them, `OP_DEF_GLOBAL`
+   never freeing the value it replaces (which is what made closures
+   leak specifically, since nested `fn` redefines a global on every
+   call), and `table_free()` skipping value cleanup at exit. Verified
+   flat (zero growth) at both 200 and 400 loop iterations, cross-checked
+   with ASAN for use-after-free, zero regressions across the entire
+   existing test suite.
+3. **Documented the findings properly** (`docs/memory-notes.md`) rather
+   than just leaving fixed code with no explanation — includes a
+   reproducible methodology for the next person to run this audit
+   again.
+4. **Rewrote CI from "checks if it compiles" to "actually gates on the
+   test suite passing"** — added the macOS leg the build matrix was
+   missing, wired in all 4 major test suites plus the package-import
+   sweep as required checks, and added an informational valgrind job.
+5. **Wrote a real opcode reference** (`docs/opcodes.md`) covering all
+   38 opcodes, the calling convention, and the `OP_DEF_GLOBAL`
+   function-registry mechanism that both regular functions and closures
+   depend on.
+6. **Flagged, but did not fix** (correctly out of scope for a
+   correctness/stability pass): nested `fn` declarations compile as
+   globals rather than function-local scope. Currently safe in
+   practice for every pattern actually used in this codebase, but
+   correct by coincidence of usage, not by design guarantee — noted in
+   `docs/memory-notes.md` as a compiler-architecture item for whoever
+   picks up #3/#4.
+
 ## Honest read on scope
 
-This session's real theme was **"does the stuff that's supposed to work,
-actually work end-to-end,"** and the answer, repeatedly, was "not quite,
-for reasons nobody had checked." The build not working on Linux at all is
-the starkest example — nothing else on this roadmap matters if `make`
-doesn't produce a binary. The closures gap is the most architecturally
-significant finding across both sessions: it's not a typo-class bug, it's
-a whole language feature that was silently absent, and it changes how
-much confidence "core language syntax stable" (#19) should actually carry
-until it's been given more adversarial testing, since it's exactly the
-kind of gap that doesn't show up until someone writes very ordinary code.
+Session 2's theme was "does the stuff that's supposed to work, actually
+work end-to-end." Session 3's theme was **"does the stuff that's
+supposed to be freed, actually get freed"** — a systematic pass rather
+than the ad hoc ASAN/gdb use from session 2, and it found exactly the
+kind of bug that pass-through testing (does the script produce the right
+output?) can never catch: all three leaks fixed here were completely
+invisible to the 139+137+16+6-assertion test suites, because leaking
+memory doesn't change a program's *output*, only its long-run resource
+use. This is worth sitting with — a fully green test suite was
+compatible with the VM leaking on every single function call. The
+`webi` server (a genuinely long-running process, unlike a one-shot
+script) would have slowly consumed more and more memory over its
+lifetime purely from ordinary request handling, and nothing in the
+existing test suite could have shown that.
 
-Volume-wise, this was again concentrated in testing (#15) and the bugs
-that testing surfaced — but the *kind* of testing shifted from "run the
-one comprehensive suite" to "run literally everything in the repo and
-read the actual output," which is what caught `webi_test.kh` silently
-failing, the CORS bug, and the closures gap. That's a good sign for the
-"more testing finds more real bugs" thesis, and a bad sign for how much
-might still be hiding in the ~20% of the codebase that's still only
-compile-tested rather than run.
+The build not working on Linux at all (#0, session 2) and this session's
+leak findings share a root cause worth naming directly: **this project's
+only verification signal before session 2 was "does it look right when I
+run it once," and that signal cannot see build-matrix failures or
+resource leaks by construction.** CI (#17) and the memory audit (#7) are
+both, in their own way, this session's answer to that — one automates
+catching regressions going forward, the other establishes what "correct"
+even means for the value lifecycle and gives a repeatable way to check
+it again later.
 
-The largest unclaimed pieces are unchanged from before: **performance
-work (#4-6, #9-11)**, full **memory/GC auditing (#7-8)**,
-**benchmarking (#16)**, **CI (#17)**, and **documentation (#18)** — CI
-in particular now reads as less optional than it did before, given that
-a Linux build failure and a silently-broken 137-assertion test file both
-sat undetected until someone ran things by hand. Your friend's original
-instinct that Khan isn't v1.0-ready yet remains correct; if anything,
-this session raised the bar for what "ready" needs to mean, since
-closures were a bigger miss than any single bug found in either session
-so far.
+The largest unclaimed pieces are narrower than before but still real:
+**performance/compiler optimization work (#4-6, #9-11)** — nothing here
+touched constant folding, dispatch benchmarking, or hash table/string
+profiling — **benchmarking (#16)**, which still doesn't exist at all,
+and **full documentation (#18)** — a language spec and formal grammar
+are still missing, though the VM/memory side is now meaningfully
+better documented than the compiler/parser side. CI (#17) went from
+nonexistent-in-practice to real but unverified-on-actual-GitHub-Actions,
+which is an honest caveat, not a claim of completion. Your friend's
+original instinct that Khan isn't v1.0-ready yet remains correct — but
+the specific *reason* it isn't ready has shifted across these three
+sessions from "does it even build" to "does it work" to "does it work
+without silently consuming more memory forever," which is a real
+trajectory toward v1.0, not just a longer list of caveats.
+
+---
+
+## What actually got done in session 4, concretely
+
+1. **Implemented real constant folding** (compile-time evaluation of
+   pure-numeric expressions, including comparisons) — the first actual
+   compiler optimization on the whole roadmap, deliberately excluding
+   anything that could change program behavior (short-circuit and/or,
+   folded-zero divisors).
+2. **Found and fixed a genuine pre-existing bug while verifying the
+   above**: `OP_MOD` never checked for zero, silently returning `-nan`
+   instead of erroring — `OP_DIV` right next to it already did this
+   correctly. Also fixed a minor leak-on-error-path inconsistency
+   between the two.
+3. **Found and fixed a real, unguarded segfault**: `push()`/`pop()` had
+   zero bounds checking on the VM's value stack. Reproduced as a raw
+   SIGSEGV via deep recursion through a many-local function (exceeds
+   the value stack before the separate frame-count limit kicks in).
+   Now fails safely with a clear message instead of corrupting memory.
+4. **Built the benchmark suite from scratch** (#16, previously fully
+   unstarted): 5 benchmarks × Khan/Python/Node/C-where-applicable, a
+   runner, and real executed results with analysis — not placeholder
+   numbers.
+5. **The benchmarks immediately found two real, concrete performance
+   bugs**, both documented in depth rather than just measured:
+   - String concatenation is O(n²) in a loop — traced to a specific,
+     unnecessary `strlen()` call on the accumulated string in `OP_ADD`.
+   - Building a `{}` map is O(n²) — because **Khan's map type is a
+     linear-scan array, not a hash table at all**, despite roadmap
+     item #11 describing it as if it were. This is arguably the single
+     most consequential correctness-adjacent finding of this session,
+     since `{}` maps are used pervasively throughout every real Khan
+     program.
+6. **Did a full hash-table audit** (#11, previously fully unstarted)
+   and found the above — plus confirmed the VM's *actual* hash table
+   (used only for globals) is a correct, standard implementation with
+   no issues.
+7. **Extended CI** with two more required checks verifying the div/
+   mod-zero and stack-overflow fixes stay fixed by checking for the
+   *correct* failure mode specifically, not just "did something fail."
+8. Deliberately did **not** attempt to fix the string or map quadratic-
+   growth findings — both would require real Value-system-representation
+   changes (a length-tracking string type; an actual hash table for
+   maps, with an insertion-order-preservation question to resolve
+   first) that deserve their own dedicated, carefully-tested pass
+   rather than being rushed in alongside a benchmarking session.
+
+## Honest read on scope, updated
+
+Session 4's throughline: **every piece of new work this session found
+at least one real bug or performance problem nobody had previously
+identified** — constant folding surfaced the modulo-by-zero bug;
+building a proper benchmark suite (the most "just infrastructure"-
+sounding task of the four) is what actually found both quadratic-growth
+bugs; even just carefully re-verifying the divide-by-zero exclusion
+surfaced the stack-overflow segfault as a related but independent
+concern worth checking. This continues the pattern from sessions 2-3:
+**the moment anyone actually exercises a code path with real inputs
+rather than assuming it works, something real turns up.** Four sessions
+in, this is no longer a coincidence — it's a fair description of this
+codebase's actual state, and the honest implication is that most of the
+remaining ❌ items on this list (particularly #4's unfinished pieces,
+dead code elimination and constant propagation; #9's Value system
+tagging audit; and a real fuzz-testing pass on the parser from #2) would
+likely surface more of the same if anyone sat down and actually did them,
+not because this project is unusually bad, but because it had
+approximately zero systematic verification before session 2 started.
+
+The two performance findings from this session (string concat, map
+scaling) are worth calling out as different in kind from everything
+fixed in sessions 2-4 so far: every previous fix (closures, continue,
+higher-order calls, the three memory leaks, the stack-overflow segfault)
+was a **correctness** bug — wrong answer or crash. These two are
+**performance** bugs — the answer is right, the program just gets
+disproportionately slower as real-world usage grows, which is a
+different (and in some ways more insidious) risk profile: it won't show
+up in a test suite checking correctness, only in production usage that
+happens to build a large-enough map or a long-enough string. That they
+were found via benchmarking rather than testing is exactly the point of
+having both.
+

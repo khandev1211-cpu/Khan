@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build, Test & Release
 
 on:
   push:
@@ -8,33 +8,85 @@ on:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build & Test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false   # Let all platforms run even if one fails
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
+    # ── 1. Checkout ──────────────────────────────────────────────
     - uses: actions/checkout@v4
 
-    - name: Build (Linux)
-      if: matrix.os == 'ubuntu-latest'
+    # ── 2. Build ─────────────────────────────────────────────────
+    - name: Build (Linux / macOS)
+      if: matrix.os != 'windows-latest'
       run: |
-        chmod +x configure
-        ./configure
         make
 
     - name: Build (Windows)
       if: matrix.os == 'windows-latest'
-      run: |
-        make
+      run: make
       shell: cmd
 
+    # ── 3. Core test suite ───────────────────────────────────────
+    # Runs the 139-assertion suite in tests/run_all.kh.
+    # Any failing assertion causes khan to exit non-zero → CI fails.
+    - name: Run test suite (Linux / macOS)
+      if: matrix.os != 'windows-latest'
+      run: ./khan tests/run_all.kh
+
+    - name: Run test suite (Windows)
+      if: matrix.os == 'windows-latest'
+      run: khan.exe tests\run_all.kh
+      shell: cmd
+
+    # ── 4. Language feature smoke tests ──────────────────────────
+    # Run a selection of individual test files that are not network-
+    # dependent so they can run in the CI sandbox.
+    - name: Smoke tests — stdlib (Linux / macOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        ./khan tests/suites/variables.kh
+        ./khan tests/suites/control_flow.kh
+        ./khan tests/suites/functions.kh
+        ./khan tests/suites/operators.kh
+        ./khan tests/suites/strings.kh
+        ./khan tests/suites/arrays_maps.kh
+        ./khan tests/suites/stdlib_math.kh
+        ./khan tests/suites/stdlib_json.kh
+        ./khan tests/suites/stdlib_collections.kh
+
+    - name: Smoke tests — stdlib (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        khan.exe tests\suites\variables.kh
+        khan.exe tests\suites\control_flow.kh
+        khan.exe tests\suites\functions.kh
+        khan.exe tests\suites\operators.kh
+        khan.exe tests\suites\strings.kh
+        khan.exe tests\suites\arrays_maps.kh
+        khan.exe tests\suites\stdlib_math.kh
+        khan.exe tests\suites\stdlib_json.kh
+        khan.exe tests\suites\stdlib_collections.kh
+      shell: cmd
+
+    # ── 5. Upload build artifacts ─────────────────────────────────
     - name: Upload Artifacts (Linux)
       if: matrix.os == 'ubuntu-latest'
       uses: actions/upload-artifact@v4
       with:
         name: khan-linux
+        path: |
+          khan
+          kh
+
+    - name: Upload Artifacts (macOS)
+      if: matrix.os == 'macos-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: khan-macos
         path: |
           khan
           kh
