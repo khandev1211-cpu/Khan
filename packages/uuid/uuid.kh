@@ -67,9 +67,14 @@ fn uuid_id(counter):
 # ─────────────────────────────────────────────────────────────
 
 fn uuid_is_valid(s):
-    if len(s) != 36: return false
-    if substring(s, 8, 1)  != "-": return false
-    if substring(s, 13, 1) != "-": return false
-    if substring(s, 18, 1) != "-": return false
-    if substring(s, 23, 1) != "-": return false
+    if len(s) != 36:
+        return false
+    if substring(s, 8, 1)  != "-":
+        return false
+    if substring(s, 13, 1) != "-":
+        return false
+    if substring(s, 18, 1) != "-":
+        return false
+    if substring(s, 23, 1) != "-":
+        return false
     return true

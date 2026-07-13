@@ -59,6 +59,7 @@ typedef struct {
     const char *start;   // pointer into source
     int length;
     int line;
+    int column;          // 1-based column of the token's first character
 } Token;
 
 #endif

@@ -72,22 +72,40 @@ static char *unescape_string(const char *raw, int len) {
 // ---------------------------------------------------------------------------
 // Error reporting
 // ---------------------------------------------------------------------------
-static void error_at_current(Parser *parser, const char *message) {
-    fprintf(stderr, "[line %d] Error at '%s': %s\n",
-            parser->current.line,
-            parser->current.length > 0
-                ? (char[]){0} // placeholder — print lexeme inline
-                : "end",
-            message);
-    // Print the token lexeme manually
-    fprintf(stderr, "    token: '%.*s'\n",
-            parser->current.length, parser->current.start);
+static void report_syntax_error(Parser *parser, int line, int column,
+                                 const char *token_text, int token_len,
+                                 const char *message) {
+    fprintf(stderr, "SyntaxError: %s\n", message);
+    fprintf(stderr, "  File:   %s\n", parser->filename ? parser->filename : "<script>");
+    fprintf(stderr, "  Line:   %d\n", line);
+    fprintf(stderr, "  Column: %d\n", column);
+    if (token_len > 0) {
+        // Escape control characters so e.g. a bare newline token doesn't
+        // print as a literal line break that looks like a formatting bug.
+        char buf[64];
+        int bi = 0;
+        for (int i = 0; i < token_len && bi < (int)sizeof(buf) - 2; i++) {
+            char c = token_text[i];
+            if (c == '\n')      { buf[bi++] = '\\'; buf[bi++] = 'n'; }
+            else if (c == '\t') { buf[bi++] = '\\'; buf[bi++] = 't'; }
+            else if (c == '\r') { buf[bi++] = '\\'; buf[bi++] = 'r'; }
+            else                { buf[bi++] = c; }
+        }
+        buf[bi] = '\0';
+        fprintf(stderr, "  Near:   '%s'\n", buf);
+    }
     parser->had_error = 1;
 }
 
+static void error_at_current(Parser *parser, const char *message) {
+    const char *text = parser->current.length > 0 ? parser->current.start : "end";
+    int len = parser->current.length > 0 ? parser->current.length : 3;
+    report_syntax_error(parser, parser->current.line, parser->current.column, text, len, message);
+}
+
 static void error(Parser *parser, const char *message) {
-    fprintf(stderr, "[line %d] Error: %s\n", parser->previous.line, message);
-    parser->had_error = 1;
+    report_syntax_error(parser, parser->previous.line, parser->previous.column,
+                         parser->previous.start, parser->previous.length, message);
 }
 
 // ---------------------------------------------------------------------------
@@ -98,10 +116,19 @@ static void advance(Parser *parser) {
     for (;;) {
         parser->current = lexer_next_token(parser->lexer);
         if (parser->current.type != TOKEN_ERROR) break;
-        // Report lexical errors but keep going
-        fprintf(stderr, "[line %d] Lexical error: %.*s\n",
-                parser->current.line,
-                parser->current.length, parser->current.start);
+        // Report lexical errors but keep going. A TOKEN_ERROR's
+        // start/length hold the lexer's own descriptive message text
+        // (e.g. "Unexpected character.", set in error_token()) — not
+        // the offending source snippet — so that's the message itself,
+        // not "near" text.
+        {
+            char msgbuf[128];
+            int n = parser->current.length < (int)sizeof(msgbuf) - 1
+                        ? parser->current.length : (int)sizeof(msgbuf) - 1;
+            memcpy(msgbuf, parser->current.start, n);
+            msgbuf[n] = '\0';
+            report_syntax_error(parser, parser->current.line, parser->current.column, NULL, 0, msgbuf);
+        }
         parser->had_error = 1;
     }
 }
@@ -603,11 +630,12 @@ static AstNode *primary(Parser *parser) {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-void parser_init(Parser *parser, Lexer *lexer) {
+void parser_init(Parser *parser, Lexer *lexer, const char *filename) {
     parser->lexer = lexer;
     parser->had_error = 0;
     parser->current = (Token){0};
     parser->previous = (Token){0};
+    parser->filename = filename;
     // Prime the token stream
     advance(parser);
 }

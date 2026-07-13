@@ -46,6 +46,8 @@ KhanFunction *khanfn_new(const char *name, int arity) {
     fn->source_dir = NULL;
     fn->arity      = arity;
     fn->is_native  = 0;
+    fn->upvalues       = NULL;
+    fn->upvalue_count  = 0;
     chunk_init(&fn->chunk);
     return fn;
 }
@@ -54,6 +56,31 @@ void khanfn_free(KhanFunction *fn) {
     if (!fn) return;
     free(fn->name);
     if (fn->source_dir) free(fn->source_dir);
+    if (fn->upvalues) free(fn->upvalues);
     chunk_free(&fn->chunk);
     free(fn);
+}
+
+/* ── KhanClosure ── */
+
+KhanClosure *khanclosure_new(int count) {
+    KhanClosure *cl = malloc(sizeof(KhanClosure));
+    cl->ref_count = 1;
+    cl->count     = count;
+    cl->values    = count > 0 ? malloc(sizeof(Value) * count) : NULL;
+    return cl;
+}
+
+void khanclosure_retain(KhanClosure *cl) {
+    if (cl) cl->ref_count++;
+}
+
+void khanclosure_release(KhanClosure *cl) {
+    if (!cl) return;
+    cl->ref_count--;
+    if (cl->ref_count <= 0) {
+        for (int i = 0; i < cl->count; i++) value_free(cl->values[i]);
+        free(cl->values);
+        free(cl);
+    }
 }

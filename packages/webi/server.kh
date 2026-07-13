@@ -132,6 +132,7 @@ fn webi_handle(app, method, path, query_str, headers_str, body, ip):
         "body_json":   body_json,
         "params":      {},
         "ip":          ip,
+        "_app":        app,
         "_start_clock": start_clock
     }
 

@@ -2,9 +2,11 @@
 khan.exe
 kh.exe
 khan
-kh 
+kh
 
-*png
+*.png
+*jpg
+
 *.exe
 # Build artifacts
 *.o
@@ -34,3 +36,6 @@ cache_requests.json
 # OS files
 .DS_Store
 Thumbs.db
+
+# Benchmark runner temp binaries
+benchmarks/_*_c_bin

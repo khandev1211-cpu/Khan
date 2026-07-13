@@ -7,6 +7,7 @@ void lexer_init(Lexer *lexer, const char *source) {
     lexer->start = source;
     lexer->current = source;
     lexer->line = 1;
+    lexer->line_start = source;
     lexer->indent_stack[0] = 0;
     lexer->indent_top = 0;
     lexer->at_line_start = 1;
@@ -45,6 +46,7 @@ static Token make_token(Lexer *lexer, TokenKind type) {
     token.start = lexer->start;
     token.length = (int)(lexer->current - lexer->start);
     token.line = lexer->line;
+    token.column = (int)(lexer->start - lexer->line_start) + 1;
     return token;
 }
 
@@ -54,6 +56,7 @@ static Token error_token(Lexer *lexer, const char *message) {
     token.start = message;
     token.length = (int)strlen(message);
     token.line = lexer->line;
+    token.column = (int)(lexer->start - lexer->line_start) + 1;
     return token;
 }
 
@@ -70,6 +73,7 @@ static void skip_inline_whitespace(Lexer *lexer) {
             // (or a call's argument list) span multiple physical lines.
             advance(lexer);
             lexer->line++;
+            lexer->line_start = lexer->current;
         } else {
             break;
         }
@@ -123,12 +127,16 @@ static Token string_literal(Lexer *lexer) {
             // Skip the escaped character too, so \" doesn't end the string
             // and \\ doesn't leave a dangling unescaped backslash.
             advance(lexer);
-            if (peek(lexer) == '\n') lexer->line++;
+            int was_newline = (peek(lexer) == '\n');
+            if (was_newline) lexer->line++;
             advance(lexer);
+            if (was_newline) lexer->line_start = lexer->current;
             continue;
         }
-        if (peek(lexer) == '\n') lexer->line++;
+        int was_newline = (peek(lexer) == '\n');
+        if (was_newline) lexer->line++;
         advance(lexer);
+        if (was_newline) lexer->line_start = lexer->current;
     }
     if (is_at_end(lexer)) return error_token(lexer, "Unterminated string.");
     advance(lexer);
@@ -157,11 +165,13 @@ static int measure_indentation(Lexer *lexer, Token *out) {
             advance(lexer);
             if (peek(lexer) == '\n') advance(lexer);
             lexer->line++;
+            lexer->line_start = lexer->current;
             continue;
         }
         if (peek(lexer) == '\n') {
             advance(lexer);
             lexer->line++;
+            lexer->line_start = lexer->current;
             continue; // blank or comment-only line; keep scanning
         }
 
@@ -229,9 +239,11 @@ Token lexer_next_token(Lexer *lexer) {
     char c = advance(lexer);
 
     if (c == '\n') {
+        Token tok = make_token(lexer, TOKEN_NEWLINE);
         lexer->line++;
+        lexer->line_start = lexer->current;
         lexer->at_line_start = 1;
-        return make_token(lexer, TOKEN_NEWLINE);
+        return tok;
     }
 
     if (is_alpha(c)) return identifier(lexer);

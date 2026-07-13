@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Test
 
 on:
   push:
@@ -7,18 +7,19 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
+  build-and-test:
+    name: Build & Test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Build (Linux)
-      if: matrix.os == 'ubuntu-latest'
+    - name: Build (Linux/macOS)
+      if: matrix.os != 'windows-latest'
       run: |
         chmod +x configure
         ./configure
@@ -28,6 +29,114 @@ jobs:
       if: matrix.os == 'windows-latest'
       run: |
         make
+      shell: cmd
+
+    # ── Tests ──────────────────────────────────────────────────────────
+    # This is the step that was missing before: the build previously
+    # succeeded and uploaded artifacts even when the standard library was
+    # broken (see: 6 packages that failed to compile, and a 137-assertion
+    # webi test file that was silently failing partway through — neither
+    # would have been caught by "does `make` succeed" alone). Every step
+    # below fails the job (non-zero exit) if its assertions don't pass.
+
+    - name: Run core language + stdlib test suite (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: ./khan tests/run_all.kh
+
+    - name: Run core language + stdlib test suite (Windows)
+      if: matrix.os == 'windows-latest'
+      run: khan.exe tests/run_all.kh
+      shell: cmd
+
+    - name: Run webi test suite — 137 assertions (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: ./khan examples/webi_test.kh
+
+    - name: Run webi test suite — 137 assertions (Windows)
+      if: matrix.os == 'windows-latest'
+      run: khan.exe examples\webi_test.kh
+      shell: cmd
+
+    - name: Run webi from-import regression tests (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: ./khan examples/webi_from_import_test.kh
+
+    - name: Run webi from-import regression tests (Windows)
+      if: matrix.os == 'windows-latest'
+      run: khan.exe examples\webi_from_import_test.kh
+      shell: cmd
+
+    - name: Run vision test suite (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: ./khan tests/test_vision.kh
+
+    - name: Run vision test suite (Windows)
+      if: matrix.os == 'windows-latest'
+      run: khan.exe tests\test_vision.kh
+      shell: cmd
+
+    - name: Verify every package still imports cleanly (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        fail=0
+        for d in packages/*/; do
+          pkg=$(basename "$d")
+          [ -f "packages/$pkg/package.json" ] || continue
+          echo "import \"$pkg\"" > /tmp/pkgtest.kh
+          echo "print \"ok\"" >> /tmp/pkgtest.kh
+          out=$(./khan /tmp/pkgtest.kh 2>&1)
+          if [ "$out" != "ok" ]; then
+            echo "::error::Package '$pkg' failed to import cleanly: $out"
+            fail=1
+          fi
+        done
+        exit $fail
+
+    # These two scripts are EXPECTED to halt with a runtime error (exit
+    # 70) — they exist to prove a real bug stays fixed: division/modulo
+    # by a folded-zero constant must still raise a runtime error rather
+    # than being silently constant-folded, and a stack-overflowing
+    # program must fail cleanly rather than segfault (exit 139). A
+    # segfault, a zero exit code, or any other exit code here means one
+    # of those protections regressed.
+    - name: Verify div/mod-by-zero still raises a clean error (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        ./khan tests/regression_mod_div_zero.kh div; code=$?
+        if [ "$code" != "70" ]; then echo "::error::div-by-zero exited $code, expected 70"; exit 1; fi
+        ./khan tests/regression_mod_div_zero.kh mod; code=$?
+        if [ "$code" != "70" ]; then echo "::error::mod-by-zero exited $code, expected 70"; exit 1; fi
+
+    - name: Verify stack overflow fails cleanly, not with a segfault (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        ./khan tests/regression_stack_overflow.kh; code=$?
+        if [ "$code" == "139" ]; then echo "::error::Segfaulted (exit 139) — stack bounds checking regressed"; exit 1; fi
+        if [ "$code" != "70" ]; then echo "::error::Unexpected exit code $code, expected 70"; exit 1; fi
+
+    # Parser robustness: curated malformed-input cases (must all fail
+    # cleanly, never crash) plus mutation-based fuzzing of the repo's
+    # own real .kh files (must never crash or genuinely hang — a
+    # mutated program that creates its own legitimate infinite loop is
+    # correctly excluded, see tests/fuzz/random_fuzz.py's ACTIVE_LOOP
+    # classification). Python is available on all three GitHub-hosted
+    # runner images by default.
+    - name: Parser negative-case + robustness suite (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: python3 tests/fuzz/negative_cases.py ./khan
+
+    - name: Parser negative-case + robustness suite (Windows)
+      if: matrix.os == 'windows-latest'
+      run: python tests/fuzz/negative_cases.py khan.exe
+      shell: cmd
+
+    - name: Random mutation fuzzing, 1000 iterations (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: python3 tests/fuzz/random_fuzz.py ./khan 1000 42
+
+    - name: Random mutation fuzzing, 1000 iterations (Windows)
+      if: matrix.os == 'windows-latest'
+      run: python tests/fuzz/random_fuzz.py khan.exe 1000 42
       shell: cmd
 
     - name: Upload Artifacts (Linux)
@@ -47,3 +156,45 @@ jobs:
         path: |
           khan.exe
           kh.exe
+
+    - name: Upload Artifacts (macOS)
+      if: matrix.os == 'macos-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: khan-macos
+        path: |
+          khan
+          kh
+
+  memory-check:
+    name: Memory leak check (valgrind, Linux)
+    runs-on: ubuntu-latest
+    # Informational, not a merge gate yet: exact leak byte-counts can
+    # shift slightly across glibc/gcc versions from one-time compiler/
+    # parser bookkeeping allocations that are expected (see docs/
+    # memory-notes.md). What matters is whether a leak *scales* with
+    # runtime/iterations, which a fixed-count job like this can't tell
+    # on its own — but this still catches the class of bug found and
+    # fixed in this project (a leak on every function return, a leak on
+    # every redefinition of a nested-closure global) if it's ever
+    # reintroduced, since those are unmissable multi-KB jumps, not a
+    # few dozen fixed bytes.
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install valgrind
+      run: sudo apt-get update && sudo apt-get install -y valgrind
+
+    - name: Build debug binary
+      run: |
+        gcc -std=c11 -g -O0 -Isrc -D_POSIX_C_SOURCE=200809L \
+          -Wno-implicit-function-declaration -Wno-builtin-declaration-mismatch -Wno-cast-function-type \
+          src/lexer.c src/parser.c src/ast.c src/chunk.c src/value.c src/compiler.c src/vm.c \
+          src/vm_libs.c src/interpreter.c src/khan_stdlib.c src/json_lib.c src/datetime_lib.c \
+          src/requests_lib.c src/webi_lib.c src/sqlite_lib.c src/vision_lib.c src/vision_cv.c \
+          src/vision_cascade.c src/main.c -o khan_dbg -lm
+
+    - name: Run valgrind against the test suite
+      run: |
+        valgrind --leak-check=full --error-exitcode=99 ./khan_dbg tests/run_all.kh

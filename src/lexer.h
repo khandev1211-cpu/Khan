@@ -7,6 +7,13 @@ typedef struct {
     const char *start;
     const char *current;
     int line;
+    const char *line_start; // points at the first char of the current line;
+                             // used to compute column on demand rather than
+                             // incrementally tracking it through every one
+                             // of the several separate newline-handling
+                             // sites below (safer than trying to keep a
+                             // manually-incremented counter in sync in 6
+                             // different places)
 
     // Indentation tracking
     int indent_stack[64];

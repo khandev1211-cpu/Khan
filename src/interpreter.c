@@ -912,7 +912,7 @@ static AstNode *resolve_and_parse_import(Interpreter *interp, const char *path,
     lexer_init(&lexer, source);
 
     Parser parser;
-    parser_init(&parser, &lexer);
+    parser_init(&parser, &lexer, full_path);
 
     AstNode *program = parser_parse(&parser);
 

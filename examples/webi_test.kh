@@ -164,9 +164,9 @@ test_eq("res_json content_type", r3["content_type"], "application/json")
 test("res_json body is valid JSON", contains(r3["body"], "Khan"))
 
 # res_json_str
-let r4 = res_json_str('{"key": "val"}')
+let r4 = res_json_str("{\"key\": \"val\"}")
 test_eq("res_json_str status", r4["status"], 200)
-test_eq("res_json_str body", r4["body"], '{"key": "val"}')
+test_eq("res_json_str body", r4["body"], "{\"key\": \"val\"}")
 
 # res_status
 let r5 = res_status(201, "Created")
@@ -226,11 +226,11 @@ test_eq("res_with_header custom header", r15["headers"]["X-Custom"], "value123")
 # res_with_cookie
 let r16 = res_text("test")
 r16 = res_with_cookie(r16, "session", "abc123")
-test_eq("res_with_cookie Set-Cookie", r16["headers"]["Set-Cookie"], "session=abc123; Path=/")
+test_eq("res_with_cookie Set-Cookie", r16["cookies"][0], "session=abc123; Path=/")
 
 # res_cors
 let r17 = res_text("test")
-r17 = res_cors(r17)
+r17 = res_cors(r17, {})
 test_eq("res_cors Allow-Origin", r17["headers"]["Access-Control-Allow-Origin"], "*")
 test("res_cors Allow-Methods", contains(r17["headers"]["Access-Control-Allow-Methods"], "GET"))
 test("res_cors Allow-Headers", contains(r17["headers"]["Access-Control-Allow-Headers"], "Content-Type"))
@@ -245,7 +245,7 @@ let test_req = {
     "path": "/users/42?page=1&limit=10",
     "query": {"page": "1", "limit": "10"},
     "headers": {"Content-Type": "application/json", "Authorization": "Bearer token123"},
-    "body": '{"name": "Irfan", "age": 25}',
+    "body": "{\"name\": \"Irfan\", \"age\": 25}",
     "body_json": {"name": "Irfan", "age": 25},
     "params": {"id": "42"},
     "ip": "127.0.0.1"
@@ -351,9 +351,9 @@ let raw_lt = "<tag>"
 let out_lt = html_escape(raw_lt)
 test("html_escape escapes angle brackets", out_lt != raw_lt)
 
-let raw_qt = str_replace('say "hi"', "h", "h")
-let out_qt = html_escape('say "hi"')
-test("html_escape escapes double quotes", out_qt != 'say "hi"')
+let raw_qt = str_replace("say \"hi\"", "h", "h")
+let out_qt = html_escape("say \"hi\"")
+test("html_escape escapes double quotes", out_qt != "say \"hi\"")
 
 # ===========================================================================
 # 8. webi_handle (bridge function)
@@ -372,7 +372,9 @@ fn user_handler(req):
     return res_json({"id": param_get(req, "id", ""), "action": "show"})
 
 fn not_found_handler(req):
-    return res_json({"error": "custom 404", "path": req["path"]})
+    let res = res_json({"error": "custom 404", "path": req["path"]})
+    res["status"] = 404
+    return res
 
 handle_app = route(handle_app, "GET", "/hello", hello_handler)
 handle_app = post_route(handle_app, "/data", json_handler)
@@ -380,35 +382,35 @@ handle_app = get_route(handle_app, "/users/:id", user_handler)
 handle_app = webi_not_found(handle_app, not_found_handler)
 
 # Test GET /hello
-let h1 = webi_handle(handle_app, "GET", "/hello", "name=Khan", "", "")
+let h1 = webi_handle(handle_app, "GET", "/hello", "name=Khan", "", "", "127.0.0.1")
 test_eq("GET /hello status", h1["status"], 200)
 test_eq("GET /hello body", h1["body"], "Hello, Khan!")
 
 # Test GET /hello without query
-let h2 = webi_handle(handle_app, "GET", "/hello", "", "", "")
+let h2 = webi_handle(handle_app, "GET", "/hello", "", "", "", "127.0.0.1")
 test_eq("GET /hello default", h2["body"], "Hello, World!")
 
 # Test POST /data with JSON body
 let h3 = webi_handle(handle_app, "POST", "/data", "",
-    "Content-Type: application/json", '{"msg": "hi"}')
+    "Content-Type: application/json", "{\"msg\": \"hi\"}", "127.0.0.1")
 test_eq("POST /data status", h3["status"], 200)
 test("POST /data body has received", contains(h3["body"], "hi"))
 test("POST /data body has method", contains(h3["body"], "POST"))
 
 # Test GET /users/:id
-let h4 = webi_handle(handle_app, "GET", "/users/99", "", "", "")
+let h4 = webi_handle(handle_app, "GET", "/users/99", "", "", "", "127.0.0.1")
 test_eq("GET /users/99 status", h4["status"], 200)
 test("GET /users/99 has id 99", contains(h4["body"], "99"))
 
 # Test 404 with custom handler
-let h5 = webi_handle(handle_app, "GET", "/nonexistent", "", "", "")
+let h5 = webi_handle(handle_app, "GET", "/nonexistent", "", "", "", "127.0.0.1")
 test_eq("custom 404 status", h5["status"], 404)
 test("custom 404 body has path", contains(h5["body"], "/nonexistent"))
 
 # Test 404 with default handler
 let no404_app = webi_app()
 no404_app = route(no404_app, "GET", "/only", hello_handler)
-let h6 = webi_handle(no404_app, "GET", "/missing", "", "", "")
+let h6 = webi_handle(no404_app, "GET", "/missing", "", "", "", "127.0.0.1")
 test_eq("default 404 status", h6["status"], 404)
 test("default 404 body mentions path", contains(h6["body"], "/missing"))
 
@@ -420,7 +422,7 @@ print "\n=== Utility Functions ==="
 # webi_version
 let ver = webi_version()
 test("webi_version returns string", type(ver) == "string")
-test("webi_version contains version", contains(ver, "1.0.0"))
+test("webi_version contains version", contains(ver, "1.1.3"))
 test("webi_version contains Khan", contains(ver, "Khan"))
 
 # webi_routes
@@ -471,34 +473,34 @@ print "\n=== Edge Cases ==="
 
 # Empty app with no routes
 let empty_app = webi_app()
-let empty_res = webi_handle(empty_app, "GET", "/anything", "", "", "")
+let empty_res = webi_handle(empty_app, "GET", "/anything", "", "", "", "127.0.0.1")
 test_eq("empty app returns 404", empty_res["status"], 404)
 
 # Case sensitivity in method matching
 let case_app = webi_app()
 case_app = route(case_app, "GET", "/test", handle_index)
-let case_res = webi_handle(case_app, "get", "/test", "", "", "")
+let case_res = webi_handle(case_app, "get", "/test", "", "", "", "127.0.0.1")
 test("method case sensitive (get != GET)", case_res["status"] == 404)
 
 # Headers with multiple lines
 let multi_header = webi_handle(handle_app, "GET", "/hello", "",
-    "Host: example.com\nUser-Agent: TestAgent\nAccept: */*", "")
+    "Host: example.com\nUser-Agent: TestAgent\nAccept: */*", "", "127.0.0.1")
 test_eq("multi-header request works", multi_header["status"], 200)
 
 # Empty body JSON decode
-let no_body = webi_handle(handle_app, "POST", "/data", "", "", "")
+let no_body = webi_handle(handle_app, "POST", "/data", "", "", "", "127.0.0.1")
 test_eq("empty body request works", no_body["status"], 200)
 
 # ===========================================================================
 # Summary
 # ===========================================================================
-print "\n" + "=" * 50
+print "\n" + "=================================================="
 print "  webi Test Results"
-print "=" * 50
+print "=================================================="
 print "  Total:  " + str(passed + failed)
 print "  Passed: " + str(passed)
 print "  Failed: " + str(failed)
-print "=" * 50
+print "=================================================="
 
 if failed == 0:
     print "  ✓ All " + str(passed) + " tests passed!"

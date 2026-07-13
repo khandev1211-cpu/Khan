@@ -60,6 +60,10 @@ typedef enum {
     OP_CALL,            /* operand = arg count */
     OP_RETURN,
 
+    /* Closures */
+    OP_GET_UPVALUE,     /* operand = upvalue-slot index (1 byte) */
+    OP_SET_UPVALUE,
+
     /* Collections */
     OP_MAKE_ARRAY,      /* operand = element count */
     OP_MAKE_MAP,        /* operand = pair count    */
@@ -92,6 +96,17 @@ void chunk_free   (Chunk *c);
 void chunk_write  (Chunk *c, uint8_t byte, int line);
 int  chunk_add_const(Chunk *c, Value v);  /* returns constant index */
 
+/* Describes one variable a nested function captures from its enclosing
+   function: either straight from the enclosing frame's local stack slot
+   (is_local = 1, index = slot), or forwarded from the enclosing
+   function's own captured upvalues (is_local = 0, index = upvalue slot)
+   — the latter is what makes capturing correct more than one nesting
+   level deep. */
+typedef struct {
+    int is_local;
+    int index;
+} UpvalueDesc;
+
 /* ─────────────────────────────────────────────
    KhanFunction wraps a Chunk with metadata.
    Stored as a Value (VAL_FUNCTION).
@@ -102,9 +117,31 @@ typedef struct KhanFunction {
     int    arity;
     Chunk  chunk;
     int    is_native;      /* 0 = Khan bytecode, 1 = C native */
+
+    UpvalueDesc *upvalues;
+    int          upvalue_count;
 } KhanFunction;
 
 KhanFunction *khanfn_new(const char *name, int arity);
 void          khanfn_free(KhanFunction *fn);
+
+/* ─────────────────────────────────────────────
+   KhanClosure — the runtime, ref-counted bundle of
+   captured values for one closure *instance*. A
+   VAL_FUNCTION Value points at one of these via its
+   (repurposed) `as.function.closure` field when the
+   function it wraps captures variables from an
+   enclosing function. Plain (non-capturing) functions
+   leave `closure` NULL, same as before.
+   ───────────────────────────────────────────── */
+typedef struct KhanClosure {
+    int    ref_count;
+    int    count;
+    Value *values;
+} KhanClosure;
+
+KhanClosure *khanclosure_new(int count);
+void         khanclosure_retain(KhanClosure *cl);
+void         khanclosure_release(KhanClosure *cl);
 
 #endif /* KHAN_CHUNK_H */
