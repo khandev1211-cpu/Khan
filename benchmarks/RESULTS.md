@@ -113,6 +113,26 @@ own numbers were stable within ~10% run to run.)
   doc for why this wasn't fixed in this pass (it's a real, invasive
   Value-system change, not a two-line fix) and what a fix would involve.
 
+## A fifth investigation: is native-call overhead (`len()`, etc.) worth optimizing?
+
+Not part of `run.py`'s standard suite (these three scripts are a matched
+trio meant to be compared against *each other*, not against another
+language) — `benchmarks/call_overhead.kh` /
+`call_overhead_khan_fn.kh` / `call_overhead_no_call.kh`, full writeup in
+`docs/call-overhead-audit.md`. Short version: calling `len()` 3 million
+times is ~17-22% slower than not calling anything, and — the
+interesting part — calling a trivial **Khan-level** function costs
+about the same as calling the **native** `len()`, despite very
+different call mechanisms afterward. That similarity points at the
+shared step (the global hash lookup every bare-identifier call pays)
+as the likely larger contributor, roughly confirming the roadmap's
+original suspicion. A safe fix (cache the resolved table-entry pointer,
+not the value, invalidated via a generation counter on table resize) is
+fully specified in the audit doc but not implemented — it requires
+extending the bytecode/chunk format to hold a per-call-site cache slot,
+a real structural change, for a win this benchmark suggests is real but
+likely smaller in typical (non call-heavy-microbenchmark) code.
+
 ## Honest summary
 
 Khan is meaningfully slower than Python/Node for basic bytecode dispatch

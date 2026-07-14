@@ -125,6 +125,39 @@ Neither is true today, so this is left as-is and documented rather than
 "fixed" — see the CI memory-check job's comment for why it's set to
 `continue-on-error: true` rather than a hard merge gate.
 
+## 10-million-allocation stress test (the roadmap's literal ask for #7)
+
+`tests/fuzz/memory_stress_10m.py` runs three real Khan scripts under
+live RSS (resident memory) monitoring via `psutil`, sampling every
+0.5s:
+
+1. **Uniform**: 10,000,000 iterations creating a single-key map each
+   time (the roadmap's literal "10 million allocations").
+2. **Variable**: 2,000,000 iterations creating arrays of varying size
+   (0-96 elements, cycling) — uniform-size allocations alone can't
+   reveal fragmentation, since a freed slot of the same size is always
+   immediately reusable; this scenario forces the allocator to deal
+   with a mix of sizes.
+3. **Closures**: 10,000,000 iterations of `make_adder(i)` + calling the
+   result — the exact shape of the bug found and fixed earlier in this
+   document (`OP_DEF_GLOBAL` not freeing on redefinition), now stress-
+   tested at the actual scale the roadmap asked for, not just the
+   200-vs-400-iteration comparison used to originally find and confirm
+   the fix.
+
+All three: RSS climbs briefly in the first ~0.5s (allocator pool /
+malloc arena warmup) and then **stays completely flat for the rest of
+the run** — literally identical MB readings sample after sample, all
+the way to completion (10M map allocs in ~3.5-4s, 2M variable-size
+allocs in ~2s, 10M closure creations in ~4-4.5s). No fragmentation-
+driven growth, no leak-driven growth, at the actual scale requested.
+
+This runs in CI (`memory-check` job, informational/non-blocking like
+the valgrind job above it) using the release build rather than the
+debug build valgrind needs — the whole point of this check is
+production-realistic timing at real scale, which a debug/valgrind
+build's 10-50x slowdown would make impractical to run on every push.
+
 ## How to reproduce this audit
 
 ```sh
