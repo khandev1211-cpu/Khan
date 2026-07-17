@@ -60,14 +60,30 @@ the first thing to check.
 
 Tesseract needs `<lang>.traineddata` files (installed alongside the
 library via `tesseract-ocr-eng` / the Homebrew formula / the MSYS2
-package above). `ocr_init()` looks for them via Tesseract's own built-in
-path autodetection by default, which is normally enough — no
-`TESSDATA_PREFIX` env var required. If `ocr_init("eng")` returns `nil`
-and stderr says it couldn't find `eng.traineddata`, either:
+package above). When `ocr_init()` isn't given an explicit datapath, it
+now searches a short list of common install locations itself
+(`/usr/share/tesseract-ocr/*/tessdata` on Linux, the Homebrew prefix on
+macOS, `C:/msys64/mingw64/share/tessdata` and `C:/Program
+Files/Tesseract-OCR/tessdata` on Windows) before falling through to
+Tesseract's own default handling.
+
+This exists because Tesseract's own behavior with a `NULL` datapath
+turned out not to be consistent across packagers: on Ubuntu's apt
+build it correctly falls back to the real install path on its own; on
+MSYS2's mingw-w64 build (confirmed against a real build) it just tries
+`./` relative to the current directory and gives up. Rather than trust
+that to be uniform everywhere, `ocr_init()` checks the likely locations
+itself first.
+
+If `ocr_init("eng")` still returns `nil` and stderr says it couldn't
+find `eng.traineddata`, either:
 
 - the language pack genuinely isn't installed, or
-- your install puts `tessdata/` somewhere autodetection doesn't check —
-  pass it explicitly: `ocr_init("eng", "/path/to/tessdata")`.
+- your install puts `tessdata/` somewhere none of the built-in
+  candidates check (a non-default MSYS2 install drive, for example) —
+  either set the `TESSDATA_PREFIX` environment variable (checked
+  first, before any guessing), or pass the directory explicitly:
+  `ocr_init("eng", "/path/to/tessdata")`.
 
 ## Tuning recognition
 

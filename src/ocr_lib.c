@@ -34,6 +34,52 @@ static int ocr_resolve_slot(Value *engine) {
     return slot;
 }
 
+/* Tesseract's own behavior when you pass a NULL datapath isn't consistent
+ * across how different packagers build libtesseract: on Ubuntu's apt
+ * build it correctly falls back to /usr/share/tesseract-ocr/.../tessdata;
+ * on MSYS2's mingw-w64 build (verified) it just tries "./" relative to
+ * the current directory and gives up. So rather than lean on that, we
+ * do our own best-effort search across the common install locations
+ * before ever calling TessBaseAPIInit3, and only hand it NULL (falling
+ * through to whatever Tesseract does on its own) if none of them pan
+ * out either.
+ *
+ * Returns a pointer to a directory (valid until the next call to this
+ * function - copy it if you need it to outlive that), or NULL. */
+static const char *ocr_guess_datapath(const char *lang) {
+    static char dir[512];
+    char probe[768];
+
+    const char *env = getenv("TESSDATA_PREFIX");
+    if (env && *env) return env;
+
+    static const char *candidates[] = {
+#ifdef _WIN32
+        "C:/msys64/mingw64/share/tessdata",
+        "C:/Program Files/Tesseract-OCR/tessdata",
+#elif defined(__APPLE__)
+        "/opt/homebrew/share/tessdata",
+        "/usr/local/share/tessdata",
+#else
+        "/usr/share/tesseract-ocr/5/tessdata",
+        "/usr/share/tesseract-ocr/4.00/tessdata",
+        "/usr/share/tessdata",
+#endif
+        NULL
+    };
+
+    for (int i = 0; candidates[i]; i++) {
+        snprintf(probe, sizeof(probe), "%s/%s.traineddata", candidates[i], lang);
+        FILE *f = fopen(probe, "rb");
+        if (f) {
+            fclose(f);
+            snprintf(dir, sizeof(dir), "%s", candidates[i]);
+            return dir;
+        }
+    }
+    return NULL;
+}
+
 /* ===========================================================================
  * Native functions
  * ========================================================================= */
@@ -51,6 +97,8 @@ void fn_ocr_init(Value *result, Interpreter *interp, int argc, Value *args) {
     if (argc >= 2) {
         if (args[1].type != VAL_STRING) return;
         datapath = args[1].as.string;
+    } else {
+        datapath = ocr_guess_datapath(lang);
     }
 
     int slot = ocr_alloc_slot();

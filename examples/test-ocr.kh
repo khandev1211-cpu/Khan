@@ -1,0 +1,2 @@
+import "ocr"
+let text = read_text("photo.png")
