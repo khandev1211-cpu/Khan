@@ -1,0 +1,54 @@
+# Test for ocr package (v1.0.0) - real text recognition via Tesseract.
+#
+# examples/ocr_test.png is a checked-in synthetic image (rendered text,
+# not a screenshot) so this test is deterministic and doesn't depend on
+# a user supplying their own photo the way test_vision.kh's face
+# detection test does.
+import "../packages/ocr/ocr.kh"
+import "../packages/vision/vision.kh"
+import "../packages/test/test.kh"
+
+let t = test_suite("OCR Suite")
+
+let IMG = "../examples/ocr_test.png"
+
+# --- one-shot convenience path -----------------------------------------
+let text = read_text(IMG)
+t = test_not_nil(t, "read_text() recognizes the sample image", text)
+if text != nil:
+    t = test_contains_str(t, "recognized text matches what's in the image", text, "Khan OCR Test")
+
+# --- confidence path -----------------------------------------------------
+let result = read_text_with_confidence(IMG)
+t = test_not_nil(t, "read_text_with_confidence() returns a result", result)
+if result != nil:
+    t = test_contains_str(t, "result text matches what's in the image", result["text"], "Khan OCR Test")
+    t = test_gt(t, "confidence is above 0", result["confidence"], 0)
+
+# --- graceful failure ----------------------------------------------------
+let missing = read_text("../examples/does_not_exist.png")
+t = test_nil(t, "read_text() on a missing file returns nil", missing)
+
+let bad_engine = ocr_init("not_a_real_language_xyz")
+t = test_nil(t, "ocr_init() with an unknown language returns nil", bad_engine)
+
+# --- low-level path: one engine reused across two recognize() calls -----
+let engine = ocr_init("eng")
+t = test_not_nil(t, "ocr_init(\"eng\") succeeds", engine)
+if engine != nil:
+    let img = vision_load(_webi_resolve_path(IMG))
+    let text2 = ocr_recognize(engine, img)
+    t = test_contains_str(t, "low-level ocr_recognize() works", text2, "Khan OCR Test")
+
+    let conf = ocr_confidence(engine)
+    t = test_gt(t, "ocr_confidence() is above 0 after a recognize() call", conf, 0)
+
+    # same engine, second call - confirms an engine is reusable across
+    # multiple images rather than being one-shot only
+    let text3 = ocr_recognize(engine, img)
+    t = test_contains_str(t, "engine is reusable for a second recognize() call", text3, "Khan OCR Test")
+
+    ocr_free(engine)
+    vision_free(img)
+
+test_run(t)

@@ -1,0 +1,117 @@
+# Khan ocr package v1.0.0
+# Usage: import "ocr"
+#
+# Real text recognition via Tesseract (libtesseract) — the same OCR engine
+# behind the `tesseract` CLI and countless production scanners. This is a
+# genuine native bridge, not a mock and not a subprocess shell-out: it
+# links against libtesseract directly and feeds it pixel data already
+# decoded by vision_load(), so any format vision.kh can open (PNG, JPEG,
+# BMP, GIF, TGA, ...) works here too.
+#
+# Requires libtesseract (+ trained language data) on the machine Khan is
+# BUILT on — see docs/ocr.md for install notes per platform. If the build
+# can't find it, `make` fails outright rather than silently shipping
+# something that pretends to work.
+#
+# ---------------------------------------------------------------------------
+# Quick start
+# ---------------------------------------------------------------------------
+#
+#   import "ocr"
+#
+#   let text = read_text("scan.png")
+#   if text != nil:
+#       print text
+#
+#   # Need the confidence score too?
+#   let result = read_text_with_confidence("receipt.png")
+#   print result["text"]
+#   print result["confidence"]
+#
+#   # A different language (Khan has no default/optional params, so this
+#   # is a separate function rather than an optional argument):
+#   let french = read_text_lang("menu.png", "fra")
+#
+# ---------------------------------------------------------------------------
+# Recognizing many images? Reuse one engine.
+# ---------------------------------------------------------------------------
+#
+# read_text() calls ocr_init()/ocr_free() around every single call, and
+# ocr_init() reloads Tesseract's language model from disk each time —
+# fine for one or two images, wasteful in a loop. For a batch, call the
+# lower-level native functions directly (registered globally, no import
+# needed) and keep one engine alive across the whole batch:
+#
+#   let engine = ocr_init("eng")
+#   for path in paths:
+#       let img = vision_load(path)
+#       if img != nil:
+#           print ocr_recognize(engine, img)
+#           vision_free(img)
+#   ocr_free(engine)
+#
+# Native functions available this way:
+#   ocr_init([lang], [datapath]) -> engine or nil   (lang defaults to "eng")
+#   ocr_recognize(engine, image) -> string or nil
+#   ocr_confidence(engine)       -> number (0-100) or nil
+#   ocr_set_page_seg_mode(engine, mode) -> nil  (0-13; see Tesseract's PSM
+#       modes — e.g. 7 = treat the image as a single text line, useful for
+#       cropped fields like a serial number or ID)
+#   ocr_free(engine)             -> nil
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# read_text(path) -> string or nil
+#
+# One-shot OCR in English: load the image, recognize, clean up. Returns
+# nil if the image can't be opened or the OCR engine can't be started.
+# ---------------------------------------------------------------------------
+fn read_text(path):
+    return read_text_lang(path, "eng")
+
+# ---------------------------------------------------------------------------
+# read_text_lang(path, lang) -> string or nil
+#
+# Same as read_text(), with an explicit Tesseract language code (e.g.
+# "fra", "deu", "ara" — whatever *.traineddata you have installed).
+# ---------------------------------------------------------------------------
+fn read_text_lang(path, lang):
+    let resolved = _webi_resolve_path(path)
+    let img = vision_load(resolved)
+    if img == nil:
+        return nil
+    let engine = ocr_init(lang)
+    if engine == nil:
+        vision_free(img)
+        return nil
+    let text = ocr_recognize(engine, img)
+    ocr_free(engine)
+    vision_free(img)
+    return text
+
+# ---------------------------------------------------------------------------
+# read_text_with_confidence(path) -> {"text","confidence"} or nil
+#
+# Same as read_text(), but also returns Tesseract's mean confidence
+# (0-100) for the recognition.
+# ---------------------------------------------------------------------------
+fn read_text_with_confidence(path):
+    return read_text_with_confidence_lang(path, "eng")
+
+# ---------------------------------------------------------------------------
+# read_text_with_confidence_lang(path, lang) -> {"text","confidence"} or nil
+# ---------------------------------------------------------------------------
+fn read_text_with_confidence_lang(path, lang):
+    let resolved = _webi_resolve_path(path)
+    let img = vision_load(resolved)
+    if img == nil:
+        return nil
+    let engine = ocr_init(lang)
+    if engine == nil:
+        vision_free(img)
+        return nil
+    let text = ocr_recognize(engine, img)
+    let conf = ocr_confidence(engine)
+    ocr_free(engine)
+    vision_free(img)
+    return {"text": text, "confidence": conf}

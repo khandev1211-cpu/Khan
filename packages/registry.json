@@ -77,7 +77,7 @@
       "name": "events",
       "version": "1.0.1",
       "developer": "Irfan Khan",
-      "description": "Event emitter system: on, emit, once, off, history — built for Khan Engine game events",
+      "description": "Event emitter system: on, emit, once, off, history \u2014 built for Khan Engine game events",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/events/events.kh"
     },
@@ -123,7 +123,7 @@
       "name": "morgos",
       "version": "1.0.0",
       "developer": "Irfan Khan",
-      "description": "Morgan-style HTTP request logger for webi: colored status, elapsed time, response size — as a swappable after-hook",
+      "description": "Morgan-style HTTP request logger for webi: colored status, elapsed time, response size \u2014 as a swappable after-hook",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/morgos/morgos.kh"
     },
@@ -294,6 +294,14 @@
       "description": "SQL Database bridge for high-speed local data persistence",
       "author": "khandev1211-cpu",
       "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/sqlite/sqlite.kh"
+    },
+    {
+      "name": "ocr",
+      "version": "1.0.0",
+      "developer": "Irfan Khan",
+      "description": "Real OCR via Tesseract (libtesseract) - reads text out of images loaded through vision.kh",
+      "author": "khandev1211-cpu",
+      "url": "https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/packages/ocr/ocr.kh"
     }
   ]
-}
+}
