@@ -47,14 +47,17 @@ makefile links `-ltesseract` directly. The simplest path to a
 gcc-linkable tesseract is MSYS2:
 
 ```bash
-pacman -S mingw-w64-x86_64-tesseract-ocr
+pacman -S mingw-w64-x86_64-tesseract-ocr mingw-w64-x86_64-tesseract-data-eng
 ```
 
-which installs into the toolchain's own prefix (already on the default
-include/lib search path — no manual `-I`/`-L` needed). **This path is
-unverified** — it hasn't been run through an actual Windows build in
-this project's CI. If you hit include/link errors on Windows, that's
-the first thing to check.
+**Both packages are required** — MSYS2 splits trained language data out
+from the library itself (confirmed against a real build: installing
+just `-tesseract-ocr` gets you `capi.h` and the DLL, but no
+`eng.traineddata` anywhere, which fails at runtime rather than build
+time). Swap `-eng` for another `mingw-w64-x86_64-tesseract-data-<code>`
+package for other languages. Installing either package puts things into
+the toolchain's own prefix (already on the default include/lib search
+path — no manual `-I`/`-L` needed).
 
 ## Runtime: trained language data
 
