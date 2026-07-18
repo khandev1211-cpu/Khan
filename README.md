@@ -6,7 +6,7 @@
 ![Status](https://img.shields.io/badge/status-stable--release-green)
 ![Packages](https://img.shields.io/badge/packages-13-purple)
 
-**Khan** is a custom, indentation-based programming language built entirely from scratch in C11. Created by **Irfan Khan**, this project is a hands-on exploration of compiler design, lexer construction, parser development, runtime interpretation, and standard library implementation. The language draws inspiration from Python's clean indentation syntax and Lua's simplicity, while keeping a minimal footprint in pure C.
+**Khan** is a custom, indentation-based programming language built entirely from scratch in C11. Created by **Irfan Khan**, this project is a hands-on exploration of compiler design, lexer construction, parser development, runtime interpretation, and standard library implementation. The language draws inspiration from Python's clean indentation syntax and Lua's simplicity, while keeping a minimal footprint in pure C .
 
 > **Repository**: [github.com/khandev1211-cpu/Khan](https://github.com/khandev1211-cpu/Khan)
 
