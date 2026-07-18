@@ -224,12 +224,25 @@ AstNodeList *ast_list_append(AstNodeList *list, AstNode *node) {
     AstNodeList *item = malloc(sizeof(AstNodeList));
     item->node = node;
     item->next = NULL;
+    item->tail_cache = NULL;
 
-    if (!list) return item;
+    if (!list) {
+        item->tail_cache = item; // new list: item is both head and tail
+        return item;
+    }
 
-    AstNodeList *cur = list;
-    while (cur->next) cur = cur->next;
-    cur->next = item;
+    // list->tail_cache is only maintained on the head; fall back to a
+    // full walk if it's ever missing (defensive — shouldn't happen if
+    // every append goes through this function, but a list built any
+    // other way shouldn't silently misbehave).
+    AstNodeList *tail = list->tail_cache;
+    if (!tail) {
+        tail = list;
+        while (tail->next) tail = tail->next;
+    }
+
+    tail->next = item;
+    list->tail_cache = item;
     return list;
 }
 

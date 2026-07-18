@@ -523,16 +523,18 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             break;
         }
 
-        case OP_MAKE_ARRAY: {
-            int count = READ_BYTE();
+        case OP_MAKE_ARRAY:
+        case OP_MAKE_ARRAY_WIDE: {
+            int count = (op == OP_MAKE_ARRAY) ? READ_BYTE() : READ_SHORT();
             Value *items = count > 0 ? malloc(count * sizeof(Value)) : NULL;
             for (int i = count - 1; i >= 0; i--) items[i] = pop(vm);
             push(vm, value_array(items, count));
             break;
         }
 
-        case OP_MAKE_MAP: {
-            int pairs = READ_BYTE();
+        case OP_MAKE_MAP:
+        case OP_MAKE_MAP_WIDE: {
+            int pairs = (op == OP_MAKE_MAP) ? READ_BYTE() : READ_SHORT();
             Value map = value_map_empty();
             for (int i = 0; i < pairs; i++) {
                 Value val = pop(vm);

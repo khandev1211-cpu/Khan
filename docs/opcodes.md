@@ -2,7 +2,7 @@
 
 Generated from `src/chunk.h` (the enum) and `src/vm.c` (`run_loop`'s
 dispatch switch, which is the authoritative behavior — treat this doc as
-a guide to reading that switch, not a replacement for it). 38 opcodes
+a guide to reading that switch, not a replacement for it). 40 opcodes
 total; 2 are reserved/unused (noted below).
 
 Every instruction is a single opcode byte, optionally followed by a
@@ -96,7 +96,9 @@ crashing.)
 | Opcode | Operand | Stack effect | Notes |
 |---|---|---|---|
 | `OP_MAKE_ARRAY` | 1 byte: element count | `[e1..eN] -> [array]` | Elements popped in reverse, so the resulting array preserves source order |
+| `OP_MAKE_ARRAY_WIDE` | 2 bytes: element count | `[e1..eN] -> [array]` | Used once a literal has more than 255 elements — see `docs/ast-audit.md` for the silent-truncation bug this fixes (the 1-byte form used to just wrap around with no error) |
 | `OP_MAKE_MAP` | 1 byte: pair count | `[k1,v1..kN,vN] -> [map]` | |
+| `OP_MAKE_MAP_WIDE` | 2 bytes: pair count | `[k1,v1..kN,vN] -> [map]` | Same as `OP_MAKE_ARRAY_WIDE`, for map literals |
 | `OP_GET_INDEX` | — | `[collection, key] -> [value]` | Works on both arrays (numeric index) and maps (string key) |
 | `OP_SET_INDEX` | — | `[collection, key, value] -> [value]` | |
 

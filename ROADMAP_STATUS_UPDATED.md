@@ -109,8 +109,47 @@ this is now fixed and verified (`make clean && make` succeeds, `khan` runs).
   fix — flagging for the maintainer rather than making the call
   unilaterally.
 
-## 3. AST — ❌ Not started
-- No audit of node independence for future optimization passes.
+## 3. AST — ✅ Done (was ❌ Not started)
+- ✅ **(session 7)** Full node-independence audit — `docs/ast-audit.md`.
+  Confirmed good: `ast_free()`'s switch is exhaustive over all 29 node
+  types (verified via `-Wswitch`, already enabled, never warning); every
+  string-taking AST constructor (9 of them, checked individually)
+  `strdup()`s its input rather than aliasing a token's pointer into the
+  transient source buffer; the node union is `memset()` to zero before
+  any constructor runs, so a hypothetical future constructor that
+  forgets a field defaults safely to `NULL`/`0`.
+- ✅ **(session 7)** Found and fixed a serious **correctness** bug along
+  the way, not just a node-independence question: array/map literals
+  with more than 255 elements silently produced a **wrong length** —
+  `OP_MAKE_ARRAY`/`OP_MAKE_MAP`'s element-count operand was a single
+  byte with no wide variant (unlike `OP_CONST`/`OP_GET_GLOBAL`/
+  `OP_DEF_GLOBAL`, which all already have one). A 5,000-element array
+  literal reported length 136 (5000 mod 256); a 10,000-element one
+  reported 16. No error, no crash — just silently wrong, with the
+  "missing" elements still sitting in memory but permanently
+  unreachable via normal indexing. Fixed by adding
+  `OP_MAKE_ARRAY_WIDE`/`OP_MAKE_MAP_WIDE`, matching the existing
+  `_WIDE` convention exactly. Verified at the exact 255/256 boundary
+  and at 5,000/10,000-element scale; also verified this correctly
+  interacts with the stack-overflow protection from session 6 (a
+  literal too large to fit on the value stack now safely errors rather
+  than silently truncating or crashing).
+- ✅ **(session 7)** Found and fixed a real **performance** bug in the
+  same audit: `ast_list_append()` — used for every statement list,
+  argument list, and literal's element list — walked the entire list
+  from the head on every single append, making building an N-element
+  list O(n²). Verified empirically (doubling input size showed ~4x
+  time, the quadratic signature) and fixed with a standard tail-cache
+  pointer (low-risk, unlike the string/map quadratic-growth findings
+  from earlier sessions, which needed larger Value-system changes this
+  one didn't). Verified fixed: the same test that showed clear
+  quadratic growth now shows flat sub-10ms timing at every size tested.
+  Same category of bug as the string-concat and map-construction
+  findings — worth noting this is now the *third* time this exact
+  architectural pattern (an O(n) operation called in a loop) has shown
+  up in this codebase.
+- Both fixes: full regression suite stays green (139+137+16+6
+  assertions, 1000+ fuzz mutations), dedicated ASAN pass clean.
 
 ## 4. Compiler optimizations — 🟡 Partial (was ❌ Not started)
 - ✅ **(session 4)** Implemented real constant folding: a compile-time
@@ -177,8 +216,22 @@ this is now fixed and verified (`make clean && make` succeeds, `khan` runs).
   just above (frame-count overflow was already checked via
   `VM_FRAMES_MAX`; the value stack itself wasn't, until now)
 - ❌ No tail call optimization
-- ❌ No inline-native-call optimization (e.g. `len()` still does a full
-  global lookup every call)
+- 🟡 **(session 6)** Inline-native-call optimization — investigated
+  properly rather than left untouched or rushed. Measured: calling
+  `len()` 3M times is ~17-22% slower than not calling anything, and
+  costs about the same as calling an equivalent trivial Khan-level
+  function despite very different call mechanisms — pointing at the
+  shared global-hash-lookup step (not the call mechanism itself) as
+  the likely larger contributor, roughly confirming the roadmap's
+  original suspicion. A safe fix (generation-counter-gated
+  `TableEntry*` caching per call site) is fully specified in
+  `docs/call-overhead-audit.md` but not implemented — it requires
+  extending the bytecode/chunk format with a per-call-site cache slot,
+  a real structural change, for a win likely smaller in typical
+  (non-call-heavy) code than the microbenchmark's 17-22% ceiling
+  suggests. Same risk/reward judgment call as the string/map
+  quadratic-growth findings: documented precisely enough to implement
+  later, not rushed now.
 - Two real VM bugs were fixed in the prior session (function-call
   argument shift, top-level block-scope locals) — correctness, not the
   performance work asked for here.
@@ -220,9 +273,23 @@ this is now fixed and verified (`make clean && make` succeeds, `khan` runs).
     silently breaks any *future* code using a very natural, common
     pattern.
 
-## 7. Memory manager — 🟡 Partial (was ❌ Not started)
-- 🟡 No 10M-allocation stress test, no fragmentation testing — still
-  outstanding
+## 7. Memory manager — ✅ Done (was 🟡 Partial)
+- ✅ **(session 6)** The roadmap's literal ask — "10 million
+  allocations. Leak? Fragmentation?" — now has a real answer, not just
+  a byte-exact-but-small-scale valgrind comparison. `tests/fuzz/
+  memory_stress_10m.py` runs three real scripts at true scale under
+  live RSS monitoring (10M uniform allocations, 2M variable-size
+  allocations specifically to stress fragmentation, 10M closure
+  creations specifically re-testing session 3's fix at real scale, not
+  just the 200-vs-400-iteration comparison originally used to find it).
+  All three: RSS climbs briefly during allocator warmup, then stays
+  **completely flat** for the rest of the run, all the way to
+  completion. No leak signal, no fragmentation-growth signal, at the
+  actual scale requested. Full writeup in `docs/memory-notes.md`. Runs
+  in CI (informational, alongside the existing valgrind job) using the
+  release build for realistic timing (10M+2M+10M iterations complete in
+  ~10s combined — a debug/valgrind build would take 10-50x longer,
+  impractical to run on every push).
 - ✅ **(session 3)** Ran a real leak audit — not ad hoc this time. Method:
   write a loop stress-testing recursion / array-building / closure
   creation (1000 iterations each), run under `valgrind --leak-check=full`,

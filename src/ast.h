@@ -64,6 +64,14 @@ typedef enum {
 struct AstNodeList {
     AstNode *node;
     AstNodeList *next;
+    // Only meaningful on the HEAD element (the one every caller actually
+    // holds a reference to, via `list = ast_list_append(list, node)`) —
+    // caches the current tail so repeated appends don't have to walk the
+    // whole list from the head every time. Without this, building an
+    // N-element list (a function's statement list, a large array/map
+    // literal, etc.) was O(n^2): each append walked everything appended
+    // so far. See docs/ast-audit.md.
+    AstNodeList *tail_cache;
 };
 
 // ---------------------------------------------------------------------------

@@ -11,22 +11,11 @@ CFLAGS  = -std=c11 -Wall -Wextra -O2 -Isrc \
           -Wno-cast-function-type
 
 ifeq ($(OS),Windows_NT)
-    LDFLAGS     = -lm -lwinhttp -lshell32 -lws2_32 -ladvapi32
-    EXT         = .exe
-    # No pkg-config assumed on a bare MinGW toolchain: install tesseract via
-    # MSYS2 (pacman -S mingw-w64-x86_64-tesseract-ocr), whose prefix is
-    # already on the default include/lib search path. See docs/ocr.md.
-    TESS_CFLAGS =
-    TESS_LIBS   = -ltesseract
+    LDFLAGS  = -lm -lwinhttp -lshell32 -lws2_32 -ladvapi32
+    EXT      = .exe
 else
-    LDFLAGS     = -lm
-    EXT         =
-    # pkg-config finds tesseract wherever apt/Homebrew put it (handles the
-    # Homebrew-on-Apple-Silicon /opt/homebrew case that a bare -ltesseract
-    # would miss). Falls back to a bare -ltesseract if pkg-config itself,
-    # or its tesseract.pc, isn't found.
-    TESS_CFLAGS := $(shell pkg-config --cflags tesseract 2>/dev/null)
-    TESS_LIBS   := $(shell pkg-config --libs tesseract 2>/dev/null || echo -ltesseract)
+    LDFLAGS  = -lm
+    EXT      =
 endif
 
 # All Source Files for the unified High-Performance Khan
@@ -49,7 +38,6 @@ SRCS = \
     src/vision_lib.c    \
     src/vision_cv.c     \
     src/vision_cascade.c \
-    src/ocr_lib.c        \
     src/main.c
 
 KH_SRCS = src/kh.c
@@ -59,7 +47,7 @@ KH_SRCS = src/kh.c
 all: khan$(EXT) kh$(EXT)
 
 khan$(EXT): $(SRCS)
-	$(CC) $(CFLAGS) $(TESS_CFLAGS) $^ -o $@ $(LDFLAGS) $(TESS_LIBS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 	@echo "  Built khan$(EXT) (High-Performance VM Edition)"
 
 kh$(EXT): $(KH_SRCS)

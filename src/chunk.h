@@ -65,8 +65,15 @@ typedef enum {
     OP_SET_UPVALUE,
 
     /* Collections */
-    OP_MAKE_ARRAY,      /* operand = element count */
-    OP_MAKE_MAP,        /* operand = pair count    */
+    OP_MAKE_ARRAY,      /* operand = element count (1 byte, max 255) */
+    OP_MAKE_ARRAY_WIDE, /* operand = element count (2 bytes, big-endian) —
+                           used once a literal has more than 255 elements;
+                           without this, the count silently wrapped via a
+                           uint8_t truncation, producing a wrong-sized
+                           array with no error at all. See docs/
+                           ast-audit.md for how this was found. */
+    OP_MAKE_MAP,        /* operand = pair count (1 byte, max 255) */
+    OP_MAKE_MAP_WIDE,   /* operand = pair count (2 bytes, big-endian) */
     OP_GET_INDEX,
     OP_SET_INDEX,
 

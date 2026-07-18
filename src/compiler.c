@@ -734,7 +734,16 @@ static void compile_expr(AstNode *node) {
             compile_expr(el->node);
             count++;
         }
-        emit2(OP_MAKE_ARRAY, (uint8_t)count, line);
+        if (count > 255) {
+            if (count > 65535) {
+                compiler_error("Array literal has too many elements (max 65535)", line);
+                break;
+            }
+            emit(OP_MAKE_ARRAY_WIDE, line);
+            emit_short((uint16_t)count, line);
+        } else {
+            emit2(OP_MAKE_ARRAY, (uint8_t)count, line);
+        }
         break;
     }
 
@@ -747,7 +756,16 @@ static void compile_expr(AstNode *node) {
             compile_expr(entry->data.map_entry.value);
             pairs++;
         }
-        emit2(OP_MAKE_MAP, (uint8_t)pairs, line);
+        if (pairs > 255) {
+            if (pairs > 65535) {
+                compiler_error("Map literal has too many entries (max 65535)", line);
+                break;
+            }
+            emit(OP_MAKE_MAP_WIDE, line);
+            emit_short((uint16_t)pairs, line);
+        } else {
+            emit2(OP_MAKE_MAP, (uint8_t)pairs, line);
+        }
         break;
     }
 
