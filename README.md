@@ -3,10 +3,12 @@
 ![Language](https://img.shields.io/badge/language-C11-blue)
 ![Build](https://img.shields.io/badge/build-make-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
-![Status](https://img.shields.io/badge/status-stable--release-green)
-![Packages](https://img.shields.io/badge/packages-13-purple)
+![Status](https://img.shields.io/badge/status-pre--1.0%20active%20development-yellow)
+![Packages](https://img.shields.io/badge/packages-36-purple)
 
-**Khan** is a custom, indentation-based programming language built entirely from scratch in C11. Created by **Irfan Khan**, this project is a hands-on exploration of compiler design, lexer construction, parser development, runtime interpretation, and standard library implementation. The language draws inspiration from Python's clean indentation syntax and Lua's simplicity, while keeping a minimal footprint in pure C .
+**Khan** is a custom, indentation-based programming language built entirely from scratch in C11 — lexer, parser, bytecode compiler, and VM, with no dependency on any other language's runtime. Created by **Irfan Khan**, this project is a hands-on exploration of compiler design, virtual machine implementation, and standard library engineering, with a 36-package ecosystem spanning web development, classical computer vision, real OCR, and network protocols. The language draws inspiration from Python's clean indentation syntax and Lua's simplicity, while keeping a minimal footprint in pure C.
+
+Honest framing, since this README makes a point of not overstating things: Khan is **pre-1.0** by its own [roadmap](#roadmap)'s criteria. It's a real, working, multi-session-hardened language and runtime, not a toy — but if you're picking a language to ship something in tomorrow, this isn't that. If you want to see how a real bytecode VM and a real package ecosystem get built from nothing, read on.
 
 > **Repository**: [github.com/khandev1211-cpu/Khan](https://github.com/khandev1211-cpu/Khan)
 
@@ -15,6 +17,7 @@
 ## Table of Contents
 
 - [Overview](#overview)
+- [What's Real, What's a Known Gap](#whats-real-whats-a-known-gap)
 - [Quick Start](#quick-start)
 - [Package Manager — kh](#package-manager--kh)
 - [Packages](#packages)
@@ -38,10 +41,31 @@ Khan is a from-scratch programming language implementation focused on understand
 
 1. **Lexer (Tokenizer)** — Converts raw source code into a stream of tokens
 2. **Parser** — Builds an Abstract Syntax Tree (AST) using recursive descent parsing
-3. **Tree-Walk Interpreter** — Executes programs by recursively evaluating AST nodes
-4. **Standard Library** — 30+ built-in functions for I/O, strings, math, arrays, and maps
-5. **Built-in Libraries** — Native C libraries for JSON, datetime, and HTTP requests
-6. **Package Manager (`kh`)** — Install community packages with `kh install <name>`
+3. **Compiler** — Compiles the AST into bytecode (38 opcodes)
+4. **Bytecode VM** — A stack-based virtual machine executes the compiled bytecode — this is the real, primary execution engine (an earlier tree-walk interpreter still exists in the source tree, but only for one legacy import-parsing path; it is not what runs your program)
+5. **Standard Library** — 30+ built-in functions for I/O, strings, math, arrays, and maps
+6. **Native Libraries** — C libraries bridging to real external engines: JSON, datetime, HTTP, SQLite-shaped storage, classical computer vision (with real Haar-cascade face detection), and OCR via Tesseract
+7. **Package Manager (`kh`)** — Install community packages with `kh install <name>`
+
+## What's Real, What's a Known Gap
+
+Most from-scratch language projects are tempted to round up. This one tries hard not to — a prior version of the `vision` package shipped a `detect_faces()` that returned two hardcoded boxes regardless of input, and the fix was to rip it out and build real Haar-cascade detection, not to keep it and call it done. That history is worth being upfront about, both the mistake and the fix.
+
+**Real, verified, not mocked:**
+- The bytecode compiler + VM — the actual execution path for every script you run
+- `vision`'s face detection — real Viola-Jones cascade detection, not hardcoded output
+- `ocr` — a genuine native bridge to libtesseract; feeds it real pixel data, not a wrapper around the `tesseract` CLI
+- Testing: thousands of fuzz-mutated parser inputs with zero crashes, memory stress-tested at 10M-allocation scale with flat RSS, CI gating on real assertion suites across Linux/Windows/macOS
+
+**Known, open gaps — not hidden, not fixed yet:**
+- `sqlite` is currently a **mock** — it doesn't touch real SQL, it simulates storage via JSON. It's labeled as such in its own source rather than presented as working.
+- Khan's `{}` map type is a linear-scan array, not a real hash table — O(n) to build. This affects most real programs that use maps at all.
+- String concatenation in a loop is O(n²) (a redundant `strlen()` each time).
+- No garbage collector — reference-counted only, so a circular reference will leak for the life of the process (this is a known limitation, not something exercised by normal use so far).
+- No `try`/`catch` yet.
+- `vision_rotate()` has a direction bug: its own doc comment doesn't match what it actually does for 90°-left/right corrections (0°/180° are unaffected). Known, not yet fixed.
+
+If a claim in this README turns out to not match reality, that's a bug in the README — [open an issue](https://github.com/khandev1211-cpu/Khan/issues).
 
 ---
 
@@ -109,22 +133,80 @@ print PI                # 3.14159...
 
 ## Packages
 
+36 packages, installed the same way regardless of category: `kh install <name>`, then `import "<name>"`.
+
+### Core & CLI
+
 | Package | Version | Description |
 |---|---|---|
-| `math` | 2.0.0 | Advanced math: sqrt, pow, gcd, primes, factorial, mean |
-| `strings` | 1.0.0 | String utilities: split, trim, replace, pad, contains, join |
-| `colors` | 1.0.0 | Terminal ANSI colors: red, green, bold, print_success, print_error |
-| `requests` | 1.1.0 | HTTP client with auto JSON decode: get, post, post_json, put, delete |
-| `postman` | 1.0.0 | API testing toolkit: send requests, assert responses, print reports |
+| `math` | 2.0.1 | Advanced math: sqrt, pow, gcd, primes, factorial, mean |
+| `strings` | 1.0.0 | String utilities: split, trim, replace, pad, repeat, contains, join |
 | `collections` | 1.0.0 | Functional array helpers: sort, filter, map_each, reduce, find, unique, chunk, zip, sort_by |
-| `fs` | 1.0.0 | File system utilities: read, write, append, copy, path helpers, JSON config |
-| `datetime` | 1.0.0 | Date/time utilities: timer, elapsed, human-readable duration, sleep helpers |
+| `colors` | 1.0.0 | Terminal ANSI colors: red, green, bold, boxes, etc. |
+| `argparse` | 1.0.0 | Command-line argument parser |
+| `validation` | 1.0.0 | Data validation: emails, lengths, numeric checks |
+| `dotenv` | 1.0.0 | Load environment variables from `.env` files |
+| `uuid` | 1.0.1 | Unique ID generation: uuid_v4, short IDs, named entity IDs, sequential counters |
+| `events` | 1.0.1 | Event emitter: on, emit, once, off, history |
+| `logger` | 1.0.1 | Structured logger: debug/info/warn/error levels, file output, silent mode |
 | `test` | 1.0.0 | Unit testing framework: assertions, test suites, pass/fail reporting |
-| `events` | 1.0.0 | Event emitter system: on, emit, once, off, history |
-| `logger` | 1.0.0 | Structured logger: debug/info/warn/error levels, file output, silent mode |
-| `uuid` | 1.0.0 | Unique ID generation: uuid_v4, short IDs, sequential counters |
+| `datetime` | 1.0.1 | Date/time utilities: timer, elapsed, human-readable duration, sleep helpers |
+
+### Web — the `webi` ecosystem
+
+| Package | Version | Description |
+|---|---|---|
 | `webi` | 1.1.3 | Web framework: routing, security, templates, static files, HTTP server — see [docs/webi.md](docs/webi.md) |
+| `webi_auth` | 1.0.0 | Authentication middleware for webi |
+| `webi_socket` | 1.0.0 | WebSocket support for webi |
 | `morgos` | 1.0.0 | Morgan-style request logger for webi — colored status, elapsed time, response size, as a swappable `after()` hook |
+
+### HTTP, APIs & testing
+
+| Package | Version | Description |
+|---|---|---|
+| `requests` | 1.1.0 | HTTP client with auto JSON decode: get, post, post_json, put, delete |
+| `postman` | 1.0.0 | API testing toolkit: send requests, assert responses, run test suites |
+| `swagger` | 1.0.0 | Swagger UI and API documentation generator |
+| `openai` | 2.0.0 | Production-grade OpenAI API client: chat completions, multi-turn conversations, embeddings, moderation, model listing, structured errors, retry/backoff |
+
+### Data & storage
+
+| Package | Version | Description |
+|---|---|---|
+| `fs` | 1.0.1 | File system utilities: read, write, append, copy, path helpers, JSON config |
+| `csv_io` | 1.0.0 | CSV file reader and writer |
+| `json_db` | 1.0.0 | Simple NoSQL database using JSON files |
+| `orm` | 1.0.0 | Simple Object-Relational Mapper for JSON databases |
+| `sqlite` | 1.0.0 | SQL database bridge — **currently a mock**, see [What's Real, What's a Known Gap](#whats-real-whats-a-known-gap) |
+
+### Computer vision & OCR
+
+| Package | Version | Description |
+|---|---|---|
+| `vision` | 3.0.0 | Full classical CV toolkit: image I/O, filters (blur/sharpen/emboss/edges), thresholding (fixed/Otsu/adaptive), morphology, blob detection, histograms, drawing, template matching, HSV color-range detection, real Haar-cascade face detection |
+| `ocr` | 1.1.0 | Real OCR via Tesseract: text, word-level bounding boxes, orientation auto-correction, searchable PDF export, character whitelisting, multi-language — see [docs/ocr.md](docs/ocr.md) |
+
+### AI / ML utilities
+
+| Package | Version | Description |
+|---|---|---|
+| `tensor` | 1.0.0 | Multi-dimensional array math for AI |
+| `kbrain` | 1.0.0 | Simple machine learning and AI utilities |
+| `nlp` | 1.0.0 | Natural language processing and sentiment analysis |
+
+### Networking & protocols
+
+| Package | Version | Description |
+|---|---|---|
+| `dns` | 1.0.0 | DNS lookup utilities using DNS-over-HTTPS |
+| `ftp` | 1.0.0 | FTP client for file transfers |
+| `grpc` | 1.0.0 | gRPC client for high-performance RPC |
+| `mqtt` | 1.0.0 | MQTT protocol for IoT messaging |
+| `smtp` | 1.0.0 | Email sending utilities |
+| `ssh_client` | 1.0.0 | SSH client for remote command execution |
+
+Full detail on the packages below is in their own docs where noted; everything else is documented inline in its `.kh` source under `packages/<name>/`.
 
 ### math
 
