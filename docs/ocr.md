@@ -108,10 +108,62 @@ find `eng.traineddata`, either:
 ## Tests
 
 `tests/test_ocr.kh` is a real, automated suite (uses the checked-in
-`examples/ocr_test.png` — rendered text, not a screenshot, so the
-expected output is deterministic) — not a manual-inspection demo like
+`examples/ocr_test.png`, `ocr_paragraph.png`, `ocr_paragraph_rot90cw.png`,
+and `ocr_french.png` — rendered text, not screenshots, so expected
+output is deterministic) — not a manual-inspection demo like
 `examples/vision_test_all.kh`. Run it the same way as the others:
 
 ```bash
 ./khan tests/test_ocr.kh
 ```
+
+## Beyond plain text: words, orientation, PDF, whitelisting
+
+- **Word-level positions**: `ocr_recognize_words(engine, image)` (or
+  `read_text_words(path)`) returns one `{"text","confidence","x","y",
+  "width","height"}` map per word, not just one flattened string —
+  useful for knowing *where* text is, or flagging specific low-
+  confidence words rather than distrusting the whole page.
+- **Auto orientation + preprocessing**: `read_text_auto(path)`
+  grayscales, evens out contrast, and straightens a sideways/upside-
+  down page before recognizing — meant for real phone photos, not
+  clean scans. Needs a real block of text to detect orientation
+  confidently (falls back to reading it as-is on a short or sparse
+  image, rather than guessing). The lower-level
+  `ocr_detect_orientation(engine, image)` returns a
+  `correction_degrees` value already calibrated to what
+  `vision_rotate()` actually does — see the note below before using a
+  raw value yourself.
+- **Searchable PDF**: `save_searchable_pdf(image_path, output_path)`
+  renders the original image with an invisible, selectable text layer
+  over it — same look, but searchable/copyable.
+- **Character whitelist**: `ocr_set_char_whitelist(engine, "0123456789")`
+  restricts recognition to just those characters — much more reliable
+  than plain OCR for a known-format field like a serial number.
+- **Multi-language**: Tesseract accepts "+"-joined language codes
+  natively — `read_text_lang(path, "eng+fra")` — no separate API needed,
+  as long as each language's `.traineddata` is installed.
+
+### A discrepancy worth knowing about: `vision_rotate()`'s direction
+
+While calibrating `ocr_detect_orientation()`'s `correction_degrees`
+against real rotated images, `vision_rotate()`'s own doc comment
+("negative: clockwise-positive convention for callers" —
+`src/vision_cv.c`) didn't match what it actually does: for a page whose
+text needs a 90° correction, the comment implies one sign, but the
+value that actually produces upright output (verified against real
+images, all four orientations) is the other sign. `RIGHT`/`LEFT` are
+swapped relative to what the comment describes; `UP`/`DOWN` (0°/180°)
+aren't affected since they're sign-symmetric.
+
+`ocr_detect_orientation()`'s `correction_degrees` is calibrated against
+what `vision_rotate()` **actually does**, not its doc comment, so
+`vision_rotate(image, result["correction_degrees"])` is correct as
+written above. But if you ever call `vision_rotate()` directly with a
+hand-picked angle based on its comment rather than through this
+function, double-check the direction empirically first — only
+`packages/vision/transform.kh`'s thin wrapper and this package
+currently call it, so a fix to `vision_cv.c` itself (either the
+comment or the implementation, whichever is actually wrong) is low-risk
+if you want it, but that's `vision`'s bug to fix, not something changed
+here.

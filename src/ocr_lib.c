@@ -15,8 +15,11 @@
 
 #define OCR_MAX_HANDLES 8
 
-static TessBaseAPI *g_ocr_handles[OCR_MAX_HANDLES];
-static int          g_ocr_last_conf[OCR_MAX_HANDLES];
+static TessBaseAPI    *g_ocr_handles[OCR_MAX_HANDLES];
+static int              g_ocr_last_conf[OCR_MAX_HANDLES];
+static TessPageSegMode  g_ocr_psm[OCR_MAX_HANDLES]; /* last PSM the *caller*
+    asked for, tracked so ocr_detect_orientation() can put it back the way
+    it found it instead of permanently leaving the engine in PSM_AUTO_OSD */
 
 static int ocr_alloc_slot(void) {
     for (int i = 0; i < OCR_MAX_HANDLES; i++) if (!g_ocr_handles[i]) return i;
@@ -124,6 +127,7 @@ void fn_ocr_init(Value *result, Interpreter *interp, int argc, Value *args) {
 
     g_ocr_handles[slot]   = handle;
     g_ocr_last_conf[slot] = -1;
+    g_ocr_psm[slot]       = PSM_AUTO; /* Tesseract's own real default */
 
     Value m = value_map_empty();
     map_set(&m, "__ocr_id", value_number(slot));
@@ -188,6 +192,7 @@ void fn_ocr_set_page_seg_mode(Value *result, Interpreter *interp, int argc, Valu
     int mode = (int)args[1].as.number;
     if (mode < 0 || mode > 13) return; /* PSM_OSD_ONLY..PSM_COUNT-1 */
     TessBaseAPISetPageSegMode(g_ocr_handles[slot], (TessPageSegMode)mode);
+    g_ocr_psm[slot] = (TessPageSegMode)mode;
 }
 
 void fn_ocr_free(Value *result, Interpreter *interp, int argc, Value *args) {
@@ -204,22 +209,239 @@ void fn_ocr_free(Value *result, Interpreter *interp, int argc, Value *args) {
     g_ocr_last_conf[slot] = -1;
 }
 
+/* ocr_recognize_words(engine, image) -> array of {"text","confidence",
+ * "x","y","width","height"} maps, one per recognized word - same
+ * SetImage input as ocr_recognize(), but reads Tesseract's per-word
+ * iterator instead of the single flattened text blob. */
+void fn_ocr_recognize_words(Value *result, Interpreter *interp, int argc, Value *args) {
+    (void)interp;
+    *result = value_array(NULL, 0);
+    if (argc < 2) return;
+
+    int slot = ocr_resolve_slot(&args[0]);
+    if (slot < 0) return;
+
+    int img_slot = vision_internal_get_slot(args[1]);
+    if (img_slot < 0) return;
+
+    unsigned char *data = vision_internal_data(img_slot);
+    int w = vision_internal_width(img_slot);
+    int h = vision_internal_height(img_slot);
+    int c = vision_internal_channels(img_slot);
+    if (!data || w <= 0 || h <= 0) return;
+    if (c != 1 && c != 3 && c != 4) {
+        fprintf(stderr,
+            "Runtime error: ocr_recognize_words() - unsupported channel "
+            "count %d (need 1, 3, or 4); try vision_grayscale(image) first\n", c);
+        return;
+    }
+
+    TessBaseAPI *handle = g_ocr_handles[slot];
+    TessBaseAPISetImage(handle, data, w, h, c, w * c);
+    TessBaseAPIRecognize(handle, NULL);
+    g_ocr_last_conf[slot] = TessBaseAPIMeanTextConf(handle);
+
+    TessResultIterator *ri = TessBaseAPIGetIterator(handle);
+    if (!ri) return; /* no text found at all - empty array is correct */
+    TessPageIterator *pi = TessResultIteratorGetPageIterator(ri);
+
+    int capacity = 16, count = 0;
+    Value *items = malloc(sizeof(Value) * (size_t)capacity);
+    if (!items) { TessResultIteratorDelete(ri); return; }
+
+    do {
+        char *word = TessResultIteratorGetUTF8Text(ri, RIL_WORD);
+        if (!word) continue;
+
+        float conf = TessResultIteratorConfidence(ri, RIL_WORD);
+        int left = 0, top = 0, right = 0, bottom = 0;
+        TessPageIteratorBoundingBox(pi, RIL_WORD, &left, &top, &right, &bottom);
+
+        if (count >= capacity) {
+            capacity *= 2;
+            Value *grown = realloc(items, sizeof(Value) * (size_t)capacity);
+            if (!grown) { TessDeleteText(word); break; }
+            items = grown;
+        }
+
+        Value m = value_map_empty();
+        map_set(&m, "text", value_string(word));
+        map_set(&m, "confidence", value_number(conf));
+        map_set(&m, "x", value_number(left));
+        map_set(&m, "y", value_number(top));
+        map_set(&m, "width", value_number(right - left));
+        map_set(&m, "height", value_number(bottom - top));
+        items[count++] = m;
+
+        TessDeleteText(word);
+    } while (TessPageIteratorNext(pi, RIL_WORD));
+
+    TessResultIteratorDelete(ri); /* also releases its page-iterator view -
+                                   * don't separately delete pi here */
+
+    Value arr = value_array(NULL, 0);
+    arr.as.obj->as.array.items    = items;
+    arr.as.obj->as.array.count    = count;
+    arr.as.obj->as.array.capacity = capacity;
+    *result = arr;
+}
+
+/* ocr_detect_orientation(engine, image) -> {"orientation","correction_degrees"}
+ * or nil. correction_degrees is pre-mapped to whatever value actually
+ * makes vision_rotate(image, correction_degrees) produce an upright
+ * result - verified empirically against all four orientations, not
+ * just derived from vision_rotate's own doc comment, which claims a
+ * "clockwise-positive" convention that its actual behavior doesn't seem
+ * to match (its RIGHT/LEFT correction turned out to be swapped relative
+ * to that comment when checked against real rotated images - not
+ * something fixed here, since that's vision_cv.c's function, not this
+ * package's; this mapping is just calibrated to what it actually does).
+ *
+ * Needs a real block of text to be confident (a few words in a corner
+ * won't do it) - returns nil rather than guessing when there isn't enough.
+ * Uses the *modern* LSTM-compatible path (PSM_AUTO_OSD + AnalyseLayout);
+ * deliberately not TessBaseAPIDetectOrientationScript, which depends on
+ * the legacy engine's data and segfaults against LSTM-only trained data
+ * (confirmed against a real build - not a hypothetical). */
+void fn_ocr_detect_orientation(Value *result, Interpreter *interp, int argc, Value *args) {
+    (void)interp;
+    *result = value_nil();
+    if (argc < 2) return;
+
+    int slot = ocr_resolve_slot(&args[0]);
+    if (slot < 0) return;
+
+    int img_slot = vision_internal_get_slot(args[1]);
+    if (img_slot < 0) return;
+
+    unsigned char *data = vision_internal_data(img_slot);
+    int w = vision_internal_width(img_slot);
+    int h = vision_internal_height(img_slot);
+    int c = vision_internal_channels(img_slot);
+    if (!data || w <= 0 || h <= 0) return;
+    if (c != 1 && c != 3 && c != 4) return;
+
+    TessBaseAPI *handle = g_ocr_handles[slot];
+    TessPageSegMode saved_psm = g_ocr_psm[slot];
+    TessBaseAPISetPageSegMode(handle, PSM_AUTO_OSD);
+    TessBaseAPISetImage(handle, data, w, h, c, w * c);
+    TessBaseAPIRecognize(handle, NULL);
+
+    TessPageIterator *pi = TessBaseAPIAnalyseLayout(handle);
+    if (!pi) {
+        TessBaseAPISetPageSegMode(handle, saved_psm); /* restore even on early exit */
+        return; /* not enough text on the page to tell confidently */
+    }
+
+    TessOrientation orientation;
+    TessWritingDirection dir;
+    TessTextlineOrder order;
+    float deskew = 0;
+    TessPageIteratorOrientation(pi, &orientation, &dir, &order, &deskew);
+    TessPageIteratorDelete(pi); /* AnalyseLayout's iterator IS independently
+                                 * owned, unlike GetPageIterator()'s - this
+                                 * one really does need its own delete */
+    (void)dir; (void)order; (void)deskew;
+
+    TessBaseAPISetPageSegMode(handle, saved_psm); /* put it back the way it was */
+
+    int correction = 0;
+    const char *name = "up";
+    switch (orientation) {
+        case ORIENTATION_PAGE_UP:    correction = 0;   name = "up";    break;
+        case ORIENTATION_PAGE_RIGHT: correction = 90;  name = "right"; break;
+        case ORIENTATION_PAGE_DOWN:  correction = 180; name = "down";  break;
+        case ORIENTATION_PAGE_LEFT:  correction = -90; name = "left";  break;
+    }
+
+    Value m = value_map_empty();
+    map_set(&m, "orientation", value_string(name));
+    map_set(&m, "correction_degrees", value_number(correction));
+    *result = m;
+}
+
+/* ocr_set_char_whitelist(engine, chars) -> nil. Restricts recognition to
+ * only the given characters (e.g. "0123456789" for a serial number field).
+ * Pass "" to clear a previously-set whitelist. */
+void fn_ocr_set_char_whitelist(Value *result, Interpreter *interp, int argc, Value *args) {
+    (void)interp;
+    *result = value_nil();
+    if (argc < 2 || args[1].type != VAL_STRING) return;
+
+    int slot = ocr_resolve_slot(&args[0]);
+    if (slot < 0) return;
+
+    TessBaseAPISetVariable(g_ocr_handles[slot], "tessedit_char_whitelist", args[1].as.string);
+}
+
+/* ocr_save_pdf(engine, image_path, output_base_path) -> bool. Renders a
+ * searchable PDF: the original image, plus an invisible text layer over
+ * it, so the result looks identical but its text is selectable/
+ * copyable/searchable. output_base_path should NOT include ".pdf" -
+ * Tesseract appends it.
+ *
+ * Unlike every other function here, this one takes a file PATH rather
+ * than an already vision_load()-ed image: TessBaseAPIProcessPages loads
+ * the file itself (through Tesseract's own Leptonica-linked I/O), which
+ * is what lets this avoid pulling Leptonica's PIX type into Khan's side
+ * of the bridge at all. */
+void fn_ocr_save_pdf(Value *result, Interpreter *interp, int argc, Value *args) {
+    (void)interp;
+    *result = value_bool(0);
+    if (argc < 3) return;
+    if (args[1].type != VAL_STRING || args[2].type != VAL_STRING) return;
+
+    int slot = ocr_resolve_slot(&args[0]);
+    if (slot < 0) return;
+
+    const char *image_path  = args[1].as.string;
+    const char *output_base = args[2].as.string;
+
+    Value *langv = map_get(&args[0], "lang");
+    const char *lang = (langv && langv->type == VAL_STRING) ? langv->as.string : "eng";
+    const char *datadir = ocr_guess_datapath(lang); /* pdf.ttf lives here too */
+
+    TessBaseAPI *handle = g_ocr_handles[slot];
+
+    TessResultRenderer *renderer = TessPDFRendererCreate(output_base, datadir, 0);
+    if (!renderer) return;
+
+    if (!TessResultRendererBeginDocument(renderer, "Khan OCR")) {
+        TessDeleteResultRenderer(renderer);
+        return;
+    }
+
+    BOOL ok = TessBaseAPIProcessPages(handle, image_path, NULL, 0, renderer);
+    TessResultRendererEndDocument(renderer);
+    TessDeleteResultRenderer(renderer);
+
+    *result = value_bool(ok ? 1 : 0);
+}
+
 /* ===========================================================================
  * Registration
  * ========================================================================= */
 
 void ocr_register_all(Environment *env) {
-    env_define(env, "ocr_init",              value_native("ocr_init",              fn_ocr_init));
-    env_define(env, "ocr_recognize",         value_native("ocr_recognize",         fn_ocr_recognize));
-    env_define(env, "ocr_confidence",        value_native("ocr_confidence",        fn_ocr_confidence));
-    env_define(env, "ocr_set_page_seg_mode", value_native("ocr_set_page_seg_mode", fn_ocr_set_page_seg_mode));
-    env_define(env, "ocr_free",              value_native("ocr_free",              fn_ocr_free));
+    env_define(env, "ocr_init",               value_native("ocr_init",               fn_ocr_init));
+    env_define(env, "ocr_recognize",          value_native("ocr_recognize",          fn_ocr_recognize));
+    env_define(env, "ocr_recognize_words",    value_native("ocr_recognize_words",    fn_ocr_recognize_words));
+    env_define(env, "ocr_confidence",         value_native("ocr_confidence",         fn_ocr_confidence));
+    env_define(env, "ocr_detect_orientation", value_native("ocr_detect_orientation", fn_ocr_detect_orientation));
+    env_define(env, "ocr_set_page_seg_mode",  value_native("ocr_set_page_seg_mode",  fn_ocr_set_page_seg_mode));
+    env_define(env, "ocr_set_char_whitelist", value_native("ocr_set_char_whitelist", fn_ocr_set_char_whitelist));
+    env_define(env, "ocr_save_pdf",           value_native("ocr_save_pdf",           fn_ocr_save_pdf));
+    env_define(env, "ocr_free",               value_native("ocr_free",               fn_ocr_free));
 }
 
 void ocr_register_all_vm(VM *vm) {
-    vm_global_set_native(vm, "ocr_init",              fn_ocr_init);
-    vm_global_set_native(vm, "ocr_recognize",         fn_ocr_recognize);
-    vm_global_set_native(vm, "ocr_confidence",        fn_ocr_confidence);
-    vm_global_set_native(vm, "ocr_set_page_seg_mode", fn_ocr_set_page_seg_mode);
-    vm_global_set_native(vm, "ocr_free",              fn_ocr_free);
+    vm_global_set_native(vm, "ocr_init",               fn_ocr_init);
+    vm_global_set_native(vm, "ocr_recognize",          fn_ocr_recognize);
+    vm_global_set_native(vm, "ocr_recognize_words",    fn_ocr_recognize_words);
+    vm_global_set_native(vm, "ocr_confidence",         fn_ocr_confidence);
+    vm_global_set_native(vm, "ocr_detect_orientation", fn_ocr_detect_orientation);
+    vm_global_set_native(vm, "ocr_set_page_seg_mode",  fn_ocr_set_page_seg_mode);
+    vm_global_set_native(vm, "ocr_set_char_whitelist", fn_ocr_set_char_whitelist);
+    vm_global_set_native(vm, "ocr_save_pdf",           fn_ocr_save_pdf);
+    vm_global_set_native(vm, "ocr_free",               fn_ocr_free);
 }
