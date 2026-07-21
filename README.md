@@ -3,10 +3,12 @@
 ![Language](https://img.shields.io/badge/language-C11-blue)
 ![Build](https://img.shields.io/badge/build-make-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
-![Status](https://img.shields.io/badge/status-stable--release-green)
-![Packages](https://img.shields.io/badge/packages-13-purple)
+![Status](https://img.shields.io/badge/status-pre--1.0%20active%20development-yellow)
+![Packages](https://img.shields.io/badge/packages-36-purple)
 
-**Khan** is a custom, indentation-based programming language built entirely from scratch in C11. Created by **Irfan Khan**, this project is a hands-on exploration of compiler design, lexer construction, parser development, runtime interpretation, and standard library implementation. The language draws inspiration from Python's clean indentation syntax and Lua's simplicity, while keeping a minimal footprint in pure C .
+**Khan** is a custom, indentation-based programming language built entirely from scratch in C11 — lexer, parser, bytecode compiler, and VM, with no dependency on any other language's runtime. Created by **Irfan Khan**, this project is a hands-on exploration of compiler design, virtual machine implementation, and standard library engineering, with a 36-package ecosystem spanning web development, classical computer vision, real OCR, and network protocols. The language draws inspiration from Python's clean indentation syntax and Lua's simplicity, while keeping a minimal footprint in pure C.
+
+Honest framing, since this README makes a point of not overstating things: Khan is **pre-1.0** by its own [roadmap](#roadmap)'s criteria. It's a real, working, multi-session-hardened language and runtime, not a toy — but if you're picking a language to ship something in tomorrow, this isn't that. If you want to see how a real bytecode VM and a real package ecosystem get built from nothing, read on.
 
 > **Repository**: [github.com/khandev1211-cpu/Khan](https://github.com/khandev1211-cpu/Khan)
 
@@ -15,6 +17,7 @@
 ## Table of Contents
 
 - [Overview](#overview)
+- [What's Real, What's a Known Gap](#whats-real-whats-a-known-gap)
 - [Quick Start](#quick-start)
 - [Package Manager — kh](#package-manager--kh)
 - [Packages](#packages)
@@ -38,14 +41,40 @@ Khan is a from-scratch programming language implementation focused on understand
 
 1. **Lexer (Tokenizer)** — Converts raw source code into a stream of tokens
 2. **Parser** — Builds an Abstract Syntax Tree (AST) using recursive descent parsing
-3. **Tree-Walk Interpreter** — Executes programs by recursively evaluating AST nodes
-4. **Standard Library** — 30+ built-in functions for I/O, strings, math, arrays, and maps
-5. **Built-in Libraries** — Native C libraries for JSON, datetime, and HTTP requests
-6. **Package Manager (`kh`)** — Install community packages with `kh install <name>`
+3. **Compiler** — Compiles the AST into bytecode (38 opcodes)
+4. **Bytecode VM** — A stack-based virtual machine executes the compiled bytecode — this is the real, primary execution engine (an earlier tree-walk interpreter still exists in the source tree, but only for one legacy import-parsing path; it is not what runs your program)
+5. **Standard Library** — 30+ built-in functions for I/O, strings, math, arrays, and maps
+6. **Native Libraries** — C libraries bridging to real external engines: JSON, datetime, HTTP, SQLite-shaped storage, classical computer vision (with real Haar-cascade face detection), and OCR via Tesseract
+7. **Package Manager (`kh`)** — Install community packages with `kh install <name>`
+
+## What's Real, What's a Known Gap
+
+Most from-scratch language projects are tempted to round up. This one tries hard not to — a prior version of the `vision` package shipped a `detect_faces()` that returned two hardcoded boxes regardless of input, and the fix was to rip it out and build real Haar-cascade detection, not to keep it and call it done. That history is worth being upfront about, both the mistake and the fix.
+
+**Real, verified, not mocked:**
+- The bytecode compiler + VM — the actual execution path for every script you run
+- `vision`'s face detection — real Viola-Jones cascade detection, not hardcoded output
+- `ocr` — a genuine native bridge to libtesseract; feeds it real pixel data, not a wrapper around the `tesseract` CLI
+- Testing: thousands of fuzz-mutated parser inputs with zero crashes, memory stress-tested at 10M-allocation scale with flat RSS, CI gating on real assertion suites across Linux/Windows/macOS
+
+**Known, open gaps — not hidden, not fixed yet:**
+- `sqlite` is currently a **mock** — it doesn't touch real SQL, it simulates storage via JSON. It's labeled as such in its own source rather than presented as working.
+- Khan's `{}` map type is a linear-scan array, not a real hash table — O(n) to build. This affects most real programs that use maps at all.
+- String concatenation in a loop is O(n²) (a redundant `strlen()` each time).
+- No garbage collector — reference-counted only, so a circular reference will leak for the life of the process (this is a known limitation, not something exercised by normal use so far).
+- No `try`/`catch` yet.
+- `vision_rotate()` has a direction bug: its own doc comment doesn't match what it actually does for 90°-left/right corrections (0°/180° are unaffected). Known, not yet fixed.
+- `src/main_vm.c`, `src/khan.c`, and `src/net.c` exist in the tree but aren't referenced by the makefile — dead/orphaned files, not part of the actual build. Harmless, but worth a cleanup pass.
+
+If a claim in this README turns out to not match reality, that's a bug in the README — [open an issue](https://github.com/khandev1211-cpu/Khan/issues).
+
+**On performance, specifically**: Khan is generally slower than Python and Node right now, not faster — roughly 2-8x slower on tight loops, 1.7x slower on string concatenation, competitive only on JSON round-trips (where it's actually ~2.4x faster than Python). Full numbers and methodology in [benchmarks/RESULTS.md](benchmarks/RESULTS.md). No dispatch-loop optimization work has been done yet; that's expected to close a meaningful chunk of this gap when it happens, not a ceiling.
 
 ---
 
 ## Quick Start
+
+**Want to try it before cloning anything?** `playground/` has a browser-based Khan — the real compiler and VM, compiled to WebAssembly with Emscripten, running client-side with no server involved. It isn't hosted anywhere yet; `cd playground && python3 -m http.server` (or any static host — GitHub Pages, Netlify, etc.) serves it locally. See [playground/README.md](playground/README.md) for what's and isn't included in that build.
 
 ```bash
 # Clone and build
@@ -109,22 +138,80 @@ print PI                # 3.14159...
 
 ## Packages
 
+36 packages, installed the same way regardless of category: `kh install <name>`, then `import "<name>"`.
+
+### Core & CLI
+
 | Package | Version | Description |
 |---|---|---|
-| `math` | 2.0.0 | Advanced math: sqrt, pow, gcd, primes, factorial, mean |
-| `strings` | 1.0.0 | String utilities: split, trim, replace, pad, contains, join |
-| `colors` | 1.0.0 | Terminal ANSI colors: red, green, bold, print_success, print_error |
-| `requests` | 1.1.0 | HTTP client with auto JSON decode: get, post, post_json, put, delete |
-| `postman` | 1.0.0 | API testing toolkit: send requests, assert responses, print reports |
+| `math` | 2.0.1 | Advanced math: sqrt, pow, gcd, primes, factorial, mean |
+| `strings` | 1.0.0 | String utilities: split, trim, replace, pad, repeat, contains, join |
 | `collections` | 1.0.0 | Functional array helpers: sort, filter, map_each, reduce, find, unique, chunk, zip, sort_by |
-| `fs` | 1.0.0 | File system utilities: read, write, append, copy, path helpers, JSON config |
-| `datetime` | 1.0.0 | Date/time utilities: timer, elapsed, human-readable duration, sleep helpers |
+| `colors` | 1.0.0 | Terminal ANSI colors: red, green, bold, boxes, etc. |
+| `argparse` | 1.0.0 | Command-line argument parser |
+| `validation` | 1.0.0 | Data validation: emails, lengths, numeric checks |
+| `dotenv` | 1.0.0 | Load environment variables from `.env` files |
+| `uuid` | 1.0.1 | Unique ID generation: uuid_v4, short IDs, named entity IDs, sequential counters |
+| `events` | 1.0.1 | Event emitter: on, emit, once, off, history |
+| `logger` | 1.0.1 | Structured logger: debug/info/warn/error levels, file output, silent mode |
 | `test` | 1.0.0 | Unit testing framework: assertions, test suites, pass/fail reporting |
-| `events` | 1.0.0 | Event emitter system: on, emit, once, off, history |
-| `logger` | 1.0.0 | Structured logger: debug/info/warn/error levels, file output, silent mode |
-| `uuid` | 1.0.0 | Unique ID generation: uuid_v4, short IDs, sequential counters |
+| `datetime` | 1.0.1 | Date/time utilities: timer, elapsed, human-readable duration, sleep helpers |
+
+### Web — the `webi` ecosystem
+
+| Package | Version | Description |
+|---|---|---|
 | `webi` | 1.1.3 | Web framework: routing, security, templates, static files, HTTP server — see [docs/webi.md](docs/webi.md) |
+| `webi_auth` | 1.0.0 | Authentication middleware for webi |
+| `webi_socket` | 1.0.0 | WebSocket support for webi |
 | `morgos` | 1.0.0 | Morgan-style request logger for webi — colored status, elapsed time, response size, as a swappable `after()` hook |
+
+### HTTP, APIs & testing
+
+| Package | Version | Description |
+|---|---|---|
+| `requests` | 1.1.0 | HTTP client with auto JSON decode: get, post, post_json, put, delete |
+| `postman` | 1.0.0 | API testing toolkit: send requests, assert responses, run test suites |
+| `swagger` | 1.0.0 | Swagger UI and API documentation generator |
+| `openai` | 2.0.0 | Production-grade OpenAI API client: chat completions, multi-turn conversations, embeddings, moderation, model listing, structured errors, retry/backoff |
+
+### Data & storage
+
+| Package | Version | Description |
+|---|---|---|
+| `fs` | 1.0.1 | File system utilities: read, write, append, copy, path helpers, JSON config |
+| `csv_io` | 1.0.0 | CSV file reader and writer |
+| `json_db` | 1.0.0 | Simple NoSQL database using JSON files |
+| `orm` | 1.0.0 | Simple Object-Relational Mapper for JSON databases |
+| `sqlite` | 1.0.0 | SQL database bridge — **currently a mock**, see [What's Real, What's a Known Gap](#whats-real-whats-a-known-gap) |
+
+### Computer vision & OCR
+
+| Package | Version | Description |
+|---|---|---|
+| `vision` | 3.0.0 | Full classical CV toolkit: image I/O, filters (blur/sharpen/emboss/edges), thresholding (fixed/Otsu/adaptive), morphology, blob detection, histograms, drawing, template matching, HSV color-range detection, real Haar-cascade face detection |
+| `ocr` | 1.1.0 | Real OCR via Tesseract: text, word-level bounding boxes, orientation auto-correction, searchable PDF export, character whitelisting, multi-language — see [docs/ocr.md](docs/ocr.md) |
+
+### AI / ML utilities
+
+| Package | Version | Description |
+|---|---|---|
+| `tensor` | 1.0.0 | Multi-dimensional array math for AI |
+| `kbrain` | 1.0.0 | Simple machine learning and AI utilities |
+| `nlp` | 1.0.0 | Natural language processing and sentiment analysis |
+
+### Networking & protocols
+
+| Package | Version | Description |
+|---|---|---|
+| `dns` | 1.0.0 | DNS lookup utilities using DNS-over-HTTPS |
+| `ftp` | 1.0.0 | FTP client for file transfers |
+| `grpc` | 1.0.0 | gRPC client for high-performance RPC |
+| `mqtt` | 1.0.0 | MQTT protocol for IoT messaging |
+| `smtp` | 1.0.0 | Email sending utilities |
+| `ssh_client` | 1.0.0 | SSH client for remote command execution |
+
+Full detail on the packages below is in their own docs where noted; everything else is documented inline in its `.kh` source under `packages/<name>/`.
 
 ### math
 
@@ -529,71 +616,67 @@ All HTTP functions return `{"status": 200, "body": "...", "success": true}`.
 
 ```
 Khan/
-├── khan.exe                  # Khan interpreter (Windows)
+├── khan.exe                  # Khan runtime (Windows) — compiler + VM
 ├── kh.exe                    # Khan package manager (Windows)
 ├── makefile                  # Build configuration
 ├── README.md                 # This file
+├── ROADMAP_STATUS_UPDATED.md # Detailed, session-by-session engineering log
 ├── docs/
-│   ├── webi.md                # Full webi framework reference
-│   └── from-import.md         # `from X import A, B, C` reference
-├── packages/
-│   ├── registry.json         # Official package registry
-│   ├── math/
-│   ├── strings/
-│   ├── colors/
-│   ├── requests/
-│   ├── postman/
-│   ├── collections/
-│   ├── fs/
-│   ├── datetime/
-│   ├── test/
-│   ├── events/
-│   ├── logger/
-│   ├── uuid/
-│   ├── morgos/
-│   └── webi/
-│       ├── package.json
-│       ├── webi.kh            # entry point — pulls in every file below
-│       ├── util.kh            # internal string helper other files rely on
-│       ├── app.kh             # app context: webi_app / webi_debug / webi_name
-│       ├── routing.kh         # route registration, path matching, serve_static()
-│       ├── request.kh         # helpers for reading data off the req map
-│       ├── response.kh        # res_* response builders
-│       ├── middleware.kh      # middleware registration + built-ins
-│       ├── security.kh        # CSRF, rate limiting, API-key auth, CORS config
-│       ├── server.kh          # dispatch, native-bridge handler, webi_run
-│       ├── template.kh        # render() / render_file() + html_escape()
-│       ├── meta.kh            # webi_version() / webi_routes()
-│       ├── requests.kh        # thin http_* re-export for `from webi import requests`
-│       └── json.kh            # thin json_* re-export for `from webi import json`
-├── examples/
+│   ├── webi.md                            # Full webi framework reference
+│   ├── ocr.md                             # ocr package: setup, platform notes, API
+│   ├── from-import.md                     # `from X import A, B, C` reference
+│   ├── opcodes.md                         # The 38 bytecode opcodes
+│   ├── onnx-ocr-plan.md                   # Plan for a future ONNX inference bridge
+│   ├── phase4-plan.md                     # Plan: threaded webi server
+│   ├── phase5-hardening-and-design-plan.md # Plan: webi security hardening
+│   ├── memory-notes.md                    # Memory-management audit notes
+│   ├── hash-table-audit.md                # Findings on the {} map type (see known gaps)
+│   ├── parser-robustness-audit.md         # Fuzz-testing findings
+│   └── call-overhead-audit.md             # Function-call performance audit
+├── benchmarks/
+│   └── RESULTS.md             # Khan vs Python/Node/C, honestly reported
+├── packages/                  # all 36 live here; registry.json lists them all
+│   ├── registry.json
+│   ├── math/  strings/  collections/  colors/  argparse/  validation/
+│   ├── dotenv/  uuid/  events/  logger/  test/  datetime/
+│   ├── webi/  webi_auth/  webi_socket/  morgos/
+│   ├── requests/  postman/  swagger/  openai/
+│   ├── fs/  csv_io/  json_db/  orm/  sqlite/
+│   ├── vision/  ocr/
+│   ├── tensor/  kbrain/  nlp/
+│   └── dns/  ftp/  grpc/  mqtt/  smtp/  ssh_client/
+├── examples/                  # 40+ example/test scripts, plus:
 │   ├── hello.kh
-│   ├── full_test.kh
-│   ├── arrays_test.kh
-│   ├── maps_test.kh
-│   ├── webi_security_test.kh
-│   ├── webi_from_import_test.kh
-│   ├── webi_phase3_test.kh
-│   ├── webi_after_hook_test.kh
-│   └── todo_app/
-│       ├── main.kh
-│       ├── todo_core.kh
-│       ├── todo_storage.kh
-│       └── todo_ui.kh
+│   ├── vision_demo.kh          # face detection, filters, thresholding walkthrough
+│   ├── vision_test_all.kh      # visual (manual-inspection) vision test
+│   ├── ocr_test.png / ocr_paragraph.png / ocr_french.png  # OCR test fixtures
+│   └── todo_app/               # a small real app written in Khan
+├── tests/
+│   ├── run_all.kh              # the core assertion suite
+│   ├── test_vision.kh          # automated vision suite
+│   ├── test_ocr.kh             # automated ocr suite
+│   └── suites/                 # per-feature assertion suites
 └── src/
-    ├── main.c                 # Entry point + ANSI setup
-    ├── token.h                # Token types
-    ├── lexer.h / lexer.c      # Lexer — tokenizer
-    ├── ast.h / ast.c          # AST node definitions
-    ├── parser.h / parser.c    # Recursive descent parser
-    ├── interpreter.h / interpreter.c  # Tree-walk interpreter
-    ├── khan_stdlib.c          # 30+ built-in functions
+    ├── lexer.h / lexer.c              # Lexer — tokenizer
+    ├── ast.h / ast.c                  # AST node definitions
+    ├── parser.h / parser.c            # Recursive descent parser
+    ├── compiler.h / compiler.c        # AST → bytecode compiler
+    ├── chunk.h / chunk.c              # Bytecode chunk (constants + instructions)
+    ├── vm.h / vm.c / vm_libs.c        # The stack-based bytecode VM — the real runtime
+    ├── interpreter.h / interpreter.c  # Legacy tree-walk interpreter (one import-parsing path only — not what runs your program)
+    ├── khan_stdlib.c                  # 30+ built-in functions
     ├── json_lib.h / json_lib.c        # Native JSON encode/decode
-    ├── datetime_lib.h / datetime_lib.c # Native datetime functions
-    ├── requests_lib.h / requests_lib.c # Native HTTP client
-    ├── webi_lib.h / webi_lib.c         # Native HTTP server, MIME table,
-    │                                    path-traversal-safe file resolution
-    └── kh.c                   # Package manager CLI
+    ├── datetime_lib.h / datetime_lib.c    # Native datetime functions
+    ├── requests_lib.h / requests_lib.c    # Native HTTP client
+    ├── webi_lib.h / webi_lib.c            # Native HTTP server, MIME table, path-traversal-safe file resolution
+    ├── sqlite_lib.h / sqlite_lib.c        # SQL bridge — currently a mock, see known gaps above
+    ├── vision_lib.h / vision_lib.c        # Native image I/O + pixel ops (honest by design — see its own header comment)
+    ├── vision_cv.h / vision_cv.c          # Filters, morphology, thresholding, transforms
+    ├── vision_cascade.h / vision_cascade.c # Real Haar-cascade (Viola-Jones) face/object detection
+    ├── ocr_lib.h / ocr_lib.c              # Native Tesseract bridge
+    ├── stb_image.h / stb_image_write.h / stb_image_resize2.h  # Vendored (sean barrett's stb libs)
+    ├── main.c                         # Entry point — wires every native library into the VM
+    └── kh.c                           # Package manager CLI
 ```
 
 ---
@@ -604,6 +687,7 @@ Khan/
 
 - **GCC** (C11) — MinGW64 on Windows, or any POSIX GCC
 - **GNU Make**
+- **libtesseract** (+ its trained language data) — required by the `ocr` package; the build fails without it rather than silently skipping OCR. See [docs/ocr.md](docs/ocr.md) for the exact install command per platform (apt/Homebrew/MSYS2) — on MSYS2 specifically, note that the language data is a *separate* package from the library itself.
 - **Windows only**: links `-lwinhttp` and `-lshell32` (both ship with Windows)
 - **Linux/macOS**: links `-lm`, uses `curl` for HTTP
 
@@ -615,7 +699,7 @@ cd Khan
 make
 ```
 
-Produces `khan.exe` (interpreter) and `kh.exe` (package manager) on Windows, or `khan` and `kh` on Linux/macOS.
+Produces `khan.exe` (the compiler+VM runtime) and `kh.exe` (package manager) on Windows, or `khan` and `kh` on Linux/macOS.
 
 ```bash
 make clean   # remove build artifacts
@@ -647,20 +731,24 @@ Source .kh file
   Parser ──────────────── Abstract Syntax Tree (31 node types)
      │
      ▼
-  Interpreter ─────────── Recursive tree-walk evaluation
+  Compiler ─────────────── Bytecode (38 opcodes) — see docs/opcodes.md
+     │
+     ▼
+  VM ───────────────────── Stack-based execution — this is what actually runs
      │
      ▼
   Output / Side effects
 ```
 
-### Interpreter Design
+A tree-walk interpreter (`interpreter.c`) exists in the source tree from an earlier design, but it is not the execution path above — it's retained only for one legacy import-parsing case. Every script you run goes through the compiler and VM.
+
+### VM Design
 
 - **Value system**: tagged union (`VAL_NUMBER`, `VAL_STRING`, `VAL_BOOL`, `VAL_NIL`, `VAL_ARRAY`, `VAL_MAP`, `VAL_FUNCTION`, `VAL_NATIVE`)
-- **Scope**: linked-list of environments (lexical scoping)
-- **Closures**: functions capture enclosing scope at definition time; self-reference injected for recursion
-- **Return signal**: `is_returning` flag propagates up through loops and blocks
-- **Break/Continue**: `is_breaking` / `is_continuing` flags stop loop iteration cleanly
-- **Deep copy semantics**: values are copied on assignment — no aliasing
+- **Execution model**: stack-based bytecode VM, 38 opcodes (see [docs/opcodes.md](docs/opcodes.md))
+- **Closures**: value-capture only — a nested function can read an enclosing variable, but there's no shared mutable upvalue, so a "counter closure" pattern that mutates captured state doesn't work the way it does in Python/JS. Known limitation, not yet addressed.
+- **Memory management**: reference-counted, not a tracing garbage collector — a circular reference will leak for the life of the process (see [known gaps](#whats-real-whats-a-known-gap))
+- **Compiler optimizations**: constant folding is implemented; dead-code elimination, constant propagation, and peephole optimization are not yet
 
 ### Package Resolution
 
@@ -685,29 +773,26 @@ package.
 |---|---|
 | Lexer | ✅ Complete |
 | Parser | ✅ Complete |
-| Interpreter | ✅ Complete |
+| Tree-walk interpreter (original design) | ✅ Complete, now legacy — superseded by the compiler + VM below |
+| Bytecode compiler + VM | ✅ Complete — the actual execution engine (38 opcodes, see [docs/opcodes.md](docs/opcodes.md)) |
 | Standard Library | ✅ Complete |
-| Import/Module system | ✅ Complete |
-| `from X import A, B, C` (symbols, self-name, submodule flatten) | ✅ Complete |
-| `elif` / `break` / `continue` | ✅ Complete |
-| Recursion fix | ✅ Complete |
-| `\xHH` hex escape sequences | ✅ Complete |
-| JSON built-in library | ✅ Complete |
-| Datetime built-in library | ✅ Complete |
-| HTTP requests built-in library | ✅ Complete |
-| Package manager (`kh`) | ✅ Complete |
-| `math` / `strings` / `colors` / `requests` / `postman` packages | ✅ Complete |
-| `collections` / `fs` / `datetime` / `test` / `events` / `logger` / `uuid` packages | ✅ Complete |
-| `webi` package — routing, request/response, middleware | ✅ Complete |
-| `webi` security — CSRF, rate limiting, API keys, CORS, `secure_token()` | ✅ Complete |
-| `webi` templates — `render()` / `render_file()` | ✅ Complete |
-| `webi` static files — `serve_static()`, MIME table, path-traversal protection | ✅ Complete |
-| `webi` `after()` hooks — post-response middleware, `morgos` request logger | ✅ Complete |
-| `webi` threaded server (thread-per-connection, concurrency cap) | 🔲 Planned |
+| Import/Module system, `from X import A, B, C` | ✅ Complete |
+| Package manager (`kh`), 36-package registry | ✅ Complete |
+| `webi` — routing, security (CSRF/rate-limit/API-key/CORS), templates, static files, `after()` hooks | ✅ Complete |
+| `vision` — image I/O, filters, thresholding, morphology, real Haar-cascade face detection | ✅ Complete |
+| `ocr` — Tesseract bridge: text, word boxes, orientation correction, searchable PDF, whitelisting, multi-language | ✅ Complete |
+| Fuzz testing (parser), memory stress testing (10M-allocation scale), CI across Linux/Windows/macOS | ✅ Complete |
+| `{}` map as a real hash table (currently a linear-scan array — see [known gaps](#whats-real-whats-a-known-gap)) | 🔲 Planned |
+| String concatenation performance (currently O(n²) in a loop) | 🔲 Planned |
+| Mutable closures (currently value-capture only) | 🔲 Planned |
+| Garbage collector (currently reference-counted only) | 🔲 Planned |
 | Error handling (`try`/`catch`) | 🔲 Planned |
-| Bytecode compiler + VM | 🔲 Planned |
+| `webi` threaded server (thread-per-connection, concurrency cap) — see [docs/phase4-plan.md](docs/phase4-plan.md) | 🔲 Planned |
+| `sqlite` — real SQL, not the current mock | 🔲 Planned |
+| ONNX Runtime bridge (run pretrained deep-learning OCR models) — see [docs/onnx-ocr-plan.md](docs/onnx-ocr-plan.md) | 🔲 Planned |
 | Binary-safe string type (length-prefixed, not NUL-terminated) | 🔲 Planned |
 | Self-hosted compiler | 🔲 Planned |
+| **v1.0 release** | 🔲 Not yet — see `ROADMAP_STATUS_UPDATED.md` for the full, current criteria-by-criteria status |
 
 ---
 
