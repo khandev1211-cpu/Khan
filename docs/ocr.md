@@ -130,10 +130,9 @@ output is deterministic) — not a manual-inspection demo like
   clean scans. Needs a real block of text to detect orientation
   confidently (falls back to reading it as-is on a short or sparse
   image, rather than guessing). The lower-level
-  `ocr_detect_orientation(engine, image)` returns a
-  `correction_degrees` value already calibrated to what
-  `vision_rotate()` actually does — see the note below before using a
-  raw value yourself.
+  `ocr_detect_orientation(engine, image)` returns a `correction_degrees`
+  value in `vision_rotate()`'s clockwise-positive convention — pass it
+  straight through.
 - **Searchable PDF**: `save_searchable_pdf(image_path, output_path)`
   renders the original image with an invisible, selectable text layer
   over it — same look, but searchable/copyable.
@@ -143,27 +142,3 @@ output is deterministic) — not a manual-inspection demo like
 - **Multi-language**: Tesseract accepts "+"-joined language codes
   natively — `read_text_lang(path, "eng+fra")` — no separate API needed,
   as long as each language's `.traineddata` is installed.
-
-### A discrepancy worth knowing about: `vision_rotate()`'s direction
-
-While calibrating `ocr_detect_orientation()`'s `correction_degrees`
-against real rotated images, `vision_rotate()`'s own doc comment
-("negative: clockwise-positive convention for callers" —
-`src/vision_cv.c`) didn't match what it actually does: for a page whose
-text needs a 90° correction, the comment implies one sign, but the
-value that actually produces upright output (verified against real
-images, all four orientations) is the other sign. `RIGHT`/`LEFT` are
-swapped relative to what the comment describes; `UP`/`DOWN` (0°/180°)
-aren't affected since they're sign-symmetric.
-
-`ocr_detect_orientation()`'s `correction_degrees` is calibrated against
-what `vision_rotate()` **actually does**, not its doc comment, so
-`vision_rotate(image, result["correction_degrees"])` is correct as
-written above. But if you ever call `vision_rotate()` directly with a
-hand-picked angle based on its comment rather than through this
-function, double-check the direction empirically first — only
-`packages/vision/transform.kh`'s thin wrapper and this package
-currently call it, so a fix to `vision_cv.c` itself (either the
-comment or the implementation, whichever is actually wrong) is low-risk
-if you want it, but that's `vision`'s bug to fix, not something changed
-here.

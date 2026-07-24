@@ -39,6 +39,8 @@ void vm_register_builtins(VM *vm) {
     vm_global_set_native(vm, "file_exists",fn_file_exists);
     vm_global_set_native(vm, "exit",       fn_exit);
     vm_global_set_native(vm, "sleep",      fn_sleep);
+    vm_global_set_native(vm, "base64_decode_to_file", fn_base64_decode_to_file);
+    vm_global_set_native(vm, "remove_file", fn_remove_file);
 }
 
 void json_register_all_vm(VM *vm) {

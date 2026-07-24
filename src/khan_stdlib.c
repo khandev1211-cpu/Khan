@@ -529,6 +529,17 @@ void fn_file_exists(Value *result, Interpreter *interp, int argc, Value *args) {
     }
 }
 
+/* remove_file(path) -> bool. Rounds out read_file/write_file/file_exists
+ * with the one file operation Khan didn't have at all before: deleting
+ * one. Added alongside base64_decode_to_file, which writes temp files a
+ * webi handler will usually want to clean up afterward. */
+void fn_remove_file(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "remove_file", 1, argc)) { *result = value_bool(0); return; }
+    const char *path;
+    if (!expect_string(interp, "remove_file", 0, args[0], &path)) { *result = value_bool(0); return; }
+    *result = value_bool(remove(path) == 0);
+}
+
 // ===========================================================================
 // Utility functions
 // ===========================================================================
@@ -600,6 +611,67 @@ void fn_has(Value *result, Interpreter *interp, int argc, Value *args) {
     *result = value_bool(map_get(&args[0], key) != NULL);
 }
 
+static int b64_char_value(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+/* base64_decode_to_file(b64_string, output_path) -> bool
+ *
+ * Decodes straight to a file rather than returning the raw bytes as a
+ * Khan string, deliberately: Khan strings are NUL-terminated (see the
+ * "binary-safe string type" roadmap item), so decoded binary data -
+ * which routinely contains embedded NUL bytes, e.g. almost any real
+ * PNG/JPEG - can't safely round-trip through one. This exists mainly so
+ * a webi handler can take a base64 image (posted as JSON, since webi
+ * has no multipart/file-upload support yet) and hand vision_load() a
+ * real file directly, without ever needing the raw bytes to exist as a
+ * Khan value at all. */
+void fn_base64_decode_to_file(Value *result, Interpreter *interp, int argc, Value *args) {
+    if (!check_arg_count(interp, "base64_decode_to_file", 2, argc)) { *result = value_bool(0); return; }
+    const char *b64, *path;
+    if (!expect_string(interp, "base64_decode_to_file", 0, args[0], &b64)) { *result = value_bool(0); return; }
+    if (!expect_string(interp, "base64_decode_to_file", 1, args[1], &path)) { *result = value_bool(0); return; }
+
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        fprintf(stderr, "Runtime error: base64_decode_to_file() could not open '%s'\n", path);
+        if (interp) interp->had_runtime_error = 1;
+        *result = value_bool(0);
+        return;
+    }
+
+    int buf[4];
+    int n = 0;
+    for (const char *p = b64; *p; p++) {
+        char c = *p;
+        if (c == '=') break;
+        if (c == '\n' || c == '\r' || c == ' ' || c == '\t') continue;
+        int v = b64_char_value(c);
+        if (v < 0) continue;
+        buf[n++] = v;
+        if (n == 4) {
+            fputc((unsigned char)((buf[0] << 2) | (buf[1] >> 4)), f);
+            fputc((unsigned char)(((buf[1] & 0xF) << 4) | (buf[2] >> 2)), f);
+            fputc((unsigned char)(((buf[2] & 0x3) << 6) | buf[3]), f);
+            n = 0;
+        }
+    }
+    if (n == 2) {
+        fputc((unsigned char)((buf[0] << 2) | (buf[1] >> 4)), f);
+    } else if (n == 3) {
+        fputc((unsigned char)((buf[0] << 2) | (buf[1] >> 4)), f);
+        fputc((unsigned char)(((buf[1] & 0xF) << 4) | (buf[2] >> 2)), f);
+    }
+
+    fclose(f);
+    *result = value_bool(1);
+}
+
 // ===========================================================================
 // Registration
 // ===========================================================================
@@ -650,4 +722,6 @@ void stdlib_register_all(Environment *env) {
     env_define(env, "sleep", value_native("sleep", fn_sleep));
     env_define(env, "clock", value_native("clock", fn_clock));
     env_define(env, "exit", value_native("exit", fn_exit));
+    env_define(env, "base64_decode_to_file", value_native("base64_decode_to_file", fn_base64_decode_to_file));
+    env_define(env, "remove_file", value_native("remove_file", fn_remove_file));
 }

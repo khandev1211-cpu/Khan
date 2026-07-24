@@ -287,15 +287,15 @@ void fn_ocr_recognize_words(Value *result, Interpreter *interp, int argc, Value 
 }
 
 /* ocr_detect_orientation(engine, image) -> {"orientation","correction_degrees"}
- * or nil. correction_degrees is pre-mapped to whatever value actually
- * makes vision_rotate(image, correction_degrees) produce an upright
- * result - verified empirically against all four orientations, not
- * just derived from vision_rotate's own doc comment, which claims a
- * "clockwise-positive" convention that its actual behavior doesn't seem
- * to match (its RIGHT/LEFT correction turned out to be swapped relative
- * to that comment when checked against real rotated images - not
- * something fixed here, since that's vision_cv.c's function, not this
- * package's; this mapping is just calibrated to what it actually does).
+ * or nil. correction_degrees is in vision_rotate()'s clockwise-positive
+ * convention - pass it straight through: vision_rotate(image,
+ * result["correction_degrees"]). (History: vision_rotate() briefly had
+ * a sign bug where its actual behavior didn't match that documented
+ * convention for 90-degree corrections; this mapping was calibrated
+ * against the bug at the time, then recalibrated back to the documented
+ * convention once vision_cv.c's fn_vision_rotate itself was fixed.
+ * Verified against real rotated images, all four orientations, both
+ * before and after that fix.)
  *
  * Needs a real block of text to be confident (a few words in a corner
  * won't do it) - returns nil rather than guessing when there isn't enough.
@@ -349,9 +349,9 @@ void fn_ocr_detect_orientation(Value *result, Interpreter *interp, int argc, Val
     const char *name = "up";
     switch (orientation) {
         case ORIENTATION_PAGE_UP:    correction = 0;   name = "up";    break;
-        case ORIENTATION_PAGE_RIGHT: correction = 90;  name = "right"; break;
+        case ORIENTATION_PAGE_RIGHT: correction = -90; name = "right"; break;
         case ORIENTATION_PAGE_DOWN:  correction = 180; name = "down";  break;
-        case ORIENTATION_PAGE_LEFT:  correction = -90; name = "left";  break;
+        case ORIENTATION_PAGE_LEFT:  correction = 90;  name = "left";  break;
     }
 
     Value m = value_map_empty();

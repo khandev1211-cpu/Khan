@@ -63,8 +63,6 @@ Most from-scratch language projects are tempted to round up. This one tries hard
 - String concatenation in a loop is O(n²) (a redundant `strlen()` each time).
 - No garbage collector — reference-counted only, so a circular reference will leak for the life of the process (this is a known limitation, not something exercised by normal use so far).
 - No `try`/`catch` yet.
-- `vision_rotate()` has a direction bug: its own doc comment doesn't match what it actually does for 90°-left/right corrections (0°/180° are unaffected). Known, not yet fixed.
-- `src/main_vm.c`, `src/khan.c`, and `src/net.c` exist in the tree but aren't referenced by the makefile — dead/orphaned files, not part of the actual build. Harmless, but worth a cleanup pass.
 
 If a claim in this README turns out to not match reality, that's a bug in the README — [open an issue](https://github.com/khandev1211-cpu/Khan/issues).
 

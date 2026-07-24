@@ -307,7 +307,16 @@ void fn_vision_rotate(Value *result, Interpreter *interp, int argc, Value *args)
     if (slot < 0 || args[1].type != VAL_NUMBER) return;
 
     double degrees = args[1].as.number;
-    double rad = -degrees * VCV_PI / 180.0; /* negative: clockwise-positive convention for callers */
+    /* Clockwise-positive for callers. The rotation formula below assumes
+     * the standard math convention (y-up, positive angle = CCW); image
+     * coordinates are y-DOWN, and applying that same formula directly to
+     * y-down coordinates already flips the visual rotation direction, so
+     * NO extra negation is needed here to get clockwise-positive - adding
+     * one (as a previous version of this function did) inverts it back
+     * to counter-clockwise, which is the bug this comment used to
+     * describe rather than fix. Verified against real rotated images,
+     * all four orientations, before and after this fix. */
+    double rad = degrees * VCV_PI / 180.0;
     double cos_a = cos(rad), sin_a = sin(rad);
 
     unsigned char *src = vision_internal_data(slot);

@@ -37,5 +37,7 @@ void fn_write_file(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_file_exists(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_exit(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_sleep(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_base64_decode_to_file(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_remove_file(Value *result, Interpreter *interp, int argc, Value *args);
 
 #endif

@@ -81,10 +81,9 @@
 #   ocr_detect_orientation(engine, image) -> {"orientation",
 #       "correction_degrees"} or nil (nil if there isn't enough text on
 #       the page to tell confidently — needs a real block, not a couple
-#       of words). correction_degrees is pre-calibrated against what
-#       vision_rotate() actually does (verified against real rotated
-#       images), so just pass it straight through: vision_rotate(image,
-#       result["correction_degrees"]) straightens it.
+#       of words). correction_degrees is in vision_rotate()'s clockwise-
+#       positive convention - pass it straight through: vision_rotate(
+#       image, result["correction_degrees"]) straightens it.
 #   ocr_set_page_seg_mode(engine, mode) -> nil  (0-13; see Tesseract's PSM
 #       modes — e.g. 7 = treat the image as a single text line, useful for
 #       cropped fields like a serial number or ID)
