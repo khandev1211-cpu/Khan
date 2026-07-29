@@ -34,6 +34,9 @@ static void enable_ansi(void) {}
 #include "vision_lib.h"
 #include "vision_cv.h"
 #include "vision_cascade.h"
+#ifdef LLM_SUPPORT
+#include "llm_lib.h"
+#endif
 
 /* ── Read entire file into a heap-allocated string ── */
 static char *read_file(const char *path) {
@@ -132,6 +135,9 @@ int main(int argc, char *argv[]) {
     vision_register_all_vm(&vm);
     vision_cv_register_all_vm(&vm);
     vision_cascade_register_all_vm(&vm);
+#ifdef LLM_SUPPORT
+    llm_register_all_vm(&vm);
+#endif
 
     /* ── Pass command line arguments as global 'argv' ── */
     Value argv_val = value_array(NULL, 0);

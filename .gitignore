@@ -39,3 +39,6 @@ Thumbs.db
 
 # Benchmark runner temp binaries
 benchmarks/_*_c_bin
+
+# Local external dependency checkouts (e.g. llama.cpp for the LLM bridge)
+third_party/

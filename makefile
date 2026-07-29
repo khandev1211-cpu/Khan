@@ -42,6 +42,18 @@ SRCS = \
 
 KH_SRCS = src/kh.c
 
+# Optional LLM (llama.cpp/GGUF) bridge - opt-in only, like ocr's tesseract
+# dependency, so the default build never requires it. Point LLAMA_CPP_DIR at
+# a checkout with its static libs already built (cmake -B build && cmake
+# --build build --target llama), then: make LLM=1
+LLAMA_CPP_DIR ?= third_party/llama.cpp
+ifdef LLM
+    CFLAGS  += -DLLM_SUPPORT -I$(LLAMA_CPP_DIR)/include -I$(LLAMA_CPP_DIR)/ggml/include
+    LDFLAGS += -L$(LLAMA_CPP_DIR)/build/src -L$(LLAMA_CPP_DIR)/build/ggml/src \
+               -lllama -lggml -lggml-base -lggml-cpu -lstdc++ -fopenmp
+    SRCS    += src/llm_lib.c
+endif
+
 .PHONY: all khan kh clean
 
 all: khan$(EXT) kh$(EXT)
