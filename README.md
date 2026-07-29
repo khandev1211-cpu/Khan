@@ -1,7 +1,7 @@
 # Khan Programming Language
 
 ![Language](https://img.shields.io/badge/language-C11-blue)
-![Build](https://img.shields.io/badge/build-make-green)
+ ![Build](https://img.shields.io/badge/build-make-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 ![Status](https://img.shields.io/badge/status-pre--1.0%20active%20development-yellow)
 ![Packages](https://img.shields.io/badge/packages-36-purple)
