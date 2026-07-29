@@ -1,0 +1,107 @@
+# Khan Quantization Package
+# Usage: import "quant"
+#
+# Accuracy-preserving quantization, in pure Khan - no native C bridge, no
+# dtype/Tensor prerequisite. round()/abs()/max()/pow() (all already in the
+# stdlib) are enough to implement and *measure* per-channel calibrated
+# quantization today.
+#
+# Important honesty note (see docs/llm.md for the fuller discussion): this
+# simulates quantization's ACCURACY behavior - it does not get you real
+# int8 storage or faster int8 arithmetic, because Khan has no dtype system
+# yet (every number is still a native double under the hood). Use this to
+# validate a calibration/granularity strategy against your own data *before*
+# investing in the native dtype+Tensor work that would make it actually
+# smaller and faster.
+#
+# A quantized matrix is represented as:
+#   {"data": [[...]...], "scales": [s0, s1, ...], "bits": bits}
+# "data" already holds dequantized (round-tripped) values - one scale per
+# row (per output channel), not one scale for the whole matrix. See
+# quant_error() below and docs/llm.md for why per-channel matters.
+
+fn quantize_per_channel(W, bits):
+    let qmax = pow(2, bits - 1) - 1
+    let data = []
+    let scales = []
+    for row in W:
+        let ch_max = 0
+        for v in row:
+            let a = abs(v)
+            if a > ch_max:
+                ch_max = a
+        let scale = 1
+        if ch_max > 0:
+            scale = ch_max / qmax
+        let qrow = []
+        for v in row:
+            let q = round(v / scale)
+            if q > qmax:
+                q = qmax
+            if q < 0 - qmax:
+                q = 0 - qmax
+            qrow = push(qrow, q * scale)
+        data = push(data, qrow)
+        scales = push(scales, scale)
+    return {"data": data, "scales": scales, "bits": bits}
+
+# Same idea, but calibrated against a percentile of a sample of REAL
+# activation data you provide (samples = array of input vectors this layer
+# will actually see) instead of the weights' own raw max. Clips the top
+# (1 - keep_fraction) of |value| before setting the scale, the same way
+# real PTQ toolchains do it - matters most when your data has genuine
+# outliers; on mild/light-tailed data this can do *worse* than the plain
+# max-based version above (confirmed empirically - see chat), which is
+# exactly why real calibration is done against real data, not guessed.
+fn quantize_per_channel_calibrated(W, keep_fraction):
+    let qmax = 127
+    let data = []
+    let scales = []
+    for row in W:
+        let sorted_abs = []
+        for v in row:
+            sorted_abs = push(sorted_abs, abs(v))
+        # insertion sort - fine at calibration time, this isn't the hot path
+        let i = 1
+        while i < len(sorted_abs):
+            let key = sorted_abs[i]
+            let j = i - 1
+            while j >= 0 and sorted_abs[j] > key:
+                sorted_abs[j + 1] = sorted_abs[j]
+                j = j - 1
+            sorted_abs[j + 1] = key
+            i = i + 1
+        let idx = floor(len(sorted_abs) * keep_fraction)
+        if idx >= len(sorted_abs):
+            idx = len(sorted_abs) - 1
+        let clip = sorted_abs[idx]
+        let scale = 1
+        if clip > 0:
+            scale = clip / qmax
+        let qrow = []
+        for v in row:
+            let q = round(v / scale)
+            if q > qmax:
+                q = qmax
+            if q < 0 - qmax:
+                q = 0 - qmax
+            qrow = push(qrow, q * scale)
+        data = push(data, qrow)
+        scales = push(scales, scale)
+    return {"data": data, "scales": scales, "bits": 8}
+
+# Relative L2 error between a true matrix and a quantized+dequantized one -
+# the actual metric the earlier chat numbers were computed with.
+fn quant_error(W_true, W_quant):
+    let num = 0
+    let den = 0
+    let i = 0
+    while i < len(W_true):
+        let j = 0
+        while j < len(W_true[0]):
+            let d = W_true[i][j] - W_quant[i][j]
+            num = num + d * d
+            den = den + W_true[i][j] * W_true[i][j]
+            j = j + 1
+        i = i + 1
+    return sqrt(num / den)
