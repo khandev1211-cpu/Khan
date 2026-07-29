@@ -4,9 +4,9 @@
  ![Build](https://img.shields.io/badge/build-make-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 ![Status](https://img.shields.io/badge/status-pre--1.0%20active%20development-yellow)
-![Packages](https://img.shields.io/badge/packages-36-purple)
+![Packages](https://img.shields.io/badge/packages-37-purple)
 
-**Khan** is a custom, indentation-based programming language built entirely from scratch in C11 — lexer, parser, bytecode compiler, and VM, with no dependency on any other language's runtime. Created by **Irfan Khan**, this project is a hands-on exploration of compiler design, virtual machine implementation, and standard library engineering, with a 36-package ecosystem spanning web development, classical computer vision, real OCR, and network protocols. The language draws inspiration from Python's clean indentation syntax and Lua's simplicity, while keeping a minimal footprint in pure C.
+**Khan** is a custom, indentation-based programming language built entirely from scratch in C11 — lexer, parser, bytecode compiler, and VM, with no dependency on any other language's runtime. Created by **Irfan Khan**, this project is a hands-on exploration of compiler design, virtual machine implementation, and standard library engineering, with a 37-package ecosystem spanning web development, classical computer vision, real OCR, and network protocols. The language draws inspiration from Python's clean indentation syntax and Lua's simplicity, while keeping a minimal footprint in pure C.
 
 Honest framing, since this README makes a point of not overstating things: Khan is **pre-1.0** by its own [roadmap](#roadmap)'s criteria. It's a real, working, multi-session-hardened language and runtime, not a toy — but if you're picking a language to ship something in tomorrow, this isn't that. If you want to see how a real bytecode VM and a real package ecosystem get built from nothing, read on.
 
@@ -136,7 +136,7 @@ print PI                # 3.14159...
 
 ## Packages
 
-36 packages, installed the same way regardless of category: `kh install <name>`, then `import "<name>"`.
+37 packages, installed the same way regardless of category: `kh install <name>`, then `import "<name>"`.
 
 ### Core & CLI
 
@@ -197,6 +197,7 @@ print PI                # 3.14159...
 | `tensor` | 1.0.0 | Multi-dimensional array math for AI |
 | `kbrain` | 1.0.0 | Simple machine learning and AI utilities |
 | `nlp` | 1.0.0 | Natural language processing and sentiment analysis |
+| `quant` | 1.0.0 | Accuracy-preserving quantization: per-channel calibration, error measurement, bias correction, outlier-aware sparse decomposition, mixed-precision strategies |
 
 ### Networking & protocols
 
@@ -633,7 +634,7 @@ Khan/
 │   └── call-overhead-audit.md             # Function-call performance audit
 ├── benchmarks/
 │   └── RESULTS.md             # Khan vs Python/Node/C, honestly reported
-├── packages/                  # all 36 live here; registry.json lists them all
+├── packages/                  # all 37 live here; registry.json lists them all
 │   ├── registry.json
 │   ├── math/  strings/  collections/  colors/  argparse/  validation/
 │   ├── dotenv/  uuid/  events/  logger/  test/  datetime/
@@ -775,7 +776,7 @@ package.
 | Bytecode compiler + VM | ✅ Complete — the actual execution engine (38 opcodes, see [docs/opcodes.md](docs/opcodes.md)) |
 | Standard Library | ✅ Complete |
 | Import/Module system, `from X import A, B, C` | ✅ Complete |
-| Package manager (`kh`), 36-package registry | ✅ Complete |
+| Package manager (`kh`), 37-package registry | ✅ Complete |
 | `webi` — routing, security (CSRF/rate-limit/API-key/CORS), templates, static files, `after()` hooks | ✅ Complete |
 | `vision` — image I/O, filters, thresholding, morphology, real Haar-cascade face detection | ✅ Complete |
 | `ocr` — Tesseract bridge: text, word boxes, orientation correction, searchable PDF, whitelisting, multi-language | ✅ Complete |
