@@ -14,7 +14,12 @@ import "webi"
 # Run:   ./khan examples/vision_llm_demo/app.kh
 
 let SAMPLE_IMAGE = "sample.png"
-let MODEL_PATH   = "model.gguf"
+let MODEL_PATH   = "examples/vision_llm_demo/model.gguf"
+# Note: vision's paths above resolve relative to THIS script's directory;
+# llm_load() resolves relative to the process's working directory instead
+# (it doesn't get the same treatment vision_lib.c's _vision_resolve does).
+# Found this the honest way - by actually running the demo end-to-end and
+# hitting it. Run khan from the repo root, as documented in README.md.
 
 fn build_prompt(info, brightness, blob_count):
     let desc = "This is a " + str(info["width"]) + "x" + str(info["height"])

@@ -29,12 +29,25 @@ analysis - it just says so instead of a description:
 
 To enable it: put any real GGUF file at `examples/vision_llm_demo/model.gguf`
 (any small instruct model works - this only sends it one short prompt).
-This wasn't tested against a real model in the sandbox this was built in
-(no path to download one there - see `docs/llm.md`'s honesty note about
-the same gap) - what *is* verified: `llm_load()`'s and `llm_complete()`'s
-code compiles and links against real llama.cpp, and `llm_load()` on a
-missing/bad file correctly fails and falls back the way this demo expects.
-Test the actual generation with a real file before relying on it.
+Run `khan` from the repo root (`./khan examples/vision_llm_demo/app.kh`) -
+`llm_load()` resolves its path relative to the process's working
+directory, not the script's own directory the way vision's paths do; this
+was found by actually running the demo end-to-end, not assumed.
+
+This bridge was tested against a real model in the end: a small
+hand-constructed synthetic GGUF (random weights, so gibberish output -
+the point was proving the mechanism, not getting sensible text) loaded
+and generated successfully through this exact code path. Test again with
+a real trained model before relying on the output quality.
+
+`model.gguf` in this folder *is* that exact test fixture (114 KB, 1-layer
+tiny llama-arch, random f32 weights, byte-level vocab) - `/analyze` will
+work out of the box against it, generating real (if repetitive/nonsense)
+bytes, so you can confirm the whole pipeline on your own machine without
+sourcing a real model first. `make_test_gguf.py` is the script that built
+it (needs `pip install numpy gguf`) if you want to regenerate or tweak it
+- swap it for a real instruct model's .gguf whenever you want actual
+sensible output.
 
 ## The size/dependency comparison this demo exists for
 
