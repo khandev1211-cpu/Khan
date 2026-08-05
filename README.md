@@ -58,7 +58,7 @@ Most from-scratch language projects are tempted to round up. This one tries hard
 - Testing: thousands of fuzz-mutated parser inputs with zero crashes, memory stress-tested at 10M-allocation scale with flat RSS, CI gating on real assertion suites across Linux/Windows/macOS
 
 **Known, open gaps — not hidden, not fixed yet:**
-- `sqlite` is currently a **mock** — it doesn't touch real SQL, it simulates storage via JSON. It's labeled as such in its own source rather than presented as working.
+- `sqlite` was a mock for a while (it used to simulate storage via JSON), but `src/sqlite_lib.c` now bridges to real `libsqlite3` — real `sqlite3_prepare_v2`/`sqlite3_bind_*`/`sqlite3_step`, not a simulation. Building from source requires `libsqlite3-dev` installed and now links `-lsqlite3` (fixed in the makefile).
 - Khan's `{}` map type is a linear-scan array, not a real hash table — O(n) to build. This affects most real programs that use maps at all.
 - String concatenation in a loop is O(n²) (a redundant `strlen()` each time).
 - No garbage collector — reference-counted only, so a circular reference will leak for the life of the process (this is a known limitation, not something exercised by normal use so far).
@@ -181,7 +181,7 @@ print PI                # 3.14159...
 | `csv_io` | 1.0.0 | CSV file reader and writer |
 | `json_db` | 1.0.0 | Simple NoSQL database using JSON files |
 | `orm` | 1.0.0 | Simple Object-Relational Mapper for JSON databases |
-| `sqlite` | 1.0.0 | SQL database bridge — **currently a mock**, see [What's Real, What's a Known Gap](#whats-real-whats-a-known-gap) |
+| `sqlite` | 1.0.0 | SQL database bridge — real `libsqlite3` bridge, requires `libsqlite3-dev` to build |
 
 ### Computer vision & OCR
 
@@ -668,7 +668,7 @@ Khan/
     ├── datetime_lib.h / datetime_lib.c    # Native datetime functions
     ├── requests_lib.h / requests_lib.c    # Native HTTP client
     ├── webi_lib.h / webi_lib.c            # Native HTTP server, MIME table, path-traversal-safe file resolution
-    ├── sqlite_lib.h / sqlite_lib.c        # SQL bridge — currently a mock, see known gaps above
+    ├── sqlite_lib.h / sqlite_lib.c        # SQL bridge — real libsqlite3, needs libsqlite3-dev
     ├── vision_lib.h / vision_lib.c        # Native image I/O + pixel ops (honest by design — see its own header comment)
     ├── vision_cv.h / vision_cv.c          # Filters, morphology, thresholding, transforms
     ├── vision_cascade.h / vision_cascade.c # Real Haar-cascade (Viola-Jones) face/object detection
@@ -687,8 +687,9 @@ Khan/
 - **GCC** (C11) — MinGW64 on Windows, or any POSIX GCC
 - **GNU Make**
 - **libtesseract** (+ its trained language data) — required by the `ocr` package; the build fails without it rather than silently skipping OCR. See [docs/ocr.md](docs/ocr.md) for the exact install command per platform (apt/Homebrew/MSYS2) — on MSYS2 specifically, note that the language data is a *separate* package from the library itself.
-- **Windows only**: links `-lwinhttp` and `-lshell32` (both ship with Windows)
-- **Linux/macOS**: links `-lm`, uses `curl` for HTTP
+- **libsqlite3** (dev headers) — required by the `sqlite` package's native bridge. `apt install libsqlite3-dev` / `brew install sqlite3` / MSYS2 `mingw-w64-x86_64-sqlite3`. The build fails without it (missing `sqlite3.h`) rather than silently skipping SQLite support.
+- **Windows only**: links `-lwinhttp`, `-lshell32`, and `-lsqlite3` (the first two ship with Windows; sqlite3 does not)
+- **Linux/macOS**: links `-lm` and `-lsqlite3`, uses `curl` for HTTP
 
 ### Build
 
@@ -787,7 +788,6 @@ package.
 | Garbage collector (currently reference-counted only) | 🔲 Planned |
 | Error handling (`try`/`catch`) | 🔲 Planned |
 | `webi` threaded server (thread-per-connection, concurrency cap) — see [docs/phase4-plan.md](docs/phase4-plan.md) | 🔲 Planned |
-| `sqlite` — real SQL, not the current mock | 🔲 Planned |
 | ONNX Runtime bridge (run pretrained deep-learning OCR models) — see [docs/onnx-ocr-plan.md](docs/onnx-ocr-plan.md) | 🔲 Planned |
 | Binary-safe string type (length-prefixed, not NUL-terminated) | 🔲 Planned |
 | Self-hosted compiler | 🔲 Planned |

@@ -11,10 +11,10 @@ CFLAGS  = -std=c11 -Wall -Wextra -O2 -Isrc \
           -Wno-cast-function-type
 
 ifeq ($(OS),Windows_NT)
-    LDFLAGS  = -lm -lwinhttp -lshell32 -lws2_32 -ladvapi32
+    LDFLAGS  = -lm -lwinhttp -lshell32 -lws2_32 -ladvapi32 -lsqlite3
     EXT      = .exe
 else
-    LDFLAGS  = -lm
+    LDFLAGS  = -lm -lsqlite3
     EXT      =
 endif
 
