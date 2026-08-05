@@ -245,3 +245,43 @@ fn quantize_mixed_precision(W, bits, error_threshold):
             data = push(data, row_q)
         i = i + 1
     return {"data": data, "scales": q["scales"], "bits": bits, "full_precision_rows": kept_full_precision}
+
+# Real (not simulated) per-channel int8 quantization - produces actual
+# VAL_INT8ARRAY storage via int8_pack(), one real packed row per channel,
+# not doubles-pretending-to-be-quantized like quantize_per_channel()
+# above. int8_pack() is int8-only (no bits parameter - that's the honest
+# current scope, see int8array_lib.h).
+fn quantize_real_per_channel(W):
+    let rows = []
+    let scales = []
+    for row in W:
+        let ch_max = 0
+        for v in row:
+            let a = abs(v)
+            if a > ch_max:
+                ch_max = a
+        let scale = 1
+        if ch_max > 0:
+            scale = ch_max / 127
+        rows = push(rows, int8_pack(row, scale))
+        scales = push(scales, scale)
+    return {"rows": rows, "scales": scales}
+
+# Matrix-vector product against a quantize_real_per_channel() result -
+# calls int8_dot() per row, never unpacks. This is the real equivalent of
+# quant.kh's earlier accuracy tests, using actual packed storage/compute
+# instead of simulation.
+fn quantized_matmul(qmodel, x):
+    let y = []
+    for row in qmodel["rows"]:
+        y = push(y, int8_dot(row, x))
+    return y
+
+# Total real bytes used by a quantize_real_per_channel() result's packed
+# rows (not counting the small scales array) - for a direct, honest
+# memory comparison against the equivalent plain Khan array-of-arrays.
+fn quantized_byte_size(qmodel):
+    let total = 0
+    for row in qmodel["rows"]:
+        total = total + int8_byte_size(row)
+    return total
