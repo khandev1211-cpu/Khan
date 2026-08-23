@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────
+#  Khan Language — Makefile
+#  Builds: khan.exe (The High-Performance Bytecode VM)
+# ─────────────────────────────────────────────────────────────
+
+CC      = gcc
+CFLAGS  = -std=c11 -Wall -Wextra -O2 -Isrc \
+          -D_POSIX_C_SOURCE=200809L \
+          -Wno-implicit-function-declaration \
+          -Wno-builtin-declaration-mismatch \
+          -Wno-cast-function-type
+
+ifeq ($(OS),Windows_NT)
+    LDFLAGS  = -lm -lwinhttp -lshell32 -lws2_32 -ladvapi32 -lsqlite3
+    EXT      = .exe
+else
+    LDFLAGS  = -lm -lsqlite3
+    EXT      =
+endif
+
+# All Source Files for the unified High-Performance Khan
+SRCS = \
+    src/lexer.c         \
+    src/parser.c        \
+    src/ast.c           \
+    src/chunk.c         \
+    src/value.c         \
+    src/compiler.c      \
+    src/vm.c            \
+    src/vm_libs.c       \
+    src/interpreter.c   \
+    src/khan_stdlib.c   \
+    src/json_lib.c      \
+    src/datetime_lib.c  \
+    src/requests_lib.c  \
+    src/webi_lib.c      \
+    src/sqlite_lib.c    \
+    src/vision_lib.c    \
+    src/vision_cv.c     \
+    src/vision_cascade.c \
+    src/main.c
+
+KH_SRCS = src/kh.c
+
+# Optional LLM (llama.cpp/GGUF) bridge - opt-in only, like ocr's tesseract
+# dependency, so the default build never requires it. Point LLAMA_CPP_DIR at
+# a checkout with its static libs already built (cmake -B build && cmake
+# --build build --target llama), then: make LLM=1
+LLAMA_CPP_DIR ?= third_party/llama.cpp
+ifdef LLM
+    CFLAGS  += -DLLM_SUPPORT -I$(LLAMA_CPP_DIR)/include -I$(LLAMA_CPP_DIR)/ggml/include
+    LDFLAGS += -L$(LLAMA_CPP_DIR)/build/src -L$(LLAMA_CPP_DIR)/build/ggml/src \
+               -lllama -lggml -lggml-base -lggml-cpu -lstdc++ -fopenmp
+    SRCS    += src/llm_lib.c
+endif
+
+.PHONY: all khan kh clean
+
+all: khan$(EXT) kh$(EXT)
+
+khan$(EXT): $(SRCS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	@echo "  Built khan$(EXT) (High-Performance VM Edition)"
+
+kh$(EXT): $(KH_SRCS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+	@echo "  Built kh$(EXT) (Package Manager)"
+
+clean:
+ifeq ($(OS),Windows_NT)
+	-del /Q /F src\*.o khan.exe kh.exe 2>nul
+else
+	rm -f src/*.o khan kh
+endif
