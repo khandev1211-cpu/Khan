@@ -55,10 +55,23 @@ Ordered by **impact on "can someone actually use this."**
    `src/parser.c`, `src/chunk.h`, `src/vm.h`, `src/vm.c`,
    `src/compiler.c`; roadmap status in `ROADMAP_STATUS_UPDATED.md`
    item 13.
-4. **GC or a documented mitigation** — full GC is a big lift. Cheaper
-   interim step: detect + document/warn on common circular-reference
-   patterns, or provide a `weakref`-style escape hatch, while a real
-   mark-and-sweep or cycle collector is designed separately.
+4. ✅ **DONE — Cycle collector for circular references.** Implemented
+   a Bacon-Rajan trial-deletion collector (scoped to arrays/maps,
+   not a full tracing GC — never needs to enumerate the VM's stack/
+   frames/globals as roots, only walks the array/map object graph
+   itself). Two real bugs found and fixed during testing (a
+   reentrancy-guard field collision causing a self-reference stack
+   overflow, and a stale-pointer use-after-free on two-node cycles) —
+   full story in `docs/gc-notes.md`. Verified under AddressSanitizer:
+   self-reference, 2- and 3-node cycles, map cycles, mixed cycles,
+   500-cycle batches, live-child survival, acyclic-data safety, plus
+   the full existing suite — zero regressions. Leak measurement:
+   5,000-iteration cycle workload went from 403,548 leaked bytes to
+   3,581 (>99% reduction), remainder all pre-existing/unrelated.
+   Known, documented limitation: closures aren't covered (separate
+   refcount in `chunk.c`). Files: `src/interpreter.h`, `src/value.c`,
+   `src/khan_stdlib.c`/`.h`, `src/vm_libs.c`; roadmap status in
+   `ROADMAP_STATUS_UPDATED.md` item 8.
 
 ### Phase 3 — Performance (only after correctness, so numbers are meaningful)
 5. **Dispatch loop**: switch → computed goto in `vm.c`. This is flagged

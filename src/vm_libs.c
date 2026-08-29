@@ -26,6 +26,7 @@ void vm_register_builtins(VM *vm) {
     vm_global_set_native(vm, "max",        fn_max);
     vm_global_set_native(vm, "random",     fn_random);
     vm_global_set_native(vm, "clock",      fn_clock);
+    vm_global_set_native(vm, "gc_collect", fn_gc_collect);
     vm_global_set_native(vm, "upper",      fn_upper);
     vm_global_set_native(vm, "lower",      fn_lower);
     vm_global_set_native(vm, "trim",       fn_trim);

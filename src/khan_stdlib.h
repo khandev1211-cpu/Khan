@@ -24,6 +24,7 @@ void fn_min(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_max(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_random(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_clock(Value *result, Interpreter *interp, int argc, Value *args);
+void fn_gc_collect(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_upper(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_lower(Value *result, Interpreter *interp, int argc, Value *args);
 void fn_trim(Value *result, Interpreter *interp, int argc, Value *args);

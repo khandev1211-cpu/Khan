@@ -559,6 +559,18 @@ void fn_clock(Value *result, Interpreter *interp, int argc, Value *args) {
     *result = value_number((double)clock() / CLOCKS_PER_SEC);
 }
 
+/* Forces one cycle-collector pass right now, instead of waiting for
+ * the automatic every-4096-allocations trigger (see value.c's
+ * GC_AUTO_INTERVAL). Mainly useful for tests/benchmarks that want a
+ * deterministic point to check "did the cycle actually get freed" —
+ * ordinary scripts never need to call this themselves. Returns nil. */
+void fn_gc_collect(Value *result, Interpreter *interp, int argc, Value *args) {
+    (void)args;
+    if (!check_arg_count(interp, "gc_collect", 0, argc)) { *result = value_nil(); return; }
+    gc_collect_cycles();
+    *result = value_nil();
+}
+
 void fn_exit(Value *result, Interpreter *interp, int argc, Value *args) {
     (void)interp;
     int code = 0;

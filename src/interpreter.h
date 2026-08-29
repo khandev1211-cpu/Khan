@@ -1,6 +1,7 @@
 #ifndef KHAN_INTERPRETER_H
 #define KHAN_INTERPRETER_H
 
+#include <stddef.h> /* size_t */
 #include "ast.h"
 
 typedef struct Environment Environment;
@@ -29,6 +30,30 @@ typedef void (*NativeFn)(struct Value *result, Interpreter *interp, int argc, st
 typedef struct Obj {
     ValueType type;
     int ref_count;
+    /* Cycle-collector bookkeeping (see value.c's "Cycle collector"
+       section for the full algorithm writeup). `color` holds the
+       Bacon-Rajan trial-deletion trace state (black=live, gray=being
+       traced, white=confirmed garbage, purple=possible root) and is
+       ONLY ever set by gc_mark_gray()/gc_scan()/gc_scan_black() — the
+       collection (free) phase deliberately never touches it, so a
+       white verdict stays trustworthy for every edge in the object
+       graph right up until the object is actually freed. `buffered`
+       serves TWO separate, non-overlapping purposes at different
+       times: while an object sits in the roots buffer it just means
+       "already queued, don't add twice"; once collection reaches the
+       free phase it's reused as a reentrancy guard against visiting
+       the same object twice in one pass (a self-reference or a
+       multi-object cycle would otherwise revisit it and recurse
+       forever — this is exactly the bug this comment is warning
+       about, found via an actual stack-overflow crash on `a[0] = a`
+       during development; see the free-phase function's own comment
+       for why `color` can't safely serve as that guard too). Both
+       fields are 0/unused for the entire lifetime of any object that
+       never has a decrement leave it above zero — i.e. the
+       overwhelming majority of arrays/maps in a typical program never
+       touch this machinery at all. */
+    int color;
+    int buffered;
     union {
         struct {
             struct Value *items;
@@ -83,6 +108,7 @@ void env_assign(Environment *env, const char *name, Value value);
 
 Value value_number(double n);
 Value value_string(const char *s);
+Value value_string_concat(const char *a, size_t la, const char *b, size_t lb);
 Value value_bool(int b);
 Value value_nil(void);
 Value value_function(const char *name, Environment *closure,
@@ -90,6 +116,7 @@ Value value_function(const char *name, Environment *closure,
 Value value_native(const char *name, NativeFn fn);
 Value value_array(Value *items, int count);
 Value value_map_empty(void);
+void  gc_collect_cycles(void); /* see value.c's "Cycle collector" section */
 
 void map_set(Value *map, const char *key, Value value);
 Value *map_get(Value *map, const char *key);

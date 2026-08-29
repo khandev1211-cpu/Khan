@@ -336,7 +336,7 @@ were used to isolate a buffer-overflow bug and a silent runtime-error
 swallow. Session 3 turned this into an actual repeatable methodology,
 documented above and in `docs/memory-notes.md`.)
 
-## 8. Garbage collector — ❌ Not started
+## 8. Garbage collector — ✅ Done (was ❌ Not started)
 - Khan uses manual/ref-counted memory management, not a tracing GC, as
   far as I've seen — worth confirming with the maintainer whether GC is
   even on the roadmap or if manual management is the permanent design.
@@ -349,6 +349,37 @@ documented above and in `docs/memory-notes.md`.)
   the array back) would still deadlock any pure-refcounting scheme
   (never reaches 0) — untested here, flagging as the next thing to
   check if this item gets picked up.
+- ✅ **(this session)** Picked up exactly that flagged next step.
+  Implemented a Bacon-Rajan synchronous trial-deletion cycle collector
+  (the same algorithm CPython's `gc` module uses for containers),
+  scoped to `VAL_ARRAY`/`VAL_MAP` — not a full tracing GC over the
+  whole VM (deliberately: trial deletion only needs to walk the
+  array/map object graph itself, never the VM stack/frames/globals/
+  upvalues/try-handler-stack that a real tracing collector would need
+  enumerated as roots). Runs automatically every 4096 array/map
+  allocations, plus a `gc_collect()` native for deterministic testing.
+  Full design writeup, including **two real bugs found and fixed**
+  during implementation — a self-reference stack overflow (a
+  reentrancy guard reused the wrong field, colliding with the
+  algorithm's own white/black check) and a two-node-cycle
+  use-after-free (a stale pointer left in the collector's own roots
+  buffer after a cascading free) — in `docs/gc-notes.md`. Verified
+  under AddressSanitizer against self-reference, two- and three-node
+  cycles, map cycles, mixed array/map cycles, 500-cycle batches, a
+  cycle holding a still-live external reference (confirmed the
+  external object survives with a correctly decremented, not
+  inflated, ref_count), and a 100-node acyclic chain (confirmed
+  genuinely live data is never touched) — plus the full existing test
+  suite, zero regressions. Leak measurement, not just crash-freedom:
+  5,000 self-cycle iterations went from 403,548 leaked bytes without
+  the collector to 3,581 bytes with it (>99% reduction), and every
+  remaining byte traces to pre-existing, already-documented
+  parser/AST teardown bookkeeping — nothing attributable to arrays,
+  maps, or this collector. **Known limitation, documented, not fixed:**
+  functions/closures aren't covered (a separate refcount in `chunk.c`'s
+  `KhanClosure`) — a closure capturing a variable that indirectly holds
+  the same closure would still leak. Not observed in this codebase's
+  own tests/examples, flagged honestly rather than silently scoped out.
 
 ## 9. Value system — ❌ Not started
 - No review of the Value struct's tagging efficiency.
