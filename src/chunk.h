@@ -96,6 +96,11 @@ typedef enum {
     OP_PRINT,
 
     OP_POP,
+
+    OP_COUNT /* sentinel: always the total number of opcodes, must stay
+                last in this enum. Used by run_loop's computed-goto
+                dispatch to bounds-check a byte before indexing its
+                dispatch table with it — see vm.c's DISPATCH() macro. */
 } OpCode;
 
 /* ─────────────────────────────────────────────

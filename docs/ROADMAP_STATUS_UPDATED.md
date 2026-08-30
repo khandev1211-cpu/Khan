@@ -211,7 +211,22 @@ this is now fixed and verified (`make clean && make` succeeds, `khan` runs).
   separate `frame_count` check first and produces the normal, already-
   working catchable "Stack overflow" runtime error — that path was
   never broken and isn't what this fix is for.
-- ❌ No computed-goto vs switch-dispatch benchmark
+- ✅ **(this session)** Computed-goto vs switch-dispatch benchmark —
+  done, and reverted. All 44 opcodes converted to computed-goto
+  dispatch, benchmarked against the existing switch on `loop.kh` and
+  `fib.kh`, and **the switch was faster** (5-15% depending on
+  benchmark) — not the expected win. Reverted back to switch-based
+  dispatch; full measurement and root-cause discussion (GCC already
+  jump-tables a dense switch at `-O2`, and these benchmarks' regular
+  opcode-transition patterns are close to the best case for a modern
+  branch predictor handling a single shared indirect jump) in
+  `docs/dispatch-perf.md`, including three real bugs found and fixed
+  while converting (a nested inner switch that would have had its
+  `break`s wrongly converted, five opcodes that relied on a shared
+  `op` variable computed-goto doesn't have, and a bounds-check gap
+  vs. corrupted/out-of-range opcode bytes) — kept documented even
+  though the change itself didn't ship, so nobody re-attempts this
+  exact thing without knowing it was already tried and measured.
 - ✅ Stack **value** overflow/underflow detection — see session 4 entry
   just above (frame-count overflow was already checked via
   `VM_FRAMES_MAX`; the value stack itself wasn't, until now)

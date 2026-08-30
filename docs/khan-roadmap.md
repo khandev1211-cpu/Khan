@@ -74,9 +74,17 @@ Ordered by **impact on "can someone actually use this."**
    `ROADMAP_STATUS_UPDATED.md` item 8.
 
 ### Phase 3 — Performance (only after correctness, so numbers are meaningful)
-5. **Dispatch loop**: switch → computed goto in `vm.c`. This is flagged
-   in your own `benchmarks/RESULTS.md` as the most likely lever on the
-   `loop` benchmark (194x gap vs. C).
+5. ✅ **DONE (negative result) — Dispatch loop.** Converted all 44
+   opcodes to computed-goto (`goto *dispatch_table[...]`), benchmarked
+   against the existing switch, and the switch turned out FASTER
+   (5-15% depending on benchmark) — reverted. Full measurement, why
+   (GCC already jump-tables a dense switch at `-O2`; these benchmarks'
+   regular dispatch patterns favor a shared predictor slot), and three
+   real bugs found while converting (documented so nobody re-attempts
+   this blind) in `docs/dispatch-perf.md`. Dispatch mechanism is
+   confirmed NOT where Khan's per-op overhead comes from — the
+   `value_copy()`-per-operation cost flagged in `benchmarks/RESULTS.md`
+   remains the most promising next thing to actually profile.
 6. Re-run all 5 benchmarks after each of the above, update
    `benchmarks/RESULTS.md` with new numbers — this file is also a
    content asset (see Track B).
@@ -152,10 +160,10 @@ Pick from these, each is a standalone post/thread:
 | Step | Track A | Track B |
 |---|---|---|
 | 1 | ✅ Hash table for maps (done) | README polish + host playground |
-| 1b | 🟡 String concat partial fix (~2.4x, root cause still open) | — |
-| 2 | String concat fix | Post: face-detection mock→real story |
+| 1b | 🟡 String concat partial fix (~2.4x, root cause still open) | Post: face-detection mock→real story |
 | 3 | ✅ try/catch (done) | Post: JSON benchmark win |
-| 4 | Dispatch loop perf | Show HN (after map fix is live) |
+| 3b | ✅ GC / cycle collector (done) | — |
+| 4 | ✅ Dispatch loop — tried, measured slower, reverted | Show HN (after map fix is live) |
 | 5 | CI matrix | Post: VM/bytecode deep-dive |
 
 Start with Step 1 on both sides — it's the highest-leverage fix
