@@ -55,24 +55,35 @@ Most from-scratch language projects are tempted to round up. This one tries hard
 - The bytecode compiler + VM — the actual execution path for every script you run
 - `vision`'s face detection — real Viola-Jones cascade detection, not hardcoded output
 - `ocr` — a genuine native bridge to libtesseract; feeds it real pixel data, not a wrapper around the `tesseract` CLI
+- `sqlite` — a real bridge to `libsqlite3` (`sqlite3_prepare_v2`/`sqlite3_bind_*`/`sqlite3_step`), not a JSON-backed mock (an earlier version was; ripped out and rebuilt for real)
+- `{}` maps — a real open-addressing hash index (FNV-1a), not a linear scan; the old O(n) version made a 50,000-key map take ~9 seconds, the current one takes ~0.01s (~725x). Full story in [docs/hash-table-audit.md](docs/hash-table-audit.md)
+- `try`/`catch`/`throw` — a real exception-handling implementation (unwinds the VM stack and call frames to the nearest handler), not just a parser accepting the syntax. Catches both user `throw`s and every built-in runtime error. Design and a real bug found along the way in [docs/trycatch-implementation.md](docs/trycatch-implementation.md)
+- A cycle collector for circular references in arrays/maps (`a[0] = a` no longer leaks for the life of the process) — a Bacon-Rajan trial-deletion collector, the same algorithm CPython's `gc` module uses, not a full tracing GC. Two real bugs found and fixed during testing, plus a >99% leak reduction measured (not just "doesn't crash") in [docs/gc-notes.md](docs/gc-notes.md)
 - Testing: thousands of fuzz-mutated parser inputs with zero crashes, memory stress-tested at 10M-allocation scale with flat RSS, CI gating on real assertion suites across Linux/Windows/macOS
 
 **Known, open gaps — not hidden, not fixed yet:**
-- `sqlite` was a mock for a while (it used to simulate storage via JSON), but `src/sqlite_lib.c` now bridges to real `libsqlite3` — real `sqlite3_prepare_v2`/`sqlite3_bind_*`/`sqlite3_step`, not a simulation. Building from source requires `libsqlite3-dev` installed and now links `-lsqlite3` (fixed in the makefile).
-- Khan's `{}` map type is a linear-scan array, not a real hash table — O(n) to build. This affects most real programs that use maps at all.
-- String concatenation in a loop is O(n²) (a redundant `strlen()` each time).
-- No garbage collector — reference-counted only, so a circular reference will leak for the life of the process (this is a known limitation, not something exercised by normal use so far).
-- No `try`/`catch` yet.
+- String concatenation in a loop is **partially** fixed — a redundant
+  length-rescan on the growing accumulator was removed (a real ~2.4x
+  win, verified), but the deeper cause is still open:
+  `OP_SET_LOCAL`/`OP_SET_GLOBAL`/`OP_SET_UPVALUE` deep-copy the
+  assigned value on every write by design, so building a string with
+  repeated `+=` in a loop is still worse than linear overall. Full
+  story in [benchmarks/RESULTS.md](benchmarks/RESULTS.md)'s
+  `string_concat` section.
+- Closures are value-capture only — a nested function can read an
+  enclosing variable, but there's no shared mutable upvalue, so a
+  "counter closure" pattern that mutates captured state doesn't work
+  the way it does in Python/JS.
 
 If a claim in this README turns out to not match reality, that's a bug in the README — [open an issue](https://github.com/khandev1211-cpu/Khan/issues).
 
-**On performance, specifically**: Khan is generally slower than Python and Node right now, not faster — roughly 2-8x slower on tight loops, 1.7x slower on string concatenation, competitive only on JSON round-trips (where it's actually ~2.4x faster than Python). Full numbers and methodology in [benchmarks/RESULTS.md](benchmarks/RESULTS.md). No dispatch-loop optimization work has been done yet; that's expected to close a meaningful chunk of this gap when it happens, not a ceiling.
+**On performance, specifically**: Khan is generally slower than Python and Node right now, not faster — roughly 2-8x slower on tight loops, competitive only on JSON round-trips (where it's actually ~2.4x faster than Python). Computed-goto dispatch was tried as the obvious next lever and **measured slower, not faster**, than the existing switch-based dispatch (5-15% depending on benchmark) — reverted; full measurement and why in [docs/dispatch-perf.md](docs/dispatch-perf.md). The next real lead is a `value_copy()` call on every basic operation (even a plain number) — not yet profiled, flagged as the most promising thing to actually measure next. Full numbers and methodology in [benchmarks/RESULTS.md](benchmarks/RESULTS.md).
 
 ---
 
 ## Quick Start
 
-**Want to try it before cloning anything?** `playground/` has a browser-based Khan — the real compiler and VM, compiled to WebAssembly with Emscripten, running client-side with no server involved. It isn't hosted anywhere yet; `cd playground && python3 -m http.server` (or any static host — GitHub Pages, Netlify, etc.) serves it locally. See [playground/README.md](playground/README.md) for what's and isn't included in that build.
+**Want to try it before cloning anything?** [Try Khan in your browser](https://khandev1211-cpu.github.io/Khan/) — the real compiler and VM, compiled to WebAssembly with Emscripten, running client-side with no server involved. (Deployed via GitHub Pages from `playground/` — see [.github/workflows/deploy-playground.yml](.github/workflows/deploy-playground.yml). If that link 404s, GitHub Pages likely isn't enabled yet for this repo — Settings → Pages → Source: GitHub Actions turns it on, then push once or run the workflow manually from the Actions tab.) See [playground/README.md](playground/README.md) for what's and isn't included in that build.
 
 ```bash
 # Clone and build
@@ -747,7 +758,7 @@ A tree-walk interpreter (`interpreter.c`) exists in the source tree from an earl
 - **Value system**: tagged union (`VAL_NUMBER`, `VAL_STRING`, `VAL_BOOL`, `VAL_NIL`, `VAL_ARRAY`, `VAL_MAP`, `VAL_FUNCTION`, `VAL_NATIVE`)
 - **Execution model**: stack-based bytecode VM, 38 opcodes (see [docs/opcodes.md](docs/opcodes.md))
 - **Closures**: value-capture only — a nested function can read an enclosing variable, but there's no shared mutable upvalue, so a "counter closure" pattern that mutates captured state doesn't work the way it does in Python/JS. Known limitation, not yet addressed.
-- **Memory management**: reference-counted, not a tracing garbage collector — a circular reference will leak for the life of the process (see [known gaps](#whats-real-whats-a-known-gap))
+- **Memory management**: reference-counted, plus a Bacon-Rajan trial-deletion cycle collector for arrays/maps (runs automatically, also callable as `gc_collect()`) — a circular reference no longer leaks for the process lifetime. Closures aren't covered by the collector yet (separate refcount) — see [docs/gc-notes.md](docs/gc-notes.md) for the full design and known limitation
 - **Compiler optimizations**: constant folding is implemented; dead-code elimination, constant propagation, and peephole optimization are not yet
 
 ### Package Resolution
@@ -781,12 +792,13 @@ package.
 | `webi` — routing, security (CSRF/rate-limit/API-key/CORS), templates, static files, `after()` hooks | ✅ Complete |
 | `vision` — image I/O, filters, thresholding, morphology, real Haar-cascade face detection | ✅ Complete |
 | `ocr` — Tesseract bridge: text, word boxes, orientation correction, searchable PDF, whitelisting, multi-language | ✅ Complete |
-| Fuzz testing (parser), memory stress testing (10M-allocation scale), CI across Linux/Windows/macOS | ✅ Complete |
-| `{}` map as a real hash table (currently a linear-scan array — see [known gaps](#whats-real-whats-a-known-gap)) | 🔲 Planned |
-| String concatenation performance (currently O(n²) in a loop) | 🔲 Planned |
+| Fuzz testing (parser), memory stress testing (10M-allocation scale), CI across Linux/Windows/macOS | ✅ Complete — CI gates on the full test suite (not just "does it compile"), including a 1000-iteration mutation-fuzzing run |
+| `{}` map as a real hash table | ✅ Complete — open-addressing (FNV-1a), see [docs/hash-table-audit.md](docs/hash-table-audit.md) |
+| String concatenation performance | 🟡 Partial — redundant rescan fixed (~2.4x), full O(n²) root cause still open, see [benchmarks/RESULTS.md](benchmarks/RESULTS.md) |
 | Mutable closures (currently value-capture only) | 🔲 Planned |
-| Garbage collector (currently reference-counted only) | 🔲 Planned |
-| Error handling (`try`/`catch`) | 🔲 Planned |
+| Garbage collector (circular references) | ✅ Complete — cycle collector for arrays/maps, see [docs/gc-notes.md](docs/gc-notes.md) |
+| Error handling (`try`/`catch`/`throw`) | ✅ Complete, see [docs/trycatch-implementation.md](docs/trycatch-implementation.md) |
+| Dispatch-loop optimization (computed goto) | ✅ Tried, measured slower than the existing switch, reverted — see [docs/dispatch-perf.md](docs/dispatch-perf.md) |
 | `webi` threaded server (thread-per-connection, concurrency cap) — see [docs/phase4-plan.md](docs/phase4-plan.md) | 🔲 Planned |
 | ONNX Runtime bridge (run pretrained deep-learning OCR models) — see [docs/onnx-ocr-plan.md](docs/onnx-ocr-plan.md) | 🔲 Planned |
 | Binary-safe string type (length-prefixed, not NUL-terminated) | 🔲 Planned |

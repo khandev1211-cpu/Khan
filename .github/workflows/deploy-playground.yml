@@ -1,0 +1,63 @@
+name: Deploy Playground to GitHub Pages
+
+# Deploys the static files in playground/ (index.html, khan.js, khan.wasm)
+# to GitHub Pages, unchanged, on every push to main that touches that
+# directory. No build step at deploy time — the WASM/JS artifacts are
+# already committed (see playground/build.sh if they ever need
+# regenerating from source; that's a separate, manual step requiring
+# emcc, not part of this workflow).
+#
+# NOTE: this workflow has not been run through actual GitHub Actions in
+# the environment this was authored in (no such access there) — same
+# caveat as .github/workflows/c-cpp.yml's own, documented in
+# ROADMAP_STATUS_UPDATED.md item 17. The steps below follow GitHub's
+# own documented Pages-deployment pattern (upload-pages-artifact +
+# deploy-pages) rather than the older gh-pages-branch approach, since
+# that's what GitHub's own quickstart templates use as of this writing
+# — but "should work per the docs" and "verified working" are different
+# claims, and only the first one is being made here.
+#
+# One-time setup required before this can succeed: in the repo's
+# Settings → Pages, set "Source" to "GitHub Actions" (not "Deploy from
+# a branch"). Without that, this workflow will run but the deployment
+# step will fail with a permissions/configuration error.
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "playground/**"
+      - ".github/workflows/deploy-playground.yml"
+  workflow_dispatch: {} # allows triggering manually from the Actions tab,
+                        # useful for the very first deploy or to re-run
+                        # without an unrelated commit
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deployment at a time; if a new push comes in while one is
+# still running, let the in-progress one finish rather than cancelling
+# it (cancelling a live deployment mid-way is worse than a short queue).
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload playground/ as the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: playground
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
