@@ -726,6 +726,26 @@ documented above and in `docs/memory-notes.md`.)
   applied across two sessions in a row; if this project has any GitHub
   Actions minutes available, actually pushing this and watching it run
   once would be higher-value than most other things left on this list.
+- ✅ **(this session)** Re-verified every one of this workflow's test
+  gates by hand, end to end, against a build containing this session's
+  full set of changes (hash-map rewrite, string-concat partial fix,
+  try/catch, the cycle collector, and the dispatch-loop experiment
+  that was tried and reverted) — not just "does it still compile."
+  All passed unchanged: the 158-assertion core suite (9 suites, all
+  100%), the 137-assertion webi suite, the 16-check from-import suite,
+  the 6-assertion vision suite, every package importing cleanly, both
+  div/mod-by-zero-still-raises-an-error regressions, the stack-overflow
+  clean-failure regression, the 38+9-case parser negative/robustness
+  suite, and 1000 iterations of mutation fuzzing (zero findings).
+  Additionally compared AddressSanitizer leak totals on the core suite
+  between a completely unmodified build and this session's combined
+  build: 71,180 bytes / 4,099 allocations (pristine) vs. 72,289 bytes
+  / **3,986** allocations (this session) — same magnitude, fewer
+  allocations, confirming none of this session's four features
+  introduced a new leak. The "not run through actual GitHub Actions"
+  caveat above still stands (no access to that here either) — this
+  doesn't close that gap, but it's a real, substantive check beyond
+  what existed before this session on top of it.
 
 ## 18. Documentation — 🟡 Partial (was 🟡 Partial, but thin)
 - ❌ No language specification, no formal grammar

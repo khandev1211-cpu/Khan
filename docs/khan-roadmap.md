@@ -35,10 +35,7 @@ Ordered by **impact on "can someone actually use this."**
    copying when the source is a dead stack temporary — a real change
    to the VM's copy discipline, scoped but not done yet. Files:
    `src/value.c`, `src/value.h`, `src/interpreter.h`, `src/vm.c`,
-   writeup in `benchmarks/RESULTS.md`'s `string_concat` section. — redundant `strlen()` per append
-   in a loop. Cache length or move to a rope/builder pattern for `+=`
-   in loops, or at minimum stop the repeated strlen.
-   - Re-run `benchmarks/string_concat.kh` after.
+   writeup in `benchmarks/RESULTS.md`'s `string_concat` section.
 
 ### Phase 2 — Safety/robustness (needed before anyone trusts it with real programs)
 3. ✅ **DONE — `try`/`catch`/`throw`.** Full lexer/parser/AST/compiler/
@@ -89,11 +86,23 @@ Ordered by **impact on "can someone actually use this."**
    `benchmarks/RESULTS.md` with new numbers — this file is also a
    content asset (see Track B).
 
-### Phase 4 — Process/infra (roadmap item #17, currently ❌)
-7. **CI build matrix** (Linux/macOS/Windows) — you already had a
-   "didn't compile on Linux" bug ship silently; CI is what prevents
-   that class of bug going forward. This is also a credibility signal
-   for anyone evaluating the repo.
+### Phase 4 — Process/infra
+7. ✅ **DONE — CI build matrix.** Turns out this already existed from
+   a prior session (`.github/workflows/c-cpp.yml`) — Linux/macOS/
+   Windows, gating on the full test suite (not just "does it
+   compile"), a valgrind memory-check job, and two regression tests
+   for previously-fixed bugs (div/mod-by-zero constant-folding, stack-
+   overflow clean-failure). This session re-verified every one of its
+   gates by hand against a build containing all of this session's
+   changes (hash map, string fix, try/catch, GC, dispatch experiment)
+   — all pass unchanged, plus a leak-count comparison (pristine vs.
+   this session's build, same test suite) confirming zero new leaks
+   introduced by any of the four features. One gap remains and can't
+   be closed from here: the workflow YAML itself has never actually
+   been run through GitHub Actions (no access to verify that end-to-
+   end) — flagged in `ROADMAP_STATUS_UPDATED.md` item 17 across
+   multiple sessions now; pushing this once and watching it run would
+   be the highest-value single action left on the whole technical list.
 
 **Not in this plan yet, deliberately parked:** full precise GC,
 Unicode/UTF-8 lexer support, v1.0 release criteria as a whole — these
@@ -164,7 +173,7 @@ Pick from these, each is a standalone post/thread:
 | 3 | ✅ try/catch (done) | Post: JSON benchmark win |
 | 3b | ✅ GC / cycle collector (done) | — |
 | 4 | ✅ Dispatch loop — tried, measured slower, reverted | Show HN (after map fix is live) |
-| 5 | CI matrix | Post: VM/bytecode deep-dive |
+| 5 | ✅ CI matrix — already existed, re-verified this session | Post: VM/bytecode deep-dive |
 
 Start with Step 1 on both sides — it's the highest-leverage fix
 (unblocks real programs) and the highest-leverage story (an already-

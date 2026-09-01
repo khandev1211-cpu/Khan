@@ -18,6 +18,50 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # ── sqlite3 dev headers/libs ──────────────────────────────────────
+    # None of the three platforms had this installed explicitly before —
+    # the build was relying entirely on whatever each runner image
+    # happened to ship with. That's a real, demonstrated risk, not a
+    # hypothetical one: GitHub's own Ubuntu 24.04 runner image lost
+    # libsqlite3-dev for a period (actions/runner-images#11279, opened
+    # Jan 2025, fixed in #11341) and broke real projects' CI that relied
+    # on it being there implicitly, exactly like this workflow was doing.
+    # Reproduced the resulting failure locally in this Linux sandbox
+    # (`sqlite3.h: No such file or directory`) before adding this step.
+    - name: Install sqlite3 dev headers (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+
+    # macOS ships sqlite3 as part of the system SDK (used internally by
+    # Core Data and other frameworks) — `-lsqlite3` has long worked out
+    # of the box against the Xcode Command Line Tools SDK without an
+    # explicit brew install. This step is a defensive no-op most of the
+    # time, kept for the same reason as the Linux step above: relying on
+    # "probably already there" implicitly is exactly the assumption that
+    # broke on Ubuntu 24.04. `|| true` so it doesn't fail the job if
+    # Homebrew's sqlite3 formula is already satisfied or keg-only.
+    - name: Install sqlite3 (macOS)
+      if: matrix.os == 'macos-latest'
+      run: brew install sqlite3 || true
+
+    # windows-latest ships MSYS2 preinstalled, which is where this
+    # project's `gcc` on Windows resolves from. Installing sqlite3
+    # through MSYS2's own package manager (pacman) keeps it in the same
+    # sysroot that gcc already searches, rather than a separately-fetched
+    # copy gcc wouldn't find. NOTE: this step is a best-effort fix based
+    # on how MSYS2-based Windows toolchains are documented to work, not
+    # something verified end-to-end against a real Windows runner — this
+    # repo's CI has never actually been run through GitHub Actions in
+    # this environment (no such access here), a caveat already flagged
+    # in ROADMAP_STATUS_UPDATED.md item #17 before this change and still
+    # true after it for this specific step.
+    - name: Install sqlite3 (Windows, via MSYS2)
+      if: matrix.os == 'windows-latest'
+      shell: cmd
+      run: |
+        C:\msys64\usr\bin\pacman.exe -S --noconfirm mingw-w64-x86_64-sqlite3
+        echo C:\msys64\mingw64\bin>> %GITHUB_PATH%
+
     - name: Build (Linux/macOS)
       if: matrix.os != 'windows-latest'
       run: |
@@ -183,8 +227,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install valgrind
-      run: sudo apt-get update && sudo apt-get install -y valgrind
+    - name: Install valgrind and sqlite3 dev headers
+      run: sudo apt-get update && sudo apt-get install -y valgrind libsqlite3-dev
 
     - name: Build debug binary
       run: |
@@ -193,7 +237,7 @@ jobs:
           src/lexer.c src/parser.c src/ast.c src/chunk.c src/value.c src/compiler.c src/vm.c \
           src/vm_libs.c src/interpreter.c src/khan_stdlib.c src/json_lib.c src/datetime_lib.c \
           src/requests_lib.c src/webi_lib.c src/sqlite_lib.c src/vision_lib.c src/vision_cv.c \
-          src/vision_cascade.c src/main.c -o khan_dbg -lm
+          src/vision_cascade.c src/main.c -o khan_dbg -lm -lsqlite3
 
     - name: Run valgrind against the test suite
       run: |
