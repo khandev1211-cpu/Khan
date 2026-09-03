@@ -54,7 +54,7 @@ ifdef LLM
     SRCS    += src/llm_lib.c
 endif
 
-.PHONY: all khan kh clean
+.PHONY: all khan kh clean install uninstall
 
 all: khan$(EXT) kh$(EXT)
 
@@ -71,4 +71,52 @@ ifeq ($(OS),Windows_NT)
 	-del /Q /F src\*.o khan.exe kh.exe 2>nul
 else
 	rm -f src/*.o khan kh
+endif
+
+# Installs the two built binaries somewhere on PATH. Unix-only (Windows
+# users: copy khan.exe/kh.exe wherever you like and add that folder to
+# PATH yourself — no installer for that platform yet). Defaults to
+# ~/.khan/bin specifically so this never needs sudo/root: a curl-piped
+# install script (see install.sh) running as a normal user should
+# never need to ask for elevated permissions to put a couple of
+# binaries somewhere. Override with `make install PREFIX=/usr/local`
+# if you'd rather have it on the system-wide PATH already.
+PREFIX ?= $(HOME)/.khan
+BINDIR  = $(PREFIX)/bin
+
+install: khan kh
+ifeq ($(OS),Windows_NT)
+	@echo "make install isn't wired up for Windows yet — copy khan.exe/kh.exe"
+	@echo "to a folder of your choice and add that folder to PATH manually."
+	@exit 1
+else
+	mkdir -p "$(BINDIR)"
+	cp khan "$(BINDIR)/khan"
+	cp kh "$(BINDIR)/kh"
+	@echo ""
+	@echo "  Installed khan and kh to $(BINDIR)"
+	@echo ""
+	@if echo ":$$PATH:" | grep -q ":$(BINDIR):"; then \
+		echo "  $(BINDIR) is already on your PATH — you're done. Try: khan --version"; \
+	else \
+		echo "  $(BINDIR) is NOT on your PATH yet. Add this to your shell's"; \
+		echo "  rc file (~/.bashrc, ~/.zshrc, etc.) and restart your shell:"; \
+		echo ""; \
+		echo "      export PATH=\"$(BINDIR):\$$PATH\""; \
+		echo ""; \
+		echo "  (install.sh does this step for you automatically — this raw"; \
+		echo "  \`make install\` doesn't touch your shell config on its own.)"; \
+	fi
+endif
+
+uninstall:
+ifeq ($(OS),Windows_NT)
+	@echo "No installer to reverse on Windows — just delete the binaries"
+	@echo "you copied manually."
+else
+	rm -f "$(BINDIR)/khan" "$(BINDIR)/kh"
+	@echo "Removed khan and kh from $(BINDIR)."
+	@echo "(Any PATH entry added to your shell rc file is left in place —"
+	@echo " remove the \"export PATH=...$(PREFIX)...\" line yourself if you"
+	@echo " added it and don't want it anymore.)"
 endif

@@ -83,16 +83,21 @@ If a claim in this README turns out to not match reality, that's a bug in the RE
 
 ## Quick Start
 
-**Want to try it before cloning anything?** [Try Khan in your browser](https://khandev1211-cpu.github.io/Khan/) — the real compiler and VM, compiled to WebAssembly with Emscripten, running client-side with no server involved. (Deployed via GitHub Pages from `playground/` — see [.github/workflows/deploy-playground.yml](.github/workflows/deploy-playground.yml). If that link 404s, GitHub Pages likely isn't enabled yet for this repo — Settings → Pages → Source: GitHub Actions turns it on, then push once or run the workflow manually from the Actions tab.) See [playground/README.md](playground/README.md) for what's and isn't included in that build.
+**Want to try it before installing anything?** [Try Khan in your browser](https://khandev1211-cpu.github.io/Khan/) — the real compiler and VM, compiled to WebAssembly with Emscripten, running client-side with no server involved. (Deployed via GitHub Pages from `playground/` — see [.github/workflows/deploy-playground.yml](.github/workflows/deploy-playground.yml). If that link 404s, GitHub Pages likely isn't enabled yet for this repo — Settings → Pages → Source: GitHub Actions turns it on, then push once or run the workflow manually from the Actions tab.) See [playground/README.md](playground/README.md) for what's and isn't included in that build.
+
+### Install
 
 ```bash
-# Clone and build
-git clone https://github.com/khandev1211-cpu/Khan.git
-cd Khan
-make
+curl -fsSL https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/install.sh | bash
+```
 
-# Run a script
-khan examples/hello.kh
+There's no pre-built binary release yet (see the [roadmap](#roadmap) — v1.0 hasn't shipped), so this builds from source rather than downloading a binary, the way `rustup`/`deno`'s installers do when there's nothing prebuilt for your platform yet. It checks for a C compiler and the `libsqlite3` dev headers first and tells you exactly what to install if either is missing — it never runs `sudo` on your behalf. Installs to `~/.khan/bin` (no root needed) and adds that to your `PATH` in whichever shell rc file matches your shell. Safe to re-run. Read [install.sh](install.sh) before piping it into `bash`, same as you should for any curl-pipe installer — that's not Khan-specific advice.
+
+After it finishes (and you restart your shell, or `source` the rc file it mentions):
+
+```bash
+khan --version
+khan path/to/script.kh
 
 # Install packages
 kh install math
@@ -100,8 +105,6 @@ kh install strings
 kh install colors
 kh install requests
 kh install postman
-
-# Use packages in your script
 ```
 
 ```khan
@@ -111,6 +114,17 @@ import "colors"
 print green("Khan is ready!")
 print math_sqrt(144)
 ```
+
+**Prefer to build it yourself, or the installer doesn't fit your setup?**
+
+```bash
+git clone https://github.com/khandev1211-cpu/Khan.git
+cd Khan
+make                    # builds ./khan and ./kh in the current directory
+make install            # optional: installs both to ~/.khan/bin, same as install.sh's last step
+```
+
+Without `make install`, run the binaries directly as `./khan script.kh` from inside the checkout.
 
 ---
 
@@ -714,7 +728,11 @@ Produces `khan.exe` (the compiler+VM runtime) and `kh.exe` (package manager) on 
 
 ```bash
 make clean   # remove build artifacts
+make install # install khan and kh to ~/.khan/bin (override with PREFIX=/your/path)
+make uninstall # remove them again
 ```
+
+The [Quick Start](#quick-start) section's `install.sh` does the `git clone` + `make` + `make install` sequence above for you, plus PATH setup — this section is the manual, step-by-step equivalent if you'd rather not pipe a script into `bash`, or need to customize the build (e.g. `LLM=1` for the optional llama.cpp bridge — see the makefile).
 
 ### Exit Codes
 
@@ -725,6 +743,14 @@ make clean   # remove build artifacts
 | `65` | Parse/syntax error |
 | `70` | Runtime error |
 | `74` | I/O error (file not found) |
+
+### CLI flags
+
+| Flag | Meaning |
+|---|---|
+| `khan script.kh [args...]` | Run a script; extra args are available inside it as the global array `argv` |
+| `khan --version` / `-v` | Print the version and exit |
+| `khan --help` / `-h` | Print usage and exit |
 
 ---
 

@@ -34,6 +34,7 @@ static void enable_ansi(void) {}
 #include "vision_lib.h"
 #include "vision_cv.h"
 #include "vision_cascade.h"
+#include "khan_version.h"
 #ifdef LLM_SUPPORT
 #include "llm_lib.h"
 #endif
@@ -57,12 +58,42 @@ static char *read_file(const char *path) {
     return buffer;
 }
 
+static void print_usage(FILE *out) {
+    fprintf(out,
+        "Khan " KHAN_VERSION "\n"
+        "Usage: khan <script.kh> [args...]\n"
+        "       khan --version | -v\n"
+        "       khan --help    | -h\n"
+        "\n"
+        "Once run, extra arguments after the script path are available\n"
+        "inside the script as the global array `argv` (argv[0] is the\n"
+        "first extra argument, matching argv[2] on the C command line —\n"
+        "the script path itself, argv[1] in C terms, is not included).\n");
+}
+
 int main(int argc, char *argv[]) {
     enable_ansi();
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: khan <script.kh> [args...]\n");
+        print_usage(stderr);
         return 64;
+    }
+
+    /* --version/-v and --help/-h are recognized wherever they'd
+       otherwise be read as the script path (argv[1]) — matching how
+       most CLI tools special-case these two regardless of position
+       among the first argument. Anything after a real script path is
+       left alone and passed through to the script as-is (a Khan
+       script named "--version.kh" would still need to be run some
+       other way; this is a deliberate, minor trade-off in favor of
+       the common case working without ceremony). */
+    if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
+        printf("Khan " KHAN_VERSION "\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
+        print_usage(stdout);
+        return 0;
     }
 
     char *source = read_file(argv[1]);
