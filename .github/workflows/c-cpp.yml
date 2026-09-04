@@ -13,7 +13,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Windows-only for now, at the maintainer's request — the
+        # Linux/macOS steps below are left in place (guarded by
+        # `if: matrix.os != 'windows-latest'`, which now never
+        # matches) rather than deleted, so re-adding
+        # `ubuntu-latest, macos-latest` here is a one-line change
+        # to restore full multi-OS coverage later, not a rewrite.
+        os: [windows-latest]
 
     steps:
     - uses: actions/checkout@v4
@@ -210,35 +216,46 @@ jobs:
           khan
           kh
 
-  memory-check:
-    name: Memory leak check (valgrind, Linux)
-    runs-on: ubuntu-latest
-    # Informational, not a merge gate yet: exact leak byte-counts can
-    # shift slightly across glibc/gcc versions from one-time compiler/
-    # parser bookkeeping allocations that are expected (see docs/
-    # memory-notes.md). What matters is whether a leak *scales* with
-    # runtime/iterations, which a fixed-count job like this can't tell
-    # on its own — but this still catches the class of bug found and
-    # fixed in this project (a leak on every function return, a leak on
-    # every redefinition of a nested-closure global) if it's ever
-    # reintroduced, since those are unmissable multi-KB jumps, not a
-    # few dozen fixed bytes.
-    continue-on-error: true
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install valgrind and sqlite3 dev headers
-      run: sudo apt-get update && sudo apt-get install -y valgrind libsqlite3-dev
-
-    - name: Build debug binary
-      run: |
-        gcc -std=c11 -g -O0 -Isrc -D_POSIX_C_SOURCE=200809L \
-          -Wno-implicit-function-declaration -Wno-builtin-declaration-mismatch -Wno-cast-function-type \
-          src/lexer.c src/parser.c src/ast.c src/chunk.c src/value.c src/compiler.c src/vm.c \
-          src/vm_libs.c src/interpreter.c src/khan_stdlib.c src/json_lib.c src/datetime_lib.c \
-          src/requests_lib.c src/webi_lib.c src/sqlite_lib.c src/vision_lib.c src/vision_cv.c \
-          src/vision_cascade.c src/main.c -o khan_dbg -lm -lsqlite3
-
-    - name: Run valgrind against the test suite
-      run: |
-        valgrind --leak-check=full --error-exitcode=99 ./khan_dbg tests/run_all.kh
+  # ── memory-check job temporarily disabled ────────────────────────────
+  # This job only ever ran on ubuntu-latest (valgrind isn't a Windows
+  # tool) — with the matrix above trimmed to Windows-only, this job
+  # would be pure dead weight (checking out code, installing valgrind,
+  # building, and running it for no reason connected to what's actually
+  # being tested right now). Disabled rather than deleted so re-enabling
+  # is a one-line uncomment, not a rewrite, when Linux/macOS coverage
+  # comes back. This job was ALWAYS non-blocking (continue-on-error:
+  # true) and never gated releases or installs — see the comment that
+  # was here explaining exactly that, preserved below.
+  #
+  # memory-check:
+  #   name: Memory leak check (valgrind, Linux)
+  #   runs-on: ubuntu-latest
+  #   # Informational, not a merge gate yet: exact leak byte-counts can
+  #   # shift slightly across glibc/gcc versions from one-time compiler/
+  #   # parser bookkeeping allocations that are expected (see docs/
+  #   # memory-notes.md). What matters is whether a leak *scales* with
+  #   # runtime/iterations, which a fixed-count job like this can't tell
+  #   # on its own — but this still catches the class of bug found and
+  #   # fixed in this project (a leak on every function return, a leak on
+  #   # every redefinition of a nested-closure global) if it's ever
+  #   # reintroduced, since those are unmissable multi-KB jumps, not a
+  #   # few dozen fixed bytes.
+  #   continue-on-error: true
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #
+  #   - name: Install valgrind and sqlite3 dev headers
+  #     run: sudo apt-get update && sudo apt-get install -y valgrind libsqlite3-dev
+  #
+  #   - name: Build debug binary
+  #     run: |
+  #       gcc -std=c11 -g -O0 -Isrc -D_POSIX_C_SOURCE=200809L \
+  #         -Wno-implicit-function-declaration -Wno-builtin-declaration-mismatch -Wno-cast-function-type \
+  #         src/lexer.c src/parser.c src/ast.c src/chunk.c src/value.c src/compiler.c src/vm.c \
+  #         src/vm_libs.c src/interpreter.c src/khan_stdlib.c src/json_lib.c src/datetime_lib.c \
+  #         src/requests_lib.c src/webi_lib.c src/sqlite_lib.c src/vision_lib.c src/vision_cv.c \
+  #         src/vision_cascade.c src/main.c -o khan_dbg -lm -lsqlite3
+  #
+  #   - name: Run valgrind against the test suite
+  #     run: |
+  #       valgrind --leak-check=full --error-exitcode=99 ./khan_dbg tests/run_all.kh

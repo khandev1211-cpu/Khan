@@ -87,13 +87,20 @@ If a claim in this README turns out to not match reality, that's a bug in the RE
 
 ### Install
 
+**Linux / macOS:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/install.sh | bash
 ```
 
-There's no pre-built binary release yet (see the [roadmap](#roadmap) — v1.0 hasn't shipped), so this builds from source rather than downloading a binary, the way `rustup`/`deno`'s installers do when there's nothing prebuilt for your platform yet. It checks for a C compiler and the `libsqlite3` dev headers first and tells you exactly what to install if either is missing — it never runs `sudo` on your behalf. Installs to `~/.khan/bin` (no root needed) and adds that to your `PATH` in whichever shell rc file matches your shell. Safe to re-run. Read [install.sh](install.sh) before piping it into `bash`, same as you should for any curl-pipe installer — that's not Khan-specific advice.
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/install.ps1 | iex
+```
+Needs a GCC toolchain on `PATH` already (MSYS2/MinGW-w64) — the script checks for one and tells you exactly what to install if it's missing, rather than silently installing a toolchain for you. **Caveat, stated plainly**: this script was written and reviewed carefully but has not been run on an actual Windows machine in the environment it was authored in (no such access there) — same class of caveat this project's CI workflow already carries for its own Windows steps. If something in it doesn't work as described, that's a bug — please open an issue with what happened.
 
-After it finishes (and you restart your shell, or `source` the rc file it mentions):
+There's no pre-built binary release yet (see the [roadmap](#roadmap) — v1.0 hasn't shipped), so both installers build from source rather than downloading a binary, the way `rustup`/`deno`'s installers do when there's nothing prebuilt for your platform yet. Neither one runs `sudo`/an elevated prompt on your behalf — they check for what they need and tell you the exact command for your platform if something's missing. Read [install.sh](install.sh) / [install.ps1](install.ps1) before piping either into a shell, same as you should for any curl-pipe installer — that's not Khan-specific advice.
+
+After it finishes — restart your shell on Linux/macOS (or `source` the rc file it mentions); on Windows, `khan` is already on `PATH` in the same PowerShell window, new windows get it automatically too:
 
 ```bash
 khan --version
@@ -120,11 +127,12 @@ print math_sqrt(144)
 ```bash
 git clone https://github.com/khandev1211-cpu/Khan.git
 cd Khan
-make                    # builds ./khan and ./kh in the current directory
-make install            # optional: installs both to ~/.khan/bin, same as install.sh's last step
+make                    # builds khan(.exe) and kh(.exe) in the current directory
+make install            # Linux/macOS only — installs both to ~/.khan/bin, same as install.sh's last step.
+                        # On Windows, use install.ps1 instead (`make install` prints why and stops).
 ```
 
-Without `make install`, run the binaries directly as `./khan script.kh` from inside the checkout.
+Without `make install`, run the binaries directly as `./khan script.kh` (Linux/macOS) or `khan.exe script.kh` (Windows) from inside the checkout.
 
 ---
 
@@ -728,11 +736,13 @@ Produces `khan.exe` (the compiler+VM runtime) and `kh.exe` (package manager) on 
 
 ```bash
 make clean   # remove build artifacts
-make install # install khan and kh to ~/.khan/bin (override with PREFIX=/your/path)
+make install # Linux/macOS: install khan and kh to ~/.khan/bin (override with PREFIX=/your/path)
 make uninstall # remove them again
 ```
 
-The [Quick Start](#quick-start) section's `install.sh` does the `git clone` + `make` + `make install` sequence above for you, plus PATH setup — this section is the manual, step-by-step equivalent if you'd rather not pipe a script into `bash`, or need to customize the build (e.g. `LLM=1` for the optional llama.cpp bridge — see the makefile).
+On Windows, `make install`/`make uninstall` print a pointer to `install.ps1` instead of doing the copy themselves — see that script's own comments for why PATH persistence needs the registry (`[Environment]::SetEnvironmentVariable`), not something a makefile target can do portably.
+
+The [Quick Start](#quick-start) section's `install.sh` (Linux/macOS) / `install.ps1` (Windows) does the `git clone` + `make` + `make install` sequence above for you, plus PATH setup — this section is the manual, step-by-step equivalent if you'd rather not pipe a script into a shell, or need to customize the build (e.g. `LLM=1` for the optional llama.cpp bridge — see the makefile).
 
 ### Exit Codes
 

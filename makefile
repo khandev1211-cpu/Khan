@@ -86,8 +86,13 @@ BINDIR  = $(PREFIX)/bin
 
 install: khan kh
 ifeq ($(OS),Windows_NT)
-	@echo "make install isn't wired up for Windows yet — copy khan.exe/kh.exe"
-	@echo "to a folder of your choice and add that folder to PATH manually."
+	@echo "make install isn't wired up for Windows via this makefile directly --"
+	@echo "use install.ps1 instead, which handles copying khan.exe/kh.exe AND"
+	@echo "persisting PATH the way Python/Node's Windows installers do:"
+	@echo ""
+	@echo "    powershell -ExecutionPolicy Bypass -File install.ps1"
+	@echo ""
+	@echo "(or: irm https://raw.githubusercontent.com/khandev1211-cpu/Khan/main/install.ps1 | iex)"
 	@exit 1
 else
 	mkdir -p "$(BINDIR)"
@@ -111,8 +116,10 @@ endif
 
 uninstall:
 ifeq ($(OS),Windows_NT)
-	@echo "No installer to reverse on Windows — just delete the binaries"
-	@echo "you copied manually."
+	@echo "No makefile-driven uninstall on Windows -- delete the folder"
+	@echo "install.ps1 installed to (default: %USERPROFILE%\.khan) and remove"
+	@echo "it from your User PATH via System Properties, or:"
+	@echo "    [Environment]::SetEnvironmentVariable('Path', (([Environment]::GetEnvironmentVariable('Path','User') -split ';') -notmatch '\.khan\\bin' -join ';'), 'User')"
 else
 	rm -f "$(BINDIR)/khan" "$(BINDIR)/kh"
 	@echo "Removed khan and kh from $(BINDIR)."
