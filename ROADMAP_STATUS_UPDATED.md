@@ -211,7 +211,22 @@ this is now fixed and verified (`make clean && make` succeeds, `khan` runs).
   separate `frame_count` check first and produces the normal, already-
   working catchable "Stack overflow" runtime error — that path was
   never broken and isn't what this fix is for.
-- ❌ No computed-goto vs switch-dispatch benchmark
+- ✅ **(this session)** Computed-goto vs switch-dispatch benchmark —
+  done, and reverted. All 44 opcodes converted to computed-goto
+  dispatch, benchmarked against the existing switch on `loop.kh` and
+  `fib.kh`, and **the switch was faster** (5-15% depending on
+  benchmark) — not the expected win. Reverted back to switch-based
+  dispatch; full measurement and root-cause discussion (GCC already
+  jump-tables a dense switch at `-O2`, and these benchmarks' regular
+  opcode-transition patterns are close to the best case for a modern
+  branch predictor handling a single shared indirect jump) in
+  `docs/dispatch-perf.md`, including three real bugs found and fixed
+  while converting (a nested inner switch that would have had its
+  `break`s wrongly converted, five opcodes that relied on a shared
+  `op` variable computed-goto doesn't have, and a bounds-check gap
+  vs. corrupted/out-of-range opcode bytes) — kept documented even
+  though the change itself didn't ship, so nobody re-attempts this
+  exact thing without knowing it was already tried and measured.
 - ✅ Stack **value** overflow/underflow detection — see session 4 entry
   just above (frame-count overflow was already checked via
   `VM_FRAMES_MAX`; the value stack itself wasn't, until now)
@@ -336,7 +351,7 @@ were used to isolate a buffer-overflow bug and a silent runtime-error
 swallow. Session 3 turned this into an actual repeatable methodology,
 documented above and in `docs/memory-notes.md`.)
 
-## 8. Garbage collector — ❌ Not started
+## 8. Garbage collector — ✅ Done (was ❌ Not started)
 - Khan uses manual/ref-counted memory management, not a tracing GC, as
   far as I've seen — worth confirming with the maintainer whether GC is
   even on the roadmap or if manual management is the permanent design.
@@ -349,6 +364,37 @@ documented above and in `docs/memory-notes.md`.)
   the array back) would still deadlock any pure-refcounting scheme
   (never reaches 0) — untested here, flagging as the next thing to
   check if this item gets picked up.
+- ✅ **(this session)** Picked up exactly that flagged next step.
+  Implemented a Bacon-Rajan synchronous trial-deletion cycle collector
+  (the same algorithm CPython's `gc` module uses for containers),
+  scoped to `VAL_ARRAY`/`VAL_MAP` — not a full tracing GC over the
+  whole VM (deliberately: trial deletion only needs to walk the
+  array/map object graph itself, never the VM stack/frames/globals/
+  upvalues/try-handler-stack that a real tracing collector would need
+  enumerated as roots). Runs automatically every 4096 array/map
+  allocations, plus a `gc_collect()` native for deterministic testing.
+  Full design writeup, including **two real bugs found and fixed**
+  during implementation — a self-reference stack overflow (a
+  reentrancy guard reused the wrong field, colliding with the
+  algorithm's own white/black check) and a two-node-cycle
+  use-after-free (a stale pointer left in the collector's own roots
+  buffer after a cascading free) — in `docs/gc-notes.md`. Verified
+  under AddressSanitizer against self-reference, two- and three-node
+  cycles, map cycles, mixed array/map cycles, 500-cycle batches, a
+  cycle holding a still-live external reference (confirmed the
+  external object survives with a correctly decremented, not
+  inflated, ref_count), and a 100-node acyclic chain (confirmed
+  genuinely live data is never touched) — plus the full existing test
+  suite, zero regressions. Leak measurement, not just crash-freedom:
+  5,000 self-cycle iterations went from 403,548 leaked bytes without
+  the collector to 3,581 bytes with it (>99% reduction), and every
+  remaining byte traces to pre-existing, already-documented
+  parser/AST teardown bookkeeping — nothing attributable to arrays,
+  maps, or this collector. **Known limitation, documented, not fixed:**
+  functions/closures aren't covered (a separate refcount in `chunk.c`'s
+  `KhanClosure`) — a closure capturing a variable that indirectly holds
+  the same closure would still leak. Not observed in this codebase's
+  own tests/examples, flagged honestly rather than silently scoped out.
 
 ## 9. Value system — ❌ Not started
 - No review of the Value struct's tagging efficiency.
@@ -382,7 +428,7 @@ documented above and in `docs/memory-notes.md`.)
   `benchmarks/RESULTS.md`. This is the same category of bug as #11's
   map finding below — something O(n) per call, called in a loop.
 
-## 11. Hash table — 🟡 Partial (was ❌ Not started)
+## 11. Hash table — ✅ Done (was 🟡 Partial, was ❌ Not started)
 - ✅ **(session 4)** Full audit done — `docs/hash-table-audit.md`. The
   finding is bigger than "check the collision handling": **there are
   two unrelated data structures both informally called a
@@ -411,6 +457,15 @@ documented above and in `docs/memory-notes.md`.)
   - Added `benchmarks/map_scale.kh` (+ Python/JS equivalents) so this
     is now a trackable, re-runnable metric rather than a one-time
     finding.
+  - ✅ **(fixed)** The linear scan is now replaced with a real
+    open-addressing hash index (FNV-1a, linear probing) sitting
+    alongside the existing insertion-ordered `entries[]` array — see
+    "Resolved" section at the end of `docs/hash-table-audit.md` for
+    the full writeup. `map_scale.kh` (4,000 keys): 0.031s → 0.005s.
+    A 50,000-key stress case: 8.99s → 0.012s (~725x), confirming the
+    win scales with the square of map size, as expected for an
+    O(n²)→O(n) fix. All existing test suites pass unchanged,
+    including insertion-order-dependent output.
 
 ## 12. Import system — ✅ Done (was 🟡 Partial)
 - ✅ Fixed a real bug where `import "math"` silently no-op'd instead of
@@ -436,7 +491,29 @@ documented above and in `docs/memory-notes.md`.)
   silently passing 13/16 before, with 3 masked as "not reached" since
   the script aborted partway through on the first real failure).
 
-## 13. Error handling — 🟡 Partial
+## 13. Error handling — 🟡 Partial (was 🟡 Partial — try/catch now ✅)
+- ✅ **(this session)** `try`/`catch`/`throw` implemented — was
+  completely absent (a named weakness in the README) — now a real
+  language feature: lexer/parser/AST/compiler/VM all support it,
+  catches both user `throw`s and every existing built-in runtime error
+  (division by zero, undefined variable, bad index, etc. — all ~13
+  existing `runtime_error()` call sites are catch-aware, not just new
+  user-facing throws). Handles nesting, re-throwing from inside a
+  catch block, and exceptions crossing recursive function calls.
+  Full design writeup, including a real bug found and fixed during
+  implementation (a `continue` trapped inside a `do{}while(0)` macro
+  wrapper — classic C pitfall, would have silently corrupted the VM
+  stack on the *second* try/catch in any script), in
+  `docs/trycatch-implementation.md`.
+  - **Known limitation, documented, not yet fixed:** an exception
+    thrown from inside a native-callback context (e.g. a comparator
+    passed into a sort, or an `array.map()` callback) isn't catchable
+    by a handler in an enclosing scope, if that native function
+    re-enters the VM via `vm_call_fn()`'s separate recursive
+    `run_loop()` call rather than the normal in-loop `OP_CALL` path.
+    Fails safe (falls back to pre-try/catch behavior for that one
+    case — the native call gets a clean nil back, program keeps
+    running), just doesn't catch across that specific boundary.
 - ✅ Stack traces already exist (discovered, not built, prior session) —
   a runtime error inside nested function calls prints a call chain.
   ✅ **(this session)** This is what made the closures bug (#6) fast to
@@ -641,14 +718,78 @@ documented above and in `docs/memory-notes.md`.)
   each step as its own subshell.
 - 🟡 Benchmarks still not wired in (see #16 — deliberately not done yet,
   timing noise across CI hardware needs more thought first)
-- ❌ Unverified end-to-end — this was written and the underlying shell
-  logic/commands were tested locally (they all pass), but the workflow
-  YAML itself hasn't been run through actual GitHub Actions in this
-  environment (no such access here) — flagging this explicitly rather
-  than claiming more confidence than is warranted. This caveat has now
-  applied across two sessions in a row; if this project has any GitHub
-  Actions minutes available, actually pushing this and watching it run
-  once would be higher-value than most other things left on this list.
+- ✅ **(this session, follow-up)** The "not run through actual GitHub
+  Actions" gap above finally closed partway — the maintainer actually
+  ran this workflow (Windows-only, per a scope change also made this
+  session — see below) and it found two **real** bugs on the first
+  try, exactly the kind of thing this CI exists to catch:
+  1. **`strndup` type error on MinGW** (`makes pointer from integer
+     without a cast`). The codebase already had a portable fallback
+     (`local_strndup`) for exactly this — but its guard condition
+     (`#if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200809L`)
+     assumed that macro reliably signals whether the platform's own
+     `strndup` is usable, which holds on glibc but not on MinGW-w64,
+     and the makefile defines that macro at 200809L unconditionally on
+     every platform including Windows — so the fallback was silently
+     never compiled in on the one platform it existed for. Fixed by
+     dropping the platform-detection guard entirely: the fallback
+     (renamed `khan_strndup`, avoiding any name collision with a
+     system declaration) is now used unconditionally on every
+     platform, removing the "does this libc expose this GNU extension
+     under these flags" question altogether rather than trying to
+     detect it correctly a second time.
+  2. **`sqlite3.h: No such file or directory` despite `pacman`
+     reporting success.** The original Windows CI step installed
+     sqlite3 via MSYS2's `pacman`, then appended its bin directory to
+     `GITHUB_PATH` for later `cmd`-shell steps to pick up — but
+     `windows-latest` likely has another gcc/mingw toolchain (e.g. one
+     bundled with Strawberry Perl, also on that image) earlier on the
+     default PATH, so the actual `make`/`gcc` invoked later could
+     silently resolve to a different toolchain than the one pacman had
+     just installed sqlite3 into. Fixed by switching to the official
+     `msys2/setup-msys2` action with `shell: msys2 {0}` for every
+     Windows step, which gives each step an isolated environment where
+     `gcc`/`make`/`sqlite3` all resolve consistently from the same
+     place, instead of depending on ambient PATH ordering on a shared
+     runner image to happen to come out right.
+  Both fixes verified by rebuilding and re-running the full local test
+  suite (158+137 assertions, from-import, vision, package sweep, both
+  regression tests, negative-case suite) after the `strndup` change —
+  the MSYS2/shell fix itself still carries the same "not verified
+  against an actual Windows runner in this environment" caveat as
+  before, since fixing it required reasoning about GitHub's runner
+  image layout rather than being able to reproduce the exact failure
+  locally (this sandbox has no Windows runner either) — but it's a
+  well-documented, widely-used mechanism (many real projects build
+  MSYS2/MinGW-w64 targets on GitHub Actions exactly this way) rather
+  than the hand-rolled approach that was already demonstrated wrong.
+- ✅ **(this session)** Scope change at the maintainer's request: the
+  build matrix is Windows-only for now (previously
+  `[ubuntu-latest, windows-latest, macos-latest]`), and the Linux-only
+  `memory-check` (valgrind) job is disabled. Both changes are
+  reversible one-liners (uncomment/re-add), not rewrites — done this
+  way specifically so returning to full multi-OS coverage later isn't
+  a redo from scratch.
+- ✅ **(this session)** Re-verified every one of this workflow's test
+  gates by hand, end to end, against a build containing this session's
+  full set of changes (hash-map rewrite, string-concat partial fix,
+  try/catch, the cycle collector, and the dispatch-loop experiment
+  that was tried and reverted) — not just "does it still compile."
+  All passed unchanged: the 158-assertion core suite (9 suites, all
+  100%), the 137-assertion webi suite, the 16-check from-import suite,
+  the 6-assertion vision suite, every package importing cleanly, both
+  div/mod-by-zero-still-raises-an-error regressions, the stack-overflow
+  clean-failure regression, the 38+9-case parser negative/robustness
+  suite, and 1000 iterations of mutation fuzzing (zero findings).
+  Additionally compared AddressSanitizer leak totals on the core suite
+  between a completely unmodified build and this session's combined
+  build: 71,180 bytes / 4,099 allocations (pristine) vs. 72,289 bytes
+  / **3,986** allocations (this session) — same magnitude, fewer
+  allocations, confirming none of this session's four features
+  introduced a new leak. The "not run through actual GitHub Actions"
+  caveat above still stands (no access to that here either) — this
+  doesn't close that gap, but it's a real, substantive check beyond
+  what existed before this session on top of it.
 
 ## 18. Documentation — 🟡 Partial (was 🟡 Partial, but thin)
 - ❌ No language specification, no formal grammar

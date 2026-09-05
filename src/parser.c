@@ -4,10 +4,27 @@
 #include <string.h>
 #include "parser.h"
 
-// strndup is not available on all platforms (e.g. MinGW).
-// Provide a simple implementation if missing.
-#if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200809L
-static char *local_strndup(const char *s, size_t n) {
+// strndup is a POSIX/GNU extension, not standard C, and its
+// availability is NOT reliably signaled by _POSIX_C_SOURCE on every
+// platform — this used to gate on `_POSIX_C_SOURCE < 200809L` and
+// skip providing a fallback whenever that macro was defined at
+// 200809L or higher, which the makefile does UNCONDITIONALLY on every
+// platform (Linux, macOS, AND Windows) as one of its standard CFLAGS.
+// That's fine on glibc, where _POSIX_C_SOURCE genuinely gates
+// strndup's declaration — but MinGW-w64's <string.h> does not follow
+// the same convention, so real MinGW builds hit "makes pointer from
+// integer without a cast" (strndup silently falling back to an
+// implicit, wrong-return-type declaration) with this exact flag
+// combination. Found via an actual Windows CI failure, not by
+// inspection — the fix here is to stop trying to detect whether the
+// platform provides strndup at all, since that detection was already
+// wrong once and gating logic like it is easy to get subtly wrong
+// again for the next platform/toolchain combination. Providing our
+// own implementation unconditionally, under a name that can't
+// collide with any system declaration, sidesteps the whole class of
+// "does this libc expose this GNU extension under these flags"
+// uncertainty for good.
+static char *khan_strndup(const char *s, size_t n) {
     size_t len = strnlen(s, n);
     char *copy = malloc(len + 1);
     if (copy) {
@@ -16,8 +33,6 @@ static char *local_strndup(const char *s, size_t n) {
     }
     return copy;
 }
-#define strndup local_strndup
-#endif
 
 // Processes backslash escape sequences in a string literal's raw content
 // (the text between the quotes, before any unescaping). Supported escapes:
@@ -202,7 +217,7 @@ static AstNode *print_statement(Parser *parser) {
 static AstNode *let_statement(Parser *parser) {
     int line = parser->previous.line;
     consume(parser, TOKEN_IDENTIFIER, "Expected variable name after 'let'.");
-    const char *name = strndup(parser->previous.start, parser->previous.length);
+    const char *name = khan_strndup(parser->previous.start, parser->previous.length);
     AstNode *initializer = NULL;
     if (match(parser, TOKEN_EQUAL)) {
         initializer = expression(parser);
@@ -238,7 +253,7 @@ static AstNode *while_statement(Parser *parser) {
 static AstNode *for_statement(Parser *parser) {
     int line = parser->previous.line;
     consume(parser, TOKEN_IDENTIFIER, "Expected loop variable name after 'for'.");
-    const char *var_name = strndup(parser->previous.start, parser->previous.length);
+    const char *var_name = khan_strndup(parser->previous.start, parser->previous.length);
     consume(parser, TOKEN_IN, "Expected 'in' after loop variable.");
     AstNode *iterable = expression(parser);
     consume(parser, TOKEN_COLON, "Expected ':' after for-loop iterable.");
@@ -264,7 +279,7 @@ static AstNode *try_statement(Parser *parser) {
     const char *catch_var = NULL;
     if (check(parser, TOKEN_IDENTIFIER)) {
         advance(parser);
-        catch_var = strndup(parser->previous.start, parser->previous.length);
+        catch_var = khan_strndup(parser->previous.start, parser->previous.length);
     }
     consume(parser, TOKEN_COLON, "Expected ':' after 'catch'.");
     AstNode *catch_block = block(parser);
@@ -283,7 +298,7 @@ static AstNode *throw_statement(Parser *parser) {
 static AstNode *fn_declaration(Parser *parser) {
     int line = parser->previous.line;
     consume(parser, TOKEN_IDENTIFIER, "Expected function name after 'fn'.");
-    const char *name = strndup(parser->previous.start, parser->previous.length);
+    const char *name = khan_strndup(parser->previous.start, parser->previous.length);
 
     AstNodeList *params = NULL;
     if (match(parser, TOKEN_LPAREN)) {
@@ -293,7 +308,7 @@ static AstNode *fn_declaration(Parser *parser) {
                 consume(parser, TOKEN_IDENTIFIER, "Expected parameter name.");
                 params = ast_list_append(params,
                     ast_new_identifier(
-                        strndup(parser->previous.start, parser->previous.length),
+                        khan_strndup(parser->previous.start, parser->previous.length),
                         parser->previous.line));
             } while (match(parser, TOKEN_COMMA));
         }
@@ -605,7 +620,7 @@ static AstNode *primary(Parser *parser) {
     }
 
     if (match(parser, TOKEN_IDENTIFIER)) {
-        const char *name = strndup(parser->previous.start, parser->previous.length);
+        const char *name = khan_strndup(parser->previous.start, parser->previous.length);
         return ast_new_identifier(name, parser->previous.line);
     }
 

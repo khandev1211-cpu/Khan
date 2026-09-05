@@ -50,23 +50,57 @@ jobs:
       if: matrix.os == 'macos-latest'
       run: brew install sqlite3 || true
 
-    # windows-latest ships MSYS2 preinstalled, which is where this
-    # project's `gcc` on Windows resolves from. Installing sqlite3
-    # through MSYS2's own package manager (pacman) keeps it in the same
-    # sysroot that gcc already searches, rather than a separately-fetched
-    # copy gcc wouldn't find. NOTE: this step is a best-effort fix based
-    # on how MSYS2-based Windows toolchains are documented to work, not
-    # something verified end-to-end against a real Windows runner — this
-    # repo's CI has never actually been run through GitHub Actions in
-    # this environment (no such access here), a caveat already flagged
-    # in ROADMAP_STATUS_UPDATED.md item #17 before this change and still
-    # true after it for this specific step.
-    - name: Install sqlite3 (Windows, via MSYS2)
+    # windows-latest ships MSYS2 preinstalled, but this project's FIRST
+    # attempt at using it (hand-rolling `pacman -S ...` then appending
+    # to GITHUB_PATH from a `cmd` step) failed on a real run: the build
+    # step still couldn't find sqlite3.h even though pacman reported it
+    # installed successfully. The most likely cause, based on how
+    # GitHub's windows-latest image is documented to be laid out: other
+    # gcc/mingw toolchains (e.g. one bundled with Strawberry Perl, which
+    # that image also ships) can sit earlier on the default PATH than
+    # whatever a plain `echo >> %GITHUB_PATH%` appends, so a LATER
+    # `cmd`-shell step's `make`/`gcc` can silently resolve to a
+    # DIFFERENT toolchain than the one pacman just installed sqlite3
+    # into — explaining both failures in that run at once (the missing
+    # header, and a `strndup` type error consistent with a different
+    # libc than MSYS2 mingw64's).
+    #
+    # Fixed by switching to the official `msys2/setup-msys2` action
+    # instead of hand-rolling this: it installs an isolated MINGW64
+    # environment and gives every subsequent step using `shell: msys2
+    # {0}` that environment's own PATH, with its own gcc/make/sqlite3
+    # all resolved consistently from the same place pacman just
+    # installed them — removing the whole "which gcc does PATH actually
+    # resolve to" question this hand-rolled version depended on getting
+    # right by luck. `pathtype: inherit` keeps the runner's own Python
+    # reachable too (needed by the fuzzing steps further down).
+    #
+    # `make` (the base MSYS package, not `mingw-w64-x86_64-make`) is
+    # installed alongside the mingw64-prefixed packages specifically
+    # because MSYS2's mingw64-prefixed make package has historically
+    # shipped as `mingw32-make.exe`, not a binary literally named
+    # `make` — installing the base package sidesteps that naming
+    # detail entirely; it drives the mingw64 gcc just fine, since make
+    # itself doesn't need to be a mingw64-native binary, only the
+    # compiler it invokes does.
+    #
+    # STILL NOT VERIFIED end-to-end against a real Windows runner in
+    # the environment this was authored in (no such access there) —
+    # same standing caveat as before (ROADMAP_STATUS_UPDATED.md #17),
+    # now carried by a more standard, more likely to be first-try-
+    # correct mechanism than the hand-rolled version that was actually
+    # proven wrong by a real run.
+    - name: Set up MSYS2 (Windows)
       if: matrix.os == 'windows-latest'
-      shell: cmd
-      run: |
-        C:\msys64\usr\bin\pacman.exe -S --noconfirm mingw-w64-x86_64-sqlite3
-        echo C:\msys64\mingw64\bin>> %GITHUB_PATH%
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        pathtype: inherit
+        install: >-
+          make
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-sqlite3
 
     - name: Build (Linux/macOS)
       if: matrix.os != 'windows-latest'
@@ -77,9 +111,8 @@ jobs:
 
     - name: Build (Windows)
       if: matrix.os == 'windows-latest'
-      run: |
-        make
-      shell: cmd
+      shell: msys2 {0}
+      run: make
 
     # ── Tests ──────────────────────────────────────────────────────────
     # This is the step that was missing before: the build previously
@@ -95,8 +128,8 @@ jobs:
 
     - name: Run core language + stdlib test suite (Windows)
       if: matrix.os == 'windows-latest'
-      run: khan.exe tests/run_all.kh
-      shell: cmd
+      shell: msys2 {0}
+      run: ./khan.exe tests/run_all.kh
 
     - name: Run webi test suite — 137 assertions (Linux/macOS)
       if: matrix.os != 'windows-latest'
@@ -104,8 +137,8 @@ jobs:
 
     - name: Run webi test suite — 137 assertions (Windows)
       if: matrix.os == 'windows-latest'
-      run: khan.exe examples\webi_test.kh
-      shell: cmd
+      shell: msys2 {0}
+      run: ./khan.exe examples/webi_test.kh
 
     - name: Run webi from-import regression tests (Linux/macOS)
       if: matrix.os != 'windows-latest'
@@ -113,8 +146,8 @@ jobs:
 
     - name: Run webi from-import regression tests (Windows)
       if: matrix.os == 'windows-latest'
-      run: khan.exe examples\webi_from_import_test.kh
-      shell: cmd
+      shell: msys2 {0}
+      run: ./khan.exe examples/webi_from_import_test.kh
 
     - name: Run vision test suite (Linux/macOS)
       if: matrix.os != 'windows-latest'
@@ -122,8 +155,8 @@ jobs:
 
     - name: Run vision test suite (Windows)
       if: matrix.os == 'windows-latest'
-      run: khan.exe tests\test_vision.kh
-      shell: cmd
+      shell: msys2 {0}
+      run: ./khan.exe tests/test_vision.kh
 
     - name: Verify every package still imports cleanly (Linux/macOS)
       if: matrix.os != 'windows-latest'
@@ -135,6 +168,24 @@ jobs:
           echo "import \"$pkg\"" > /tmp/pkgtest.kh
           echo "print \"ok\"" >> /tmp/pkgtest.kh
           out=$(./khan /tmp/pkgtest.kh 2>&1)
+          if [ "$out" != "ok" ]; then
+            echo "::error::Package '$pkg' failed to import cleanly: $out"
+            fail=1
+          fi
+        done
+        exit $fail
+
+    - name: Verify every package still imports cleanly (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: msys2 {0}
+      run: |
+        fail=0
+        for d in packages/*/; do
+          pkg=$(basename "$d")
+          [ -f "packages/$pkg/package.json" ] || continue
+          echo "import \"$pkg\"" > /tmp/pkgtest.kh
+          echo "print \"ok\"" >> /tmp/pkgtest.kh
+          out=$(./khan.exe /tmp/pkgtest.kh 2>&1)
           if [ "$out" != "ok" ]; then
             echo "::error::Package '$pkg' failed to import cleanly: $out"
             fail=1
@@ -157,12 +208,35 @@ jobs:
         ./khan tests/regression_mod_div_zero.kh mod; code=$?
         if [ "$code" != "70" ]; then echo "::error::mod-by-zero exited $code, expected 70"; exit 1; fi
 
+    - name: Verify div/mod-by-zero still raises a clean error (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: msys2 {0}
+      run: |
+        ./khan.exe tests/regression_mod_div_zero.kh div; code=$?
+        if [ "$code" != "70" ]; then echo "::error::div-by-zero exited $code, expected 70"; exit 1; fi
+        ./khan.exe tests/regression_mod_div_zero.kh mod; code=$?
+        if [ "$code" != "70" ]; then echo "::error::mod-by-zero exited $code, expected 70"; exit 1; fi
+
     - name: Verify stack overflow fails cleanly, not with a segfault (Linux/macOS)
       if: matrix.os != 'windows-latest'
       run: |
         ./khan tests/regression_stack_overflow.kh; code=$?
         if [ "$code" == "139" ]; then echo "::error::Segfaulted (exit 139) — stack bounds checking regressed"; exit 1; fi
         if [ "$code" != "70" ]; then echo "::error::Unexpected exit code $code, expected 70"; exit 1; fi
+
+    - name: Verify stack overflow fails cleanly, not with a segfault (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: msys2 {0}
+      run: |
+        ./khan.exe tests/regression_stack_overflow.kh; code=$?
+        # Windows has no POSIX signal/exit-code convention for a crash
+        # the way exit 139 (128+SIGSEGV) means on Linux/macOS — a crash
+        # here would more likely surface as a large/unusual exit code
+        # or the shell reporting the process was terminated. Checking
+        # specifically for the expected clean exit (70) and flagging
+        # anything else, rather than trying to enumerate every possible
+        # Windows crash-exit-code representation.
+        if [ "$code" != "70" ]; then echo "::error::Unexpected exit code $code, expected 70 (may indicate a crash)"; exit 1; fi
 
     # Parser robustness: curated malformed-input cases (must all fail
     # cleanly, never crash) plus mutation-based fuzzing of the repo's
@@ -177,8 +251,8 @@ jobs:
 
     - name: Parser negative-case + robustness suite (Windows)
       if: matrix.os == 'windows-latest'
-      run: python tests/fuzz/negative_cases.py khan.exe
-      shell: cmd
+      shell: msys2 {0}
+      run: python tests/fuzz/negative_cases.py ./khan.exe
 
     - name: Random mutation fuzzing, 1000 iterations (Linux/macOS)
       if: matrix.os != 'windows-latest'
@@ -186,8 +260,8 @@ jobs:
 
     - name: Random mutation fuzzing, 1000 iterations (Windows)
       if: matrix.os == 'windows-latest'
-      run: python tests/fuzz/random_fuzz.py khan.exe 1000 42
-      shell: cmd
+      shell: msys2 {0}
+      run: python tests/fuzz/random_fuzz.py ./khan.exe 1000 42
 
     - name: Upload Artifacts (Linux)
       if: matrix.os == 'ubuntu-latest'
