@@ -735,7 +735,26 @@ static void compile_expr(AstNode *node) {
             compile_expr(el->node);
             count++;
         }
-        emit2(OP_MAKE_ARRAY, (uint8_t)count, line);
+        /* Bug found and fixed while verifying the test suite actually
+         * runs clean end-to-end (tests/suites/arrays_maps.kh's own
+         * 300-element regression test — deliberately over the 255
+         * boundary — caught this): this always emitted the narrow
+         * OP_MAKE_ARRAY with `(uint8_t)count`, silently wrapping any
+         * literal with more than 255 elements (300 became 300 % 256 =
+         * 44) instead of ever emitting OP_MAKE_ARRAY_WIDE, which the
+         * VM has always correctly supported (see vm.c's OP_MAKE_ARRAY
+         * / OP_MAKE_ARRAY_WIDE case — that side was fine; this was
+         * purely a compiler-side gap). Confirmed present in the
+         * original, unmodified project archive — not a regression
+         * from this session's other changes. Mirrors emit_const()'s
+         * existing narrow/wide selection immediately above in this
+         * file. */
+        if (count <= 255) {
+            emit2(OP_MAKE_ARRAY, (uint8_t)count, line);
+        } else {
+            emit(OP_MAKE_ARRAY_WIDE, line);
+            emit_short((uint16_t)count, line);
+        }
         break;
     }
 
@@ -748,7 +767,15 @@ static void compile_expr(AstNode *node) {
             compile_expr(entry->data.map_entry.value);
             pairs++;
         }
-        emit2(OP_MAKE_MAP, (uint8_t)pairs, line);
+        /* Same bug, same fix as AST_ARRAY just above — see that case's
+         * comment. A map literal with more than 255 key/value pairs
+         * would have silently wrapped `pairs` the same way. */
+        if (pairs <= 255) {
+            emit2(OP_MAKE_MAP, (uint8_t)pairs, line);
+        } else {
+            emit(OP_MAKE_MAP_WIDE, line);
+            emit_short((uint16_t)pairs, line);
+        }
         break;
     }
 

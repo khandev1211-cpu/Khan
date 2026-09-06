@@ -40,11 +40,32 @@ own numbers were stable within ~10% run to run.)
   four — every `OP_ADD`/`OP_GET_LOCAL`/`OP_SET_LOCAL` goes through a
   `value_copy()` (see `docs/memory-notes.md` for what that does) even
   for a plain number, which a real profiler would likely show as a
-  meaningful chunk of this gap. This is the benchmark to re-run first
-  if anyone picks up the roadmap's dispatch-mechanism item (computed
-  goto vs. switch) — right now the VM uses a `switch` (see
-  `docs/opcodes.md`), and this benchmark is exactly the kind of tight
-  dispatch loop where that choice would show up.
+  meaningful chunk of this gap.
+
+  **Update — computed-goto dispatch tried, measured, reverted.** This
+  section used to flag computed goto vs. switch as the thing to try
+  first on this exact benchmark. It was tried: all 44 opcode handlers
+  converted from `switch(op){...}` to a `goto *dispatch_table[...]`
+  scheme (GCC/Clang `&&label` extension), full writeup and the three
+  real bugs found converting it safely in `docs/dispatch-perf.md`.
+  Measured result, median of 5-7 runs each: **switch-based dispatch
+  was faster**, not slower — `loop.kh` 1.00s (switch) vs 1.01-1.12s
+  (computed goto, depending on whether an added bounds-check was
+  included); `fib.kh` 0.152s (switch) vs 0.175s (computed goto), a
+  clearer ~15% regression. Reverted back to the switch-based version
+  that's actually in this repo. The honest read: GCC already compiles
+  a dense small-integer switch like this into a jump table at `-O2`,
+  and this VM's opcode-transition patterns in these two benchmarks are
+  regular/predictable enough that a modern branch predictor handles
+  the switch's single indirect jump about as well as computed goto's
+  many separate ones — the classic "computed goto wins" argument
+  doesn't hold universally, and evidently doesn't hold here. Dispatch
+  mechanism is *not* where Khan's per-op overhead comes from; the
+  `value_copy()`-per-operation cost flagged above is a much more
+  promising thing to profile next. This is now a closed, measured
+  question rather than an open "should try this" — re-litigating it
+  without new information (a different compiler, a very different
+  opcode mix) would just re-derive the same answer.
 
 - **`fib`** (recursive, unmemoized, `fib(28)`) — stresses function
   call/return overhead specifically. Notably, Khan's *relative* gap to
@@ -73,11 +94,17 @@ own numbers were stable within ~10% run to run.)
   `a` is the *accumulated* string (the left operand of `s + "x"`, i.e.
   `s` itself). `strlen()` is O(length), and `a`'s length grows by 1
   every iteration — so the total cost of just these `strlen()` calls
-  across N iterations is `1 + 2 + 3 + ... + N` = O(N²), independent of
-  anything else `+` does. This is the entire quadratic signature by
-  itself; the actual `malloc`+`memcpy` work is only O(N) total.
+  across N iterations is `1 + 2 + 3 + ... + N` = O(N²).
 
-  **Why this wasn't fixed here rather than just documented:** Khan's
+  **Correction to this doc's earlier claim:** this previously said "the
+  actual `malloc`+`memcpy` work is only O(N) total" — that's wrong. The
+  `memcpy(s, a.as.string, la)` right after copies the *entire* `la`-byte
+  accumulator on every iteration too, for the same reason the `strlen()`
+  does: `la` grows by 1 each time, so `sum(1..N) = O(N²)` applies to the
+  memcpy just as much as the strlen. Both are separate, independently
+  quadratic contributors — not one quadratic cost plus one linear one.
+
+  **Why this wasn't fully fixed here rather than just documented:** Khan's
   `VAL_STRING` currently stores a bare `char *` (see `value_string()` in
   `src/value.c` — no length field). Fixing this properly means giving
   strings a cached length (or a full rope/builder type) — a change that
@@ -90,6 +117,23 @@ own numbers were stable within ~10% run to run.)
   finding from this whole benchmark suite for whoever picks up that
   work — the fix is well-understood even though it wasn't small enough
   to do here.
+
+  **Update — partial fix applied (see `docs/hash-table-audit.md`'s
+  sibling writeup doesn't cover this; tracked here instead):** the
+  redundant-scan half of this (`str_length()` cached-header lookup,
+  touching only `value_string()`/`value_copy()`/`value_free()` in
+  `value.c` plus the `OP_ADD` read site in `vm.c` — all other 85
+  `.as.string` sites verified unaffected) is now in place. Measured:
+  20k → 100k (5x input) now takes 0.017s → 1.0s (~59x), down from
+  0.03s → 2.42s (~80x) pre-fix — a genuine ~2.4x win, but **still
+  worse-than-linear, not the full O(N²)→O(N) fix.** The remaining
+  quadratic cost turned out not to be in `OP_ADD` at all — see the
+  comment in `vm.c`'s `OP_ADD` case for the actual root cause
+  (`OP_SET_LOCAL`/`OP_SET_GLOBAL`/`OP_SET_UPVALUE` deep-copying the
+  result back into the variable on every assignment). Fully closing
+  this needs a change to the VM's copy discipline on assignment, not
+  just to string construction — left open, precisely scoped, for
+  whoever picks it up next.
 
 - **`json_bench`** (50,000 encode+decode round-trips of a small nested
   object) — Khan roughly ties Node and **beats Python** here (0.109s vs

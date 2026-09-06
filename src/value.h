@@ -5,6 +5,7 @@
  * value.h — VM-specific re-exports of core types.
  */
 
+#include <stddef.h> /* size_t, for str_length() */
 #include "interpreter.h"
 
 /* ── VM specific ── */
@@ -16,5 +17,6 @@
 int  vm_is_truthy(Value v);
 int  vm_values_equal(Value a, Value b);
 void vm_print_value(Value v);
+size_t str_length(const char *s);
 
 #endif
