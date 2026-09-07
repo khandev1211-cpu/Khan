@@ -200,27 +200,58 @@ jobs:
     # program must fail cleanly rather than segfault (exit 139). A
     # segfault, a zero exit code, or any other exit code here means one
     # of those protections regressed.
+    #
+    # `set +e` / `set -e` around each khan invocation below is load-
+    # bearing, not decoration: GitHub Actions runs every `run:` block
+    # (bash on Linux/macOS, and msys2/setup-msys2's `msys2 {0}` shell
+    # on Windows) with errexit enabled by default, meaning the script
+    # aborts immediately the instant any command exits non-zero —
+    # including the khan invocations here, whose whole POINT is to
+    # exit non-zero (70). Without `set +e` first, the script never
+    # reaches the `code=$?`/`if` check that's supposed to validate
+    # that exit code — it just dies right there, and GitHub reports
+    # the step as failed with whatever khan's own exit code was,
+    # which happens to look exactly like a real failure even on a
+    # totally correct run. Found via an actual CI run failing on
+    # exactly this (khan printed the right error and exited 70 — the
+    # correct behavior — and the step still went red), not by
+    # inspection.
     - name: Verify div/mod-by-zero still raises a clean error (Linux/macOS)
       if: matrix.os != 'windows-latest'
       run: |
-        ./khan tests/regression_mod_div_zero.kh div; code=$?
+        set +e
+        ./khan tests/regression_mod_div_zero.kh div
+        code=$?
+        set -e
         if [ "$code" != "70" ]; then echo "::error::div-by-zero exited $code, expected 70"; exit 1; fi
-        ./khan tests/regression_mod_div_zero.kh mod; code=$?
+        set +e
+        ./khan tests/regression_mod_div_zero.kh mod
+        code=$?
+        set -e
         if [ "$code" != "70" ]; then echo "::error::mod-by-zero exited $code, expected 70"; exit 1; fi
 
     - name: Verify div/mod-by-zero still raises a clean error (Windows)
       if: matrix.os == 'windows-latest'
       shell: msys2 {0}
       run: |
-        ./khan.exe tests/regression_mod_div_zero.kh div; code=$?
+        set +e
+        ./khan.exe tests/regression_mod_div_zero.kh div
+        code=$?
+        set -e
         if [ "$code" != "70" ]; then echo "::error::div-by-zero exited $code, expected 70"; exit 1; fi
-        ./khan.exe tests/regression_mod_div_zero.kh mod; code=$?
+        set +e
+        ./khan.exe tests/regression_mod_div_zero.kh mod
+        code=$?
+        set -e
         if [ "$code" != "70" ]; then echo "::error::mod-by-zero exited $code, expected 70"; exit 1; fi
 
     - name: Verify stack overflow fails cleanly, not with a segfault (Linux/macOS)
       if: matrix.os != 'windows-latest'
       run: |
-        ./khan tests/regression_stack_overflow.kh; code=$?
+        set +e
+        ./khan tests/regression_stack_overflow.kh
+        code=$?
+        set -e
         if [ "$code" == "139" ]; then echo "::error::Segfaulted (exit 139) — stack bounds checking regressed"; exit 1; fi
         if [ "$code" != "70" ]; then echo "::error::Unexpected exit code $code, expected 70"; exit 1; fi
 
@@ -228,7 +259,10 @@ jobs:
       if: matrix.os == 'windows-latest'
       shell: msys2 {0}
       run: |
-        ./khan.exe tests/regression_stack_overflow.kh; code=$?
+        set +e
+        ./khan.exe tests/regression_stack_overflow.kh
+        code=$?
+        set -e
         # Windows has no POSIX signal/exit-code convention for a crash
         # the way exit 139 (128+SIGSEGV) means on Linux/macOS — a crash
         # here would more likely surface as a large/unusual exit code
