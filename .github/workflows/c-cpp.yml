@@ -285,7 +285,20 @@ jobs:
 
     - name: Parser negative-case + robustness suite (Windows)
       if: matrix.os == 'windows-latest'
-      shell: msys2 {0}
+      # NOT msys2 {0} here, unlike the build/other test steps above —
+      # MSYS2's shell environment (even with `pathtype: inherit` on the
+      # setup step above) doesn't expose the runner's own Windows
+      # Python on PATH, which this step needs (`python: command not
+      # found` on an actual run — found the same way as the earlier
+      # bugs in this file: an actual CI failure, not inspection). Using
+      # `pwsh` instead sidesteps that: it's windows-latest's default
+      # shell and has the runner's Python on PATH already. Safe here
+      # specifically because this step only needs to *invoke*
+      # already-built khan.exe as a subprocess argument — no bash-
+      # specific syntax needed (unlike the div/mod-by-zero and stack-
+      # overflow checks elsewhere, which genuinely need bash for
+      # `set +e`/`$?`/`[ ]` and do need msys2 {0}).
+      shell: pwsh
       run: python tests/fuzz/negative_cases.py ./khan.exe
 
     - name: Random mutation fuzzing, 1000 iterations (Linux/macOS)
@@ -294,7 +307,7 @@ jobs:
 
     - name: Random mutation fuzzing, 1000 iterations (Windows)
       if: matrix.os == 'windows-latest'
-      shell: msys2 {0}
+      shell: pwsh
       run: python tests/fuzz/random_fuzz.py ./khan.exe 1000 42
 
     - name: Upload Artifacts (Linux)
