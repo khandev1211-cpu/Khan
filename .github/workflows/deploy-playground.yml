@@ -27,10 +27,19 @@ name: Deploy Playground to GitHub Pages
 # it's the version GitHub tests and documents, not a shortened one this
 # project came up with independently.
 #
-# One-time setup required before this can succeed: in the repo's
-# Settings → Pages, set "Source" to "GitHub Actions" (not "Deploy from
-# a branch"). Without that, this workflow will run but the deployment
-# step will fail with a permissions/configuration error.
+# One-time setup REQUIRED (confirmed by an actual failed run — this
+# isn't a "just in case" note) before this workflow can succeed:
+#   1. Go to the repo on github.com → Settings → Pages
+#   2. Under "Build and deployment" → "Source", change the dropdown
+#      from "Deploy from a branch" to "GitHub Actions"
+#   3. Re-run this workflow (Actions tab → this workflow → "Re-run
+#      all jobs", or push again, or use "Run workflow" if
+#      workflow_dispatch is available)
+# Without step 2, this workflow's `configure-pages`/`deploy-pages`
+# steps fail with "Get Pages site failed" / "Resource not accessible
+# by integration" — the default GITHUB_TOKEN this workflow runs with
+# can DEPLOY to an existing Pages site but cannot CREATE one from
+# scratch; only a repo admin doing step 2 by hand in the web UI can.
 
 on:
   push:
@@ -65,20 +74,18 @@ jobs:
       # configuration, sets the correct base URL for the artifact
       # that follows) — required by GitHub's own documented pattern,
       # and was missing entirely from an earlier version of this file.
-      # `enablement: true` makes this step attempt to enable Pages via
-      # the API automatically if it isn't already, rather than only
-      # working once the repo's Settings → Pages → Source has been
-      # switched to "GitHub Actions" by hand first. Best-effort, not a
-      # substitute for that manual step: it needs the same `pages:
-      # write` permission this workflow already grants above, but some
-      # org-level policies can still block auto-enablement regardless —
-      # if this step still fails with "Get Pages site failed" after
-      # adding this, the one-time manual toggle really is required:
-      # repo Settings → Pages → Source → "GitHub Actions".
+      # `enablement: true` was tried here to auto-create the Pages site
+      # via the API instead of requiring the manual toggle below — an
+      # actual run confirmed it does NOT work with this workflow's
+      # default GITHUB_TOKEN permissions ("Resource not accessible by
+      # integration": creating a Pages site for the first time needs
+      # repo-admin-level access that `pages: write` alone doesn't grant,
+      # even though that same permission is enough to DEPLOY to a site
+      # that already exists). Removed rather than left in non-
+      # functional — the manual step below is confirmed required, not
+      # just documented as a possibility.
       - name: Setup Pages
         uses: actions/configure-pages@v4
-        with:
-          enablement: true
 
       - name: Upload playground/ as the Pages artifact
         uses: actions/upload-pages-artifact@v3

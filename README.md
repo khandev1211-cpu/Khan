@@ -83,7 +83,7 @@ If a claim in this README turns out to not match reality, that's a bug in the RE
 
 ## Quick Start
 
-**Want to try it before installing anything?** [Try Khan in your browser](https://khandev1211-cpu.github.io/Khan/) — the real compiler and VM, compiled to WebAssembly with Emscripten, running client-side with no server involved. (Deployed via GitHub Pages from `playground/` — see [.github/workflows/deploy-playground.yml](.github/workflows/deploy-playground.yml). If that link 404s, GitHub Pages likely isn't enabled yet for this repo — Settings → Pages → Source: GitHub Actions turns it on, then push once or run the workflow manually from the Actions tab.) See [playground/README.md](playground/README.md) for what's and isn't included in that build.
+**Want to try it before installing anything?** [Try Khan in your browser](https://khandev1211-cpu.github.io/Khan/) — the real compiler and VM, compiled to WebAssembly with Emscripten, running client-side with no server involved. (Deployed via GitHub Pages from `playground/` — see [.github/workflows/deploy-playground.yml](.github/workflows/deploy-playground.yml). If that link 404s, GitHub Pages needs a one-time manual enable that a workflow file can't do on its own — confirmed by an actual failed deploy, not just a guess: repo Settings → Pages → Source → "GitHub Actions", then re-run the workflow from the Actions tab.) See [playground/README.md](playground/README.md) for what's and isn't included in that build.
 
 ### Install
 
@@ -104,6 +104,7 @@ After it finishes — restart your shell on Linux/macOS (or `source` the rc file
 
 ```bash
 khan --version
+khan                    # starts an interactive REPL — see "Interactive REPL" below
 khan path/to/script.kh
 
 # Install packages
@@ -759,8 +760,34 @@ The [Quick Start](#quick-start) section's `install.sh` (Linux/macOS) / `install.
 | Flag | Meaning |
 |---|---|
 | `khan script.kh [args...]` | Run a script; extra args are available inside it as the global array `argv` |
+| `khan` (no arguments) | Starts an interactive REPL — see below |
 | `khan --version` / `-v` | Print the version and exit |
 | `khan --help` / `-h` | Print usage and exit |
+
+### Interactive REPL
+
+Running `khan` with no arguments — the same trigger `python` uses — starts an interactive session: type a line, see it run immediately, keep going.
+
+```
+$ khan
+Khan 0.1.0-dev — interactive mode. Type 'exit' or press Ctrl+D to quit.
+khan> let x = 10
+khan> x * 5
+50
+khan> fn square(n):
+...     return n * n
+...
+khan> square(7)
+49
+khan> exit
+```
+
+A few things worth knowing about how it behaves:
+- **Variables persist across lines** — one shared VM instance runs every line you type, so `let x = 10` on one line is still visible as `x` on the next, the whole point of a REPL over running one-off scripts.
+- **A bare expression auto-prints its value** (`x * 5` above shows `50` with no explicit `print`) — same convention as Python's REPL. Statements that don't produce a value (`let`, `if`, `fn`, …) print nothing, same as always.
+- **Multi-line blocks**: Khan is indentation-based like Python, so a line ending in `:` (an `fn`/`if`/`while`/`try` header) switches the prompt to `...` and keeps reading indented lines until a **blank line** closes the block, then runs the whole thing at once. This is a simpler rule than Python's own indentation-tracking REPL, but it means the same thing in practice: finish a block, then hit Enter on an empty line.
+- **A runtime error doesn't end the session** — it prints and the REPL keeps going with all your variables intact, the same way a real interactive interpreter should behave, rather than one mistake forcing a restart.
+- Type `exit`, `quit` (with or without `()`), or press Ctrl+D to leave.
 
 ---
 
@@ -828,7 +855,7 @@ package.
 | `webi` — routing, security (CSRF/rate-limit/API-key/CORS), templates, static files, `after()` hooks | ✅ Complete |
 | `vision` — image I/O, filters, thresholding, morphology, real Haar-cascade face detection | ✅ Complete |
 | `ocr` — Tesseract bridge: text, word boxes, orientation correction, searchable PDF, whitelisting, multi-language | ✅ Complete |
-| Fuzz testing (parser), memory stress testing (10M-allocation scale), CI across Linux/Windows/macOS | ✅ Complete — CI gates on the full test suite (not just "does it compile"), including a 1000-iteration mutation-fuzzing run |
+| Fuzz testing (parser), memory stress testing (10M-allocation scale), CI | ✅ Complete — CI gates on the full test suite (not just "does it compile"), including a 1000-iteration mutation-fuzzing run. **Windows-only for now** (was Linux/Windows/macOS — narrowed at the maintainer's request; the Linux/macOS steps are still in the workflow file, just inactive, so restoring them later is a one-line change). Running this against a real Windows runner for the first time found and fixed several genuine cross-platform bugs — a `strndup` portability issue, an MSYS2/PATH toolchain mismatch, and two CI-script-only bugs (bash's errexit swallowing an intentionally-nonzero exit code check, and MSYS2's shell not exposing Python) — see `ROADMAP_STATUS_UPDATED.md` item 17 for the full account. |
 | `{}` map as a real hash table | ✅ Complete — open-addressing (FNV-1a), see [docs/hash-table-audit.md](docs/hash-table-audit.md) |
 | String concatenation performance | 🟡 Partial — redundant rescan fixed (~2.4x), full O(n²) root cause still open, see [benchmarks/RESULTS.md](benchmarks/RESULTS.md) |
 | Mutable closures (currently value-capture only) | 🔲 Planned |
