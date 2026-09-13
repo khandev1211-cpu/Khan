@@ -40,7 +40,7 @@
 ; compiling or running this doesn't work as described, that's a bug —
 ; please open an issue with what happened.
 
-#define KhanVersion "0.1.0-dev"
+#define KhanVersion "0.010.0"
 #define KhanAppName "Khan"
 #define KhanPublisher "Khan Language Project"
 #define KhanURL "https://github.com/khandev1211-cpu/Khan"
