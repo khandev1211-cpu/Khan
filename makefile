@@ -11,7 +11,36 @@ CFLAGS  = -std=c11 -Wall -Wextra -O2 -Isrc \
           -Wno-cast-function-type
 
 ifeq ($(OS),Windows_NT)
-    LDFLAGS  = -lm -lwinhttp -lshell32 -lws2_32 -ladvapi32 -lsqlite3
+    # -static (+ the two -static-lib* flags for good measure) links
+    # everything statically into khan.exe/kh.exe, including sqlite3 —
+    # WITHOUT this, MinGW dynamically links against libsqlite3-0.dll
+    # (and libgcc/libwinpthread's own DLLs) from wherever the build
+    # machine's MSYS2 install happens to keep them, which is NOT a
+    # normal Windows machine's PATH. The result: khan.exe builds and
+    # runs fine on the machine that built it, then fails on every
+    # OTHER machine with "libsqlite3-0.dll was not found" the instant
+    # someone actually installs it — found via a real install (a
+    # screenshot of exactly that dialog), not by inspection.
+    #
+    # VERIFIED (not just asserted) via an actual x86_64-w64-mingw32-gcc
+    # cross-compile of this whole codebase + a stub sqlite3, followed by
+    # objdump -p on the result: with -static, the ONLY DLLs the binary
+    # imports from are ADVAPI32.dll, KERNEL32.dll, msvcrt.dll,
+    # WINHTTP.dll, WS2_32.dll — every one of those ships with Windows
+    # itself on every machine, nothing MinGW-specific (no
+    # libgcc_s_seh-1.dll, no libwinpthread-1.dll) survived in the import
+    # table at all. That cross-compile used a stub in place of the real
+    # sqlite3 (no MinGW-targeted sqlite3 package was available to test
+    # against directly) — if MSYS2's real `mingw-w64-x86_64-sqlite3`
+    # package turns out to only ship a dynamic import library and no
+    # true static libsqlite3.a in some future version, `-static` here
+    # will fail LOUDLY at link time ("cannot find -lsqlite3" or similar),
+    # not silently produce another DLL-dependent binary — if that
+    # happens, the fallback is bundling libsqlite3-0.dll (found under
+    # MSYS2's mingw64\bin) alongside khan.exe/kh.exe in
+    # khan-installer.iss's [Files] section instead of relying on static
+    # linking for that one library specifically.
+    LDFLAGS  = -static -static-libgcc -static-libstdc++ -lm -lwinhttp -lshell32 -lws2_32 -ladvapi32 -lsqlite3
     EXT      = .exe
 else
     LDFLAGS  = -lm -lsqlite3
