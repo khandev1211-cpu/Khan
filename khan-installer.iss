@@ -25,7 +25,9 @@
 ;      This produces khan.exe and kh.exe in the project root.
 ;   3. Open this file in Inno Setup (or run it via the command line:
 ;      "ISCC.exe khan-installer.iss"), with khan.exe/kh.exe/packages/
-;      sitting in the SAME directory as this .iss file (adjust the
+;      AND assets/khan-icon.ico (the project's icon — see that folder,
+;      generated from assets/khan-icon.svg) sitting in the SAME
+;      directory as this .iss file (adjust the
 ;      [Files] Source paths below if your layout differs).
 ;   4. Inno Setup produces khan-setup.exe in an Output\ subfolder —
 ;      THAT file is what gets distributed/attached to a GitHub Release
@@ -40,7 +42,7 @@
 ; compiling or running this doesn't work as described, that's a bug —
 ; please open an issue with what happened.
 
-#define KhanVersion "0.010.0"
+#define KhanVersion "0.011.0"
 #define KhanAppName "Khan"
 #define KhanPublisher "Khan Language Project"
 #define KhanURL "https://github.com/khandev1211-cpu/Khan"
@@ -80,6 +82,10 @@ WizardStyle=modern
 
 OutputDir=Output
 OutputBaseFilename=khan-setup-{#KhanVersion}
+; Both the installer .exe itself AND the shortcuts Inno Setup creates
+; use this — without it, khan-setup.exe and its Start Menu/Desktop
+; shortcuts all show Windows' generic blank-program icon.
+SetupIconFile=assets\khan-icon.ico
 Compression=lzma2
 SolidCompression=yes
 
@@ -108,14 +114,15 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 ; "HOW TO BUILD" comment at the top.
 Source: "khan.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "kh.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "assets\khan-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "packages\*"; DestDir: "{app}\packages"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "\.git\*"
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion; DestName: "README.txt"
 
 [Icons]
-Name: "{group}\Khan Interpreter"; Filename: "{app}\khan.exe"; Comment: "Start the Khan interactive REPL"
-Name: "{group}\Khan Documentation"; Filename: "{#KhanURL}"
+Name: "{group}\Khan Interpreter"; Filename: "{app}\khan.exe"; IconFilename: "{app}\khan-icon.ico"; Comment: "Start the Khan interactive REPL"
+Name: "{group}\Khan Documentation"; Filename: "{#KhanURL}"; IconFilename: "{app}\khan-icon.ico"
 Name: "{group}\Uninstall Khan"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Khan"; Filename: "{app}\khan.exe"; Tasks: desktopicon
+Name: "{autodesktop}\Khan"; Filename: "{app}\khan.exe"; IconFilename: "{app}\khan-icon.ico"; Tasks: desktopicon
 
 [Run]
 ; Offers to open a REPL right when setup finishes — the installer

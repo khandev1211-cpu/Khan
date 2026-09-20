@@ -320,6 +320,46 @@ static AstNode *fn_declaration(Parser *parser) {
     return ast_new_fn_decl(name, params, body, line);
 }
 
+// class Name: <one or more `fn method(self, ...): ...` bodies>
+//
+// `self` is an ordinary, explicit first parameter — same as Python's own
+// actual convention (a Python method's `self` is a real parameter too;
+// `d.bark()` is sugar for `Dog.bark(d)`), not compiler magic. This keeps
+// method dispatch a straightforward "prepend the receiver as arg 0" rule
+// (see finish_call's TOKEN_DOT handling and AST_METHOD_CALL) rather than
+// needing a bound-method value type — see docs/classes.md for the fuller
+// design writeup and its v1 scope limits (no inheritance, no `let m =
+// obj.method` bound-method references).
+static AstNode *class_declaration(Parser *parser) {
+    int line = parser->previous.line;
+    consume(parser, TOKEN_IDENTIFIER, "Expected class name after 'class'.");
+    const char *name = khan_strndup(parser->previous.start, parser->previous.length);
+    consume(parser, TOKEN_COLON, "Expected ':' after class name.");
+
+    // Reuses block()'s indent/dedent handling exactly like a function body
+    // does, then requires every statement inside to be a `fn` declaration
+    // — a class body isn't just "a block of statements" the way a function
+    // body is, it's specifically a set of methods.
+    AstNode *body = block(parser);
+    AstNodeList *methods = NULL;
+    for (AstNodeList *s = body->data.statements; s; s = s->next) {
+        if (s->node->type != AST_FN_DECL) {
+            error(parser, "Only 'fn' method declarations are allowed directly inside a class body.");
+            continue;
+        }
+        methods = ast_list_append(methods, s->node);
+        s->node = NULL; // ownership transferred to `methods`; don't let
+                         // the shell block below free it out from under us
+    }
+    // Free just the now-emptied AST_BLOCK shell and its list nodes — every
+    // method AstNode itself was already detached above.
+    ast_free(body);
+
+    AstNode *node = ast_new_class_stmt(name, methods, line);
+    free((void *)name); // ast_new_class_stmt strdup'd it
+    return node;
+}
+
 static AstNode *return_statement(Parser *parser) {
     int line = parser->previous.line;
     AstNode *value = expression(parser);
@@ -402,6 +442,7 @@ static AstNode *from_import_statement(Parser *parser) {
 static AstNode *declaration(Parser *parser) {
     if (match(parser, TOKEN_LET))    return let_statement(parser);
     if (match(parser, TOKEN_FN))     return fn_declaration(parser);
+    if (match(parser, TOKEN_CLASS))  return class_declaration(parser);
     if (match(parser, TOKEN_IMPORT)) return import_statement(parser);
     if (match(parser, TOKEN_FROM))   return from_import_statement(parser);
 
@@ -452,6 +493,16 @@ static AstNode *assignment(Parser *parser) {
             int line = left->line;
             free(left); // shell only — children reused, not freed
             return ast_new_index_assign(object, index, value, line);
+        }
+        if (left->type == AST_GET_ATTR) {
+            AstNode *value = assignment(parser);
+            AstNode *object = left->data.get_attr.object;
+            const char *attr_name = left->data.get_attr.attr_name;
+            int line = left->line;
+            AstNode *result = ast_new_set_attr(object, attr_name, value, line);
+            free((void *)attr_name); // ast_new_set_attr strdup'd its own copy
+            free(left); // shell only — object reused, not freed
+            return result;
         }
         if (left->type != AST_IDENTIFIER) {
             error(parser, "Left-hand side of assignment must be a variable.");
@@ -587,6 +638,34 @@ static AstNode *finish_index(Parser *parser, AstNode *object) {
     return ast_new_index(object, index, parser->previous.line);
 }
 
+// obj.name -> AST_GET_ATTR (field read; caller may later turn this into
+// AST_SET_ATTR if a '=' follows, see assignment()'s AST_GET_ATTR case)
+// obj.name(args) -> AST_METHOD_CALL directly, skipping AST_GET_ATTR
+// entirely — see AST_METHOD_CALL's own doc comment in ast.h for why this
+// is fused into one node rather than composed from a GET_ATTR + a call.
+static AstNode *finish_dot(Parser *parser, AstNode *object) {
+    consume(parser, TOKEN_IDENTIFIER, "Expected property or method name after '.'.");
+    const char *name = khan_strndup(parser->previous.start, parser->previous.length);
+    int line = parser->previous.line;
+
+    if (match(parser, TOKEN_LPAREN)) {
+        AstNodeList *args = NULL;
+        if (!check(parser, TOKEN_RPAREN)) {
+            do {
+                args = ast_list_append(args, expression(parser));
+            } while (match(parser, TOKEN_COMMA));
+        }
+        consume(parser, TOKEN_RPAREN, "Expected ')' after method arguments.");
+        AstNode *node = ast_new_method_call(object, name, args, line);
+        free((void *)name); // ast_new_method_call strdup'd it
+        return node;
+    }
+
+    AstNode *node = ast_new_get_attr(object, name, line);
+    free((void *)name); // ast_new_get_attr strdup'd it
+    return node;
+}
+
 static AstNode *call(Parser *parser) {
     AstNode *left = primary(parser);
 
@@ -595,6 +674,8 @@ static AstNode *call(Parser *parser) {
             left = finish_call(parser, left);
         } else if (match(parser, TOKEN_LBRACKET)) {
             left = finish_index(parser, left);
+        } else if (match(parser, TOKEN_DOT)) {
+            left = finish_dot(parser, left);
         } else {
             break;
         }

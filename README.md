@@ -1,5 +1,7 @@
 # Khan Programming Language
 
+<p align="center"><img src="assets/khan-icon-256.png" width="128" height="128" alt="Khan logo"></p>
+
 ![Language](https://img.shields.io/badge/language-C11-blue)
  ![Build](https://img.shields.io/badge/build-make-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)

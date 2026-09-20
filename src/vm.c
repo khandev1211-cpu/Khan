@@ -758,14 +758,20 @@ InterpretResult vm_run(VM *vm, KhanFunction *script) {
     return run_loop(vm, 1);
 }
 
-Value vm_call_fn(VM *vm, const char *name, int argc, Value *args) {
-    Value fn_val;
-    if (!global_get(vm, name, &fn_val)) {
-        fprintf(stderr, "[VM] vm_call_fn: function '%s' not found\n", name);
-        return value_nil();
-    }
+/* Shared core of vm_call_fn(): given an ALREADY-RESOLVED function Value
+ * (not looked up by name), pushes it + its args, runs a nested run_loop
+ * to completion, and returns its result — exactly the "call this Khan
+ * function and get its return value back" primitive that native code
+ * needs for callbacks (array.map/sort, etc.), and that class support
+ * needs for two different things: invoking `__init__` during
+ * instantiation (see OP_CALL's VAL_MAP branch) and dispatching a method
+ * call (see OP_CALL_METHOD) — both call this directly rather than
+ * duplicating the frame-setup/run_loop/cleanup dance a third and fourth
+ * time. `fn_val` must be VAL_FUNCTION; callers are expected to have
+ * already checked that (this returns nil and does nothing otherwise,
+ * matching vm_call_fn's own existing not-a-function handling below). */
+static Value vm_call_value(VM *vm, Value fn_val, int argc, Value *args) {
     if (fn_val.type != VAL_FUNCTION) {
-        fprintf(stderr, "[VM] vm_call_fn: '%s' is not a function (type %d)\n", name, fn_val.type);
         return value_nil();
     }
 
@@ -775,8 +781,6 @@ Value vm_call_fn(VM *vm, const char *name, int argc, Value *args) {
 
     KhanFunction *fn = (KhanFunction*)fn_val.as.function.body;
     if (fn->arity != argc) {
-        fprintf(stderr, "[VM] vm_call_fn: '%s' expects %d args, got %d\n", name, fn->arity, argc);
-        // Clean up stack
         for (int i = 0; i <= argc; i++) value_free(pop(vm));
         return value_nil();
     }
@@ -793,8 +797,6 @@ Value vm_call_fn(VM *vm, const char *name, int argc, Value *args) {
     InterpretResult res = run_loop(vm, initial_frame_count);
 
     if (res != INTERPRET_OK) {
-        // Error occurred. run_loop exited early.
-        // We must manually pop the function and args to prevent stack leaks.
         while (vm->frame_count >= initial_frame_count) {
              CallFrame *f = &vm->frames[--vm->frame_count];
              for (Value *slot = f->slots; slot < vm->stack_top; slot++) {
@@ -806,4 +808,17 @@ Value vm_call_fn(VM *vm, const char *name, int argc, Value *args) {
     }
 
     return pop(vm);
+}
+
+Value vm_call_fn(VM *vm, const char *name, int argc, Value *args) {
+    Value fn_val;
+    if (!global_get(vm, name, &fn_val)) {
+        fprintf(stderr, "[VM] vm_call_fn: function '%s' not found\n", name);
+        return value_nil();
+    }
+    if (fn_val.type != VAL_FUNCTION) {
+        fprintf(stderr, "[VM] vm_call_fn: '%s' is not a function (type %d)\n", name, fn_val.type);
+        return value_nil();
+    }
+    return vm_call_value(vm, fn_val, argc, args);
 }

@@ -204,6 +204,36 @@ AstNode *ast_new_throw_stmt(AstNode *expr, int line) {
     return node;
 }
 
+AstNode *ast_new_class_stmt(const char *class_name, AstNodeList *methods, int line) {
+    AstNode *node = ast_new_node(AST_CLASS_STMT, line);
+    node->data.class_stmt.class_name = strdup(class_name);
+    node->data.class_stmt.methods = methods;
+    return node;
+}
+
+AstNode *ast_new_get_attr(AstNode *object, const char *attr_name, int line) {
+    AstNode *node = ast_new_node(AST_GET_ATTR, line);
+    node->data.get_attr.object = object;
+    node->data.get_attr.attr_name = strdup(attr_name);
+    return node;
+}
+
+AstNode *ast_new_set_attr(AstNode *object, const char *attr_name, AstNode *value, int line) {
+    AstNode *node = ast_new_node(AST_SET_ATTR, line);
+    node->data.set_attr.object = object;
+    node->data.set_attr.attr_name = strdup(attr_name);
+    node->data.set_attr.value = value;
+    return node;
+}
+
+AstNode *ast_new_method_call(AstNode *object, const char *method_name, AstNodeList *arguments, int line) {
+    AstNode *node = ast_new_node(AST_METHOD_CALL, line);
+    node->data.method_call.object = object;
+    node->data.method_call.method_name = strdup(method_name);
+    node->data.method_call.arguments = arguments;
+    return node;
+}
+
 AstNode *ast_new_import_stmt(const char *path, int line) {
     AstNode *node = ast_new_node(AST_IMPORT_STMT, line);
     node->data.import_path = strdup(path);
@@ -342,6 +372,24 @@ void ast_free(AstNode *node) {
             break;
         case AST_THROW_STMT:
             ast_free(node->data.expr);
+            break;
+        case AST_CLASS_STMT:
+            free((void *)node->data.class_stmt.class_name);
+            ast_free_list(node->data.class_stmt.methods);
+            break;
+        case AST_GET_ATTR:
+            ast_free(node->data.get_attr.object);
+            free((void *)node->data.get_attr.attr_name);
+            break;
+        case AST_SET_ATTR:
+            ast_free(node->data.set_attr.object);
+            free((void *)node->data.set_attr.attr_name);
+            ast_free(node->data.set_attr.value);
+            break;
+        case AST_METHOD_CALL:
+            ast_free(node->data.method_call.object);
+            free((void *)node->data.method_call.method_name);
+            ast_free_list(node->data.method_call.arguments);
             break;
         case AST_LET_STMT:
             free((void *)node->data.let_decl.let_name);
@@ -545,6 +593,28 @@ void ast_print(AstNode *node, int indent) {
         case AST_THROW_STMT:
             printf("(throw\n");
             ast_print(node->data.expr, indent + 1);
+            print_indent(indent); printf(")\n");
+            break;
+        case AST_CLASS_STMT:
+            printf("(class %s\n", node->data.class_stmt.class_name);
+            ast_print_list(node->data.class_stmt.methods, indent + 1);
+            print_indent(indent); printf(")\n");
+            break;
+        case AST_GET_ATTR:
+            printf("(get-attr %s\n", node->data.get_attr.attr_name);
+            ast_print(node->data.get_attr.object, indent + 1);
+            print_indent(indent); printf(")\n");
+            break;
+        case AST_SET_ATTR:
+            printf("(set-attr %s\n", node->data.set_attr.attr_name);
+            ast_print(node->data.set_attr.object, indent + 1);
+            ast_print(node->data.set_attr.value, indent + 1);
+            print_indent(indent); printf(")\n");
+            break;
+        case AST_METHOD_CALL:
+            printf("(method-call %s\n", node->data.method_call.method_name);
+            ast_print(node->data.method_call.object, indent + 1);
+            ast_print_list(node->data.method_call.arguments, indent + 1);
             print_indent(indent); printf(")\n");
             break;
         case AST_BLOCK:

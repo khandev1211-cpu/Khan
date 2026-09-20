@@ -4,8 +4,8 @@ kh.exe
 khan
 kh
 
-*.png
-*jpg
+
+
 
 *.exe
 # Build artifacts

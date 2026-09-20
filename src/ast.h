@@ -42,6 +42,10 @@ typedef enum {
     AST_CONTINUE_STMT,
     AST_TRY_STMT,
     AST_THROW_STMT,
+    AST_CLASS_STMT,
+    AST_GET_ATTR,
+    AST_SET_ATTR,
+    AST_METHOD_CALL,
 
     // Top-level
     AST_PROGRAM,
@@ -188,6 +192,39 @@ struct AstNode {
         } try_stmt;
         // AST_THROW_STMT reuses `expr` below (same pattern as print/return)
 
+        // AST_CLASS_STMT — class Name: <methods>
+        struct {
+            const char *class_name;
+            AstNodeList *methods;   // list of AST_FN_DECL nodes (self is an
+                                     // explicit first parameter, same as any
+                                     // other parameter — see docs/classes.md)
+        } class_stmt;
+
+        // AST_GET_ATTR — object.name (field read; NOT used for method calls,
+        // which compile through AST_METHOD_CALL below instead)
+        struct {
+            AstNode *object;
+            const char *attr_name;
+        } get_attr;
+
+        // AST_SET_ATTR — object.name = value
+        struct {
+            AstNode *object;
+            const char *attr_name;
+            AstNode *value;
+        } set_attr;
+
+        // AST_METHOD_CALL — object.name(args). Deliberately its own node
+        // rather than going through AST_GET_ATTR + AST_CALL_EXPR — see
+        // docs/classes.md for why methods aren't first-class values in v1
+        // (no `let m = obj.method` support) and this fused shape is what
+        // makes `obj.method(args)` compile straightforwardly instead.
+        struct {
+            AstNode *object;
+            const char *method_name;
+            AstNodeList *arguments;
+        } method_call;
+
         // AST_BLOCK
         AstNodeList *statements;
 
@@ -247,6 +284,10 @@ AstNode *ast_new_break_stmt(int line);
 AstNode *ast_new_continue_stmt(int line);
 AstNode *ast_new_try_stmt(AstNode *try_block, const char *catch_var, AstNode *catch_block, int line);
 AstNode *ast_new_throw_stmt(AstNode *expr, int line);
+AstNode *ast_new_class_stmt(const char *class_name, AstNodeList *methods, int line);
+AstNode *ast_new_get_attr(AstNode *object, const char *attr_name, int line);
+AstNode *ast_new_set_attr(AstNode *object, const char *attr_name, AstNode *value, int line);
+AstNode *ast_new_method_call(AstNode *object, const char *method_name, AstNodeList *arguments, int line);
 AstNode *ast_new_import_stmt(const char *path, int line);
 AstNode *ast_new_from_import_stmt(const char *path, char **names, int name_count, int line);
 AstNode *ast_new_program(AstNodeList *stmts, int line);
