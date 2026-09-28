@@ -16,6 +16,15 @@ typedef enum {
     VAL_NATIVE,
     VAL_ARRAY,
     VAL_MAP,
+    VAL_CLASS,     /* a `class Name: ...` value — its Obj's as.map holds
+                       method_name -> VAL_FUNCTION entries, keyed and
+                       stored exactly like a VAL_MAP (see map_get/map_set
+                       in value.c). Obj.class_name is this class's name. */
+    VAL_INSTANCE,  /* an instantiated object — its Obj's as.map holds
+                       this instance's own fields (set via `self.x = v`),
+                       stored the same way a VAL_MAP is. Obj.class_ref
+                       is a retained pointer to the VAL_CLASS Obj it was
+                       built from, used to resolve method calls. */
 } ValueType;
 
 struct Value;
@@ -30,6 +39,18 @@ typedef void (*NativeFn)(struct Value *result, Interpreter *interp, int argc, st
 typedef struct Obj {
     ValueType type;
     int ref_count;
+    /* VAL_CLASS only: strdup'd class name (for `str()`/`type()`/error
+       messages). NULL for every other object type. */
+    char *class_name;
+    /* VAL_INSTANCE only: a retained (ref_count-bumped) pointer to the
+       VAL_CLASS Obj this instance was built from — how a method call
+       (`obj.method(args)`) finds the method to run. NULL for every
+       other object type. Not itself walked by the cycle collector (see
+       value_free's VAL_CLASS/VAL_INSTANCE branch) — same documented
+       "known limitation" class as closures not being cycle-collected:
+       a reference cycle through instance fields will leak, plain
+       refcounting still reclaims everything else. */
+    struct Obj *class_ref;
     /* Cycle-collector bookkeeping (see value.c's "Cycle collector"
        section for the full algorithm writeup). `color` holds the
        Bacon-Rajan trial-deletion trace state (black=live, gray=being
@@ -116,6 +137,8 @@ Value value_function(const char *name, Environment *closure,
 Value value_native(const char *name, NativeFn fn);
 Value value_array(Value *items, int count);
 Value value_map_empty(void);
+Value value_class_new(const char *name);
+Value value_instance_new(Value klass); /* klass.type must be VAL_CLASS */
 void  gc_collect_cycles(void); /* see value.c's "Cycle collector" section */
 
 void map_set(Value *map, const char *key, Value value);

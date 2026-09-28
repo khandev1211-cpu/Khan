@@ -59,6 +59,8 @@ static Obj *obj_new(ValueType type) {
     obj->ref_count = 1;
     obj->color = 0;     /* GC_COLOR_BLACK — see cycle collector section below */
     obj->buffered = 0;
+    obj->class_name = NULL;
+    obj->class_ref = NULL;
     if (++gc_alloc_counter >= GC_AUTO_INTERVAL) {
         gc_alloc_counter = 0;
         gc_collect_cycles();
@@ -120,6 +122,33 @@ Value value_map_empty(void) {
     return v;
 }
 
+Value value_class_new(const char *name) {
+    Value v;
+    v.type = VAL_CLASS;
+    v.as.obj = obj_new(VAL_CLASS);
+    v.as.obj->class_name = strdup(name);
+    v.as.obj->as.map.entries = NULL;
+    v.as.obj->as.map.count = 0;
+    v.as.obj->as.map.capacity = 0;
+    v.as.obj->as.map.hash_index = NULL;
+    v.as.obj->as.map.hash_capacity = 0;
+    return v;
+}
+
+Value value_instance_new(Value klass) {
+    Value v;
+    v.type = VAL_INSTANCE;
+    v.as.obj = obj_new(VAL_INSTANCE);
+    v.as.obj->class_ref = klass.as.obj;
+    klass.as.obj->ref_count++;   /* instance keeps its class alive */
+    v.as.obj->as.map.entries = NULL;
+    v.as.obj->as.map.count = 0;
+    v.as.obj->as.map.capacity = 0;
+    v.as.obj->as.map.hash_index = NULL;
+    v.as.obj->as.map.hash_capacity = 0;
+    return v;
+}
+
 Value value_native(const char *name, NativeFn fn) {
     Value v;
     v.type = VAL_NATIVE;
@@ -140,7 +169,8 @@ Value value_function(const char *name, Environment *closure,
 }
 
 Value value_copy(Value v) {
-    if (v.type == VAL_ARRAY || v.type == VAL_MAP) {
+    if (v.type == VAL_ARRAY || v.type == VAL_MAP ||
+        v.type == VAL_CLASS || v.type == VAL_INSTANCE) {
         if (v.as.obj) v.as.obj->ref_count++;
         return v;
     }
@@ -505,6 +535,30 @@ void value_free(Value v) {
                right now (see the cycle-collector section above). */
             gc_possible_root(v.as.obj);
         }
+    } else if (v.type == VAL_CLASS || v.type == VAL_INSTANCE) {
+        /* Plain refcounting only — deliberately NOT registered with the
+           cycle collector (no gc_possible_root), same documented gap as
+           closures. A cycle through instance fields (a.friend = b;
+           b.friend = a) will leak; everything acyclic is reclaimed. */
+        if (!v.as.obj) return;
+        v.as.obj->ref_count--;
+        if (v.as.obj->ref_count <= 0) {
+            for (int i = 0; i < v.as.obj->as.map.count; i++) {
+                free((void*)v.as.obj->as.map.entries[i].key);
+                value_free(*v.as.obj->as.map.entries[i].value);
+                free(v.as.obj->as.map.entries[i].value);
+            }
+            free(v.as.obj->as.map.entries);
+            free(v.as.obj->as.map.hash_index);
+            if (v.type == VAL_CLASS) free(v.as.obj->class_name);
+            if (v.type == VAL_INSTANCE && v.as.obj->class_ref) {
+                Value kv;
+                kv.type = VAL_CLASS;
+                kv.as.obj = v.as.obj->class_ref;
+                value_free(kv);   /* release the instance's hold on its class */
+            }
+            free(v.as.obj);
+        }
     } else if (v.type == VAL_STRING) {
         free((void*)(v.as.string - sizeof(size_t)));
     } else if (v.type == VAL_FUNCTION) {
@@ -583,7 +637,10 @@ static int map_hash_find(Obj *o, const char *key, unsigned long *out_probe) {
 }
 
 void map_set(Value *map, const char *key, Value value) {
-    if (map->type != VAL_MAP || !map->as.obj) return;
+    /* VAL_CLASS (method table) and VAL_INSTANCE (fields) store their
+       entries in as.map with the exact same layout as a VAL_MAP. */
+    if ((map->type != VAL_MAP && map->type != VAL_CLASS &&
+         map->type != VAL_INSTANCE) || !map->as.obj) return;
     Obj *o = map->as.obj;
 
     /* Grow the hash table before probing if we're at/over ~70% load,
@@ -617,7 +674,8 @@ void map_set(Value *map, const char *key, Value value) {
 }
 
 Value *map_get(Value *map, const char *key) {
-    if (map->type != VAL_MAP || !map->as.obj) return NULL;
+    if ((map->type != VAL_MAP && map->type != VAL_CLASS &&
+         map->type != VAL_INSTANCE) || !map->as.obj) return NULL;
     Obj *o = map->as.obj;
     int slot = map_hash_find(o, key, NULL);
     if (slot == -1) return NULL;
@@ -660,6 +718,14 @@ void value_print(Value v) {
         }
         case VAL_FUNCTION: printf("<fn %s>", v.as.function.name); break;
         case VAL_NATIVE:   printf("<native %s>", v.as.native.name); break;
+        case VAL_CLASS:
+            printf("<class %s>", (v.as.obj && v.as.obj->class_name) ? v.as.obj->class_name : "?");
+            break;
+        case VAL_INSTANCE:
+            printf("<%s instance>",
+                   (v.as.obj && v.as.obj->class_ref && v.as.obj->class_ref->class_name)
+                       ? v.as.obj->class_ref->class_name : "?");
+            break;
     }
 }
 
@@ -680,6 +746,8 @@ int vm_values_equal(Value a, Value b) {
         case VAL_NIL:    return 1;
         case VAL_ARRAY:  return a.as.obj == b.as.obj;
         case VAL_MAP:    return a.as.obj == b.as.obj;
+        case VAL_CLASS:
+        case VAL_INSTANCE: return a.as.obj == b.as.obj;   /* identity */
         default: return 0;
     }
 }

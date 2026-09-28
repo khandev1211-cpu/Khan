@@ -260,6 +260,7 @@ static void compiler_state_init(CompilerState *c, KhanFunction *fn,
 static void compile_expr(AstNode *node);
 static void compile_stmt(AstNode *node);
 static void compile_block(AstNodeList *stmts, int line);
+static void emit_name_op(uint8_t narrow, uint8_t wide, const char *name, int line);
 
 static char *compiler_read_file(const char *path) {
     FILE *file = fopen(path, "rb");
@@ -845,6 +846,46 @@ static void compile_expr(AstNode *node) {
         emit(OP_SET_INDEX, line);
         break;
 
+    /* ── obj.field  (field read) ── */
+    case AST_GET_ATTR:
+        compile_expr(node->data.get_attr.object);
+        emit_name_op(OP_GET_ATTR, OP_GET_ATTR_WIDE, node->data.get_attr.attr_name, line);
+        break;
+
+    /* ── obj.field = value  used as an expression ── */
+    case AST_SET_ATTR:
+        compile_expr(node->data.set_attr.object);
+        compile_expr(node->data.set_attr.value);
+        emit_name_op(OP_SET_ATTR, OP_SET_ATTR_WIDE, node->data.set_attr.attr_name, line);
+        break;
+
+    /* ── obj.method(args) ──
+       Stack at dispatch: [receiver][arg1]...[argN]. OP_CALL_METHOD looks
+       the method up on the receiver's class and runs it with the
+       receiver already in place as `self` (slot 0). */
+    case AST_METHOD_CALL: {
+        compile_expr(node->data.method_call.object);
+        int argc = 0;
+        for (AstNodeList *a = node->data.method_call.arguments; a; a = a->next) {
+            compile_expr(a->node);
+            argc++;
+        }
+        if (argc > 255) {
+            compiler_error("Too many arguments in method call (max 255)", line);
+            argc = 255;
+        }
+        int idx = chunk_add_const(cur_chunk(), vm_val_string(node->data.method_call.method_name));
+        if (idx <= 255) {
+            emit(OP_CALL_METHOD, line);
+            emit((uint8_t)idx, line);
+        } else {
+            emit(OP_CALL_METHOD_WIDE, line);
+            emit_short((uint16_t)idx, line);
+        }
+        emit((uint8_t)argc, line);
+        break;
+    }
+
     default:
         compiler_error("Unhandled expression node", line);
         emit(OP_NIL, line);
@@ -855,6 +896,63 @@ static void compile_expr(AstNode *node) {
 /* ══════════════════════════════════════════════════════════════
    Statement compilation
    ══════════════════════════════════════════════════════════════ */
+
+/* Emits `narrow <1-byte idx>` or `wide <2-byte idx>` for an opcode whose
+   operand is a string-constant (attribute/method) name. */
+static void emit_name_op(uint8_t narrow, uint8_t wide, const char *name, int line) {
+    int idx = chunk_add_const(cur_chunk(), vm_val_string(name));
+    if (idx <= 255) {
+        emit2(narrow, (uint8_t)idx, line);
+    } else {
+        emit(wide, line);
+        emit_short((uint16_t)idx, line);
+    }
+}
+
+/* Compiles one class method (an AST_FN_DECL) into a registered
+   KhanFunction and returns its registry index — same body-compilation
+   as a top-level `fn`, minus the trailing "define a global" step, since
+   a method lives in its class's method table instead. `self` is just
+   the first ordinary parameter. */
+static int compile_class_method(AstNode *node) {
+    int line = node->line;
+    const char *fname = node->data.fn_decl.fn_name;
+    int arity = list_count(node->data.fn_decl.params);
+
+    KhanFunction *fn = khanfn_new(fname, arity);
+
+    CompilerState fn_state;
+    compiler_state_init(&fn_state, fn, current);
+    current = &fn_state;
+    current->scope_depth = 1;
+
+    for (AstNodeList *p = node->data.fn_decl.params; p; p = p->next)
+        add_local(p->node->data.name);
+
+    AstNode *body = node->data.fn_decl.fn_body;
+    if (body->type == AST_BLOCK) {
+        for (AstNodeList *st = body->data.statements; st; st = st->next)
+            compile_stmt(st->node);
+    } else {
+        compile_stmt(body);
+    }
+
+    emit(OP_NIL, line);
+    emit(OP_RETURN, line);
+
+    int fn_had_error = current->had_error;
+    if (fn_state.upvalue_count > 0) {
+        fn->upvalue_count = fn_state.upvalue_count;
+        fn->upvalues = malloc(sizeof(UpvalueDesc) * fn_state.upvalue_count);
+        memcpy(fn->upvalues, fn_state.upvalues, sizeof(UpvalueDesc) * fn_state.upvalue_count);
+    }
+
+    current = fn_state.enclosing;
+    if (fn_had_error) current->had_error = 1;
+
+    khanfn_register(fn);
+    return khanfn_registry_index();
+}
 
 static void compile_block(AstNodeList *stmts, int line) {
     begin_scope();
@@ -912,6 +1010,41 @@ static void compile_stmt(AstNode *node) {
         emit(OP_SET_INDEX, line);
         emit(OP_POP, line);
         break;
+
+    /* ── obj.field = expr (standalone) ── */
+    case AST_SET_ATTR:
+        compile_expr(node->data.set_attr.object);
+        compile_expr(node->data.set_attr.value);
+        emit_name_op(OP_SET_ATTR, OP_SET_ATTR_WIDE, node->data.set_attr.attr_name, line);
+        emit(OP_POP, line);
+        break;
+
+    /* ── class Name: fn method(self, ...): ... ──
+       Stack built for OP_MAKE_CLASS: [class name] then, per method,
+       [method name][registry index]. The VM turns each index into a
+       real function value and stores it in the new class's method
+       table; the class is then bound to a global named after itself,
+       so `Name(args)` is an ordinary call that OP_CALL recognizes. */
+    case AST_CLASS_STMT: {
+        const char *cname = node->data.class_stmt.class_name;
+        emit_const(vm_val_string(cname), line);
+        int method_count = 0;
+        for (AstNodeList *m = node->data.class_stmt.methods; m; m = m->next) {
+            AstNode *fn_node = m->node;
+            int fn_idx = compile_class_method(fn_node);
+            emit_const(vm_val_string(fn_node->data.fn_decl.fn_name), line);
+            emit_const(value_number((double)fn_idx), line);
+            method_count++;
+        }
+        if (method_count <= 255) {
+            emit2(OP_MAKE_CLASS, (uint8_t)method_count, line);
+        } else {
+            emit(OP_MAKE_CLASS_WIDE, line);
+            emit_short((uint16_t)method_count, line);
+        }
+        emit_global_def(cname, line);
+        break;
+    }
 
     /* ── print expr ── */
     case AST_PRINT_STMT:

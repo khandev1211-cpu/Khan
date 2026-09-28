@@ -30,6 +30,34 @@ int khanfn_registry_index(void) {
     return fn_registry_count - 1;
 }
 
+/* Turns a registered function index (what the compiler pushes as a plain
+   number constant) into a real VAL_FUNCTION value, snapshotting any
+   captured upvalues from `frame` (the function currently executing).
+   Shared by OP_DEF_GLOBAL and OP_MAKE_CLASS. */
+static Value materialize_registered_fn(CallFrame *frame, int idx) {
+    Value fv;
+    fv.type = VAL_FUNCTION;
+    fv.as.function.name    = strdup(fn_registry[idx]->name);
+    fv.as.function.closure = NULL;
+    fv.as.function.body    = (struct AstNode*)fn_registry[idx];
+    fv.as.function.params  = NULL;
+    if (fn_registry[idx]->upvalue_count > 0) {
+        KhanClosure *cl = khanclosure_new(fn_registry[idx]->upvalue_count);
+        for (int u = 0; u < fn_registry[idx]->upvalue_count; u++) {
+            UpvalueDesc *d = &fn_registry[idx]->upvalues[u];
+            if (d->is_local) {
+                cl->values[u] = value_copy(frame->slots[d->index]);
+            } else {
+                cl->values[u] = frame->upvalues
+                    ? value_copy(frame->upvalues[d->index])
+                    : value_nil();
+            }
+        }
+        fv.as.function.closure = (Environment*)cl;
+    }
+    return fv;
+}
+
 /* ══════════════════════════════════════════════════════════════
    Hash Table implementation for Globals
    ══════════════════════════════════════════════════════════════ */
@@ -375,10 +403,15 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
         case OP_GT:  NUMERIC_OP(value_bool, >);  break;
         case OP_GE:  NUMERIC_OP(value_bool, >=); break;
 
-        case OP_PRINT:
-            value_print(pop(vm));
+        case OP_PRINT: {
+            /* pop() transfers ownership — release it after printing, or
+               every printed string/array/map/instance leaked one ref. */
+            Value pv = pop(vm);
+            value_print(pv);
             printf("\n");
+            value_free(pv);
             break;
+        }
 
         case OP_DEF_GLOBAL:
         case OP_DEF_GLOBAL_WIDE: {
@@ -392,33 +425,11 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
                 if (idx >= 0 && idx < fn_registry_count) {
                     const char *gname = name_v.as.string;
                     if (fn_registry[idx] && fn_registry[idx]->name && strcmp(fn_registry[idx]->name, gname) == 0) {
-                        Value fv;
-                        fv.type = VAL_FUNCTION;
-                        fv.as.function.name    = strdup(fn_registry[idx]->name);
-                        fv.as.function.closure = NULL;
-                        fv.as.function.body    = (struct AstNode*)fn_registry[idx];
-                        fv.as.function.params  = NULL;
-
-                        /* If this function captures free variables from
-                           the function currently executing (the one
-                           whose body this OP_DEF_GLOBAL lives in), snapshot
-                           those values now — this is what makes nested
-                           `fn` declarations that reference an enclosing
-                           function's parameters/locals actually work. */
-                        if (fn_registry[idx]->upvalue_count > 0) {
-                            KhanClosure *cl = khanclosure_new(fn_registry[idx]->upvalue_count);
-                            for (int u = 0; u < fn_registry[idx]->upvalue_count; u++) {
-                                UpvalueDesc *d = &fn_registry[idx]->upvalues[u];
-                                if (d->is_local) {
-                                    cl->values[u] = value_copy(frame->slots[d->index]);
-                                } else {
-                                    cl->values[u] = frame->upvalues
-                                        ? value_copy(frame->upvalues[d->index])
-                                        : value_nil();
-                                }
-                            }
-                            fv.as.function.closure = (Environment*)cl;
-                        }
+                        /* Snapshots captured upvalues from the currently
+                           executing frame — what makes nested `fn`
+                           declarations that reference an enclosing
+                           function's locals work. */
+                        Value fv = materialize_registered_fn(frame, idx);
 
                         // A nested `fn` compiles to OP_DEF_GLOBAL and gets
                         // re-executed every time the enclosing function is
@@ -617,7 +628,60 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
                 new_frame->upvalues = callee.as.function.closure
                     ? ((KhanClosure*)callee.as.function.closure)->values
                     : NULL;
+                new_frame->is_method_call = 0;
+                new_frame->is_constructor = 0;
                 frame = new_frame;
+                break;
+            }
+            if (callee.type == VAL_CLASS) {
+                /* `ClassName(args)` — build an instance and (if the class
+                   defines __init__) run it INLINE in this same dispatch
+                   loop, like a method call, so a `throw` inside __init__
+                   unwinds normally instead of crossing a nested run_loop.
+                   The class value's own stack slot is overwritten with the
+                   instance, so the layout is [self][arg1..argN] with no
+                   hidden callee slot — exactly OP_CALL_METHOD's layout.
+                   OP_RETURN on an is_constructor frame yields `self`. */
+                Value instance = value_instance_new(callee);
+                Value *init = map_get(&callee, "__init__");
+                Value *cslot = vm->stack_top - arg_count - 1;
+                if (init) {
+                    KhanFunction *ifn = (init->type == VAL_FUNCTION)
+                        ? (KhanFunction*)init->as.function.body : NULL;
+                    if (!ifn) {
+                        value_free(instance);
+                        TRY_ERR("'__init__' is not a method");
+                    }
+                    if (ifn->arity != arg_count + 1) {
+                        value_free(instance);
+                        TRY_ERR("Wrong number of arguments to constructor (remember __init__ takes 'self' first)");
+                    }
+                    if (vm->frame_count >= VM_FRAMES_MAX) {
+                        value_free(instance);
+                        TRY_ERR("Stack overflow");
+                    }
+                    Environment *iclosure = init->as.function.closure;
+                    value_free(*cslot);          /* release the class value's slot... */
+                    *cslot = instance;           /* ...and put the instance there */
+
+                    CallFrame *new_frame = &vm->frames[vm->frame_count++];
+                    new_frame->fn    = ifn;
+                    new_frame->ip    = ifn->chunk.code;
+                    new_frame->slots = cslot;    /* self = slots[0] */
+                    new_frame->upvalues = iclosure
+                        ? ((KhanClosure*)iclosure)->values
+                        : NULL;
+                    new_frame->is_method_call = 1;
+                    new_frame->is_constructor = 1;
+                    frame = new_frame;
+                    break;
+                }
+                if (arg_count != 0) {
+                    value_free(instance);
+                    TRY_ERR("Class has no __init__, so it takes no arguments");
+                }
+                value_free(*cslot);
+                *cslot = instance;
                 break;
             }
             char msg[128];
@@ -625,8 +689,110 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             TRY_ERR(msg);
         }
 
+        case OP_MAKE_CLASS:
+        case OP_MAKE_CLASS_WIDE: {
+            int method_count = (op == OP_MAKE_CLASS) ? READ_BYTE() : READ_SHORT();
+            Value *keys = method_count > 0 ? malloc(method_count * sizeof(Value)) : NULL;
+            Value *idxs = method_count > 0 ? malloc(method_count * sizeof(Value)) : NULL;
+            for (int i = method_count - 1; i >= 0; i--) {
+                idxs[i] = pop(vm);
+                keys[i] = pop(vm);
+            }
+            Value name_v = pop(vm);
+            Value klass = value_class_new(name_v.as.string);
+            for (int i = 0; i < method_count; i++) {
+                int fidx = (int)idxs[i].as.number;
+                if (fidx >= 0 && fidx < fn_registry_count && fn_registry[fidx]) {
+                    map_set(&klass, keys[i].as.string,
+                            materialize_registered_fn(frame, fidx));
+                }
+                value_free(keys[i]);
+            }
+            value_free(name_v);
+            free(keys);
+            free(idxs);
+            push(vm, klass);
+            break;
+        }
+
+        case OP_CALL_METHOD:
+        case OP_CALL_METHOD_WIDE: {
+            int name_idx  = (op == OP_CALL_METHOD) ? READ_BYTE() : READ_SHORT();
+            int arg_count = READ_BYTE();
+            const char *mname = frame->fn->chunk.constants[name_idx].as.string;
+            Value recv = peek(vm, arg_count);
+            if (recv.type != VAL_INSTANCE) {
+                TRY_ERR("Can only call methods on class instances");
+            }
+            Value klass;
+            klass.type   = VAL_CLASS;
+            klass.as.obj = recv.as.obj->class_ref;
+            Value *method = map_get(&klass, mname);
+            if (!method || method->type != VAL_FUNCTION) {
+                char msg[192];
+                snprintf(msg, sizeof(msg), "Undefined method '%s' on class '%s'",
+                         mname, klass.as.obj->class_name ? klass.as.obj->class_name : "?");
+                TRY_ERR(msg);
+            }
+            KhanFunction *fn = (KhanFunction*)method->as.function.body;
+            if (!fn) TRY_ERR("Invalid method");
+            if (fn->arity != arg_count + 1) TRY_ERR("Arg count mismatch (methods take 'self' first)");
+            if (vm->frame_count >= VM_FRAMES_MAX) TRY_ERR("Stack overflow");
+
+            CallFrame *new_frame = &vm->frames[vm->frame_count++];
+            new_frame->fn    = fn;
+            new_frame->ip    = fn->chunk.code;
+            new_frame->slots = vm->stack_top - arg_count - 1;   /* receiver = self = slots[0] */
+            new_frame->upvalues = method->as.function.closure
+                ? ((KhanClosure*)method->as.function.closure)->values
+                : NULL;
+            new_frame->is_method_call = 1;
+            new_frame->is_constructor = 0;
+            frame = new_frame;
+            break;
+        }
+
+        case OP_GET_ATTR:
+        case OP_GET_ATTR_WIDE: {
+            int name_idx = (op == OP_GET_ATTR) ? READ_BYTE() : READ_SHORT();
+            const char *aname = frame->fn->chunk.constants[name_idx].as.string;
+            Value obj = pop(vm);
+            if (obj.type != VAL_INSTANCE) {
+                value_free(obj);
+                TRY_ERR("Only class instances have attributes");
+            }
+            Value *f = map_get(&obj, aname);
+            Value result = f ? value_copy(*f) : value_nil();
+            value_free(obj);
+            push(vm, result);
+            break;
+        }
+
+        case OP_SET_ATTR:
+        case OP_SET_ATTR_WIDE: {
+            int name_idx = (op == OP_SET_ATTR) ? READ_BYTE() : READ_SHORT();
+            const char *aname = frame->fn->chunk.constants[name_idx].as.string;
+            Value val = pop(vm);
+            Value obj = pop(vm);
+            if (obj.type != VAL_INSTANCE) {
+                value_free(obj);
+                value_free(val);
+                TRY_ERR("Only class instances have attributes");
+            }
+            map_set(&obj, aname, value_copy(val));
+            push(vm, val);
+            value_free(obj);
+            break;
+        }
+
         case OP_RETURN: {
             Value result = pop(vm);
+            if (frame->is_constructor) {
+                /* __init__'s own return value is discarded; the call
+                   expression evaluates to the instance (`self`, slots[0]). */
+                value_free(result);
+                result = value_copy(frame->slots[0]);
+            }
 
             // Free any locals still sitting in this frame's stack region
             // before truncating it. `result` is a value_copy'd (properly
@@ -648,13 +814,15 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             // end_scope()) leaked its underlying allocation forever —
             // most visible with closures/arrays/maps, since plain
             // numbers/bools don't own any heap memory to leak.
-            Value *free_from = (vm->frame_count > 1) ? frame->slots - 1 : frame->slots;
+            Value *free_from = frame->is_method_call
+                ? frame->slots                       /* self is slots[0]; no callee slot below */
+                : ((vm->frame_count > 1) ? frame->slots - 1 : frame->slots);
             for (Value *slot = free_from; slot < vm->stack_top; slot++) {
                 value_free(*slot);
             }
 
             // Clean up the stack: pop function and arguments
-            vm->stack_top = frame->slots - 1;
+            vm->stack_top = frame->is_method_call ? frame->slots : frame->slots - 1;
 
             vm->frame_count--;
             if (vm->frame_count < initial_frame_count) {
@@ -755,6 +923,8 @@ InterpretResult vm_run(VM *vm, KhanFunction *script) {
     frame->ip    = script->chunk.code;
     frame->slots = vm->stack_top;
     frame->upvalues = NULL;
+    frame->is_method_call = 0;
+    frame->is_constructor = 0;
     return run_loop(vm, 1);
 }
 
@@ -762,14 +932,14 @@ InterpretResult vm_run(VM *vm, KhanFunction *script) {
  * (not looked up by name), pushes it + its args, runs a nested run_loop
  * to completion, and returns its result — exactly the "call this Khan
  * function and get its return value back" primitive that native code
- * needs for callbacks (array.map/sort, etc.), and that class support
- * needs for two different things: invoking `__init__` during
- * instantiation (see OP_CALL's VAL_MAP branch) and dispatching a method
- * call (see OP_CALL_METHOD) — both call this directly rather than
- * duplicating the frame-setup/run_loop/cleanup dance a third and fourth
- * time. `fn_val` must be VAL_FUNCTION; callers are expected to have
- * already checked that (this returns nil and does nothing otherwise,
- * matching vm_call_fn's own existing not-a-function handling below). */
+ * needs for callbacks (array.map/sort, etc.). Class support does NOT go
+ * through here: `__init__` (OP_CALL's VAL_CLASS branch) and method calls
+ * (OP_CALL_METHOD) both run INLINE in the caller's dispatch loop, so a
+ * `throw` inside them unwinds like any other frame instead of having to
+ * cross a nested run_loop. `fn_val` must be VAL_FUNCTION; callers are
+ * expected to have already checked that (this returns nil and does
+ * nothing otherwise, matching vm_call_fn's own existing not-a-function
+ * handling below). */
 static Value vm_call_value(VM *vm, Value fn_val, int argc, Value *args) {
     if (fn_val.type != VAL_FUNCTION) {
         return value_nil();
@@ -792,6 +962,8 @@ static Value vm_call_value(VM *vm, Value fn_val, int argc, Value *args) {
     new_frame->upvalues = fn_val.as.function.closure
         ? ((KhanClosure*)fn_val.as.function.closure)->values
         : NULL;
+    new_frame->is_method_call = 0;
+    new_frame->is_constructor = 0;
 
     int initial_frame_count = vm->frame_count;
     InterpretResult res = run_loop(vm, initial_frame_count);

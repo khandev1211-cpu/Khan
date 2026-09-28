@@ -88,6 +88,15 @@ static void value_to_str_recursive(Value v, char **buf, int *len, int *cap) {
         case VAL_NATIVE:
             snprintf(tmp, sizeof(tmp), "<native %s>", v.as.native.name ? v.as.native.name : "?");
             break;
+        case VAL_CLASS:
+            snprintf(tmp, sizeof(tmp), "<class %s>",
+                     (v.as.obj && v.as.obj->class_name) ? v.as.obj->class_name : "?");
+            break;
+        case VAL_INSTANCE:
+            snprintf(tmp, sizeof(tmp), "<%s instance>",
+                     (v.as.obj && v.as.obj->class_ref && v.as.obj->class_ref->class_name)
+                         ? v.as.obj->class_ref->class_name : "?");
+            break;
         default:
             snprintf(tmp, sizeof(tmp), "<unknown>");
             break;
@@ -136,6 +145,8 @@ void fn_type(Value *result, Interpreter *interp, int argc, Value *args) {
         case VAL_NATIVE:   *result = value_string("native"); return;
         case VAL_ARRAY:    *result = value_string("array"); return;
         case VAL_MAP:      *result = value_string("map"); return;
+        case VAL_CLASS:    *result = value_string("class"); return;
+        case VAL_INSTANCE: *result = value_string("instance"); return;
     }
     *result = value_string("unknown");
 }
