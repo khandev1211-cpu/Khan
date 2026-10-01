@@ -11,6 +11,6 @@
  * the kind of inconsistency this project's docs otherwise go out of
  * their way to avoid. Bump to 1.0.0 when the roadmap says so, not
  * before. */
-#define KHAN_VERSION "0.011.0"
+#define KHAN_VERSION "0.012.0"
 
 #endif

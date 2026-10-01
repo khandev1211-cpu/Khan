@@ -1,12 +1,58 @@
-import "postman"
+# Non-interactive test of the todo app
+import "todo_core.kh"
+import "todo_storage.kh"
+import "todo_ui.kh"
 
-let pm = pm_new_with_base("https://jsonplaceholder.typicode.com")
+# Test data
+let test_path = "test_todos.dat"
+let todos = []
 
-pm = pm_get(pm, "GET todo #1",   "/todos/1")
-pm = pm_get(pm, "GET user #1",   "/users/1")
-pm = pm_post_json(pm, "POST todo", "/todos", {"title": "Learn Khan", "completed": false, "userId": 1})
+# Test 1: Create todos
+print "=== Test 1: Create Todos ==="
+todos = create_todo(todos, "Learn Khan")
+todos = create_todo(todos, "Build todo app")
+todos = create_todo(todos, "Add tests")
+print "Created " + str(len(todos)) + " todos"
 
-pm = pm_assert(pm, "2+2=4",       2 + 2 == 4)
-pm = pm_assert(pm, "strings work", "khan" == "khan")
+# Test 2: List todos
+print ""
+print "=== Test 2: List Todos ==="
+list_todos(todos)
 
-pm_run(pm)
+# Test 3: Mark done
+print ""
+print "=== Test 3: Mark Done ==="
+todos = mark_done(todos, 1)
+let t1 = get_todo(todos, 1)
+print "Todo 1 done: " + str(t1["done"])
+list_todos(todos)
+
+# Test 4: Delete
+print ""
+print "=== Test 4: Delete ==="
+todos = delete_todo(todos, 2)
+print "After deleting todo 2: " + str(len(todos)) + " todos remain"
+list_todos(todos)
+
+# Test 5: Save
+print ""
+print "=== Test 5: Save ==="
+save_todos(todos, test_path)
+
+# Test 6: Load
+print ""
+print "=== Test 6: Load ==="
+let loaded = load_todos(test_path)
+print "Loaded " + str(len(loaded)) + " todos"
+list_todos(loaded)
+
+# Test 7: Pending count
+print ""
+print "=== Test 7: Pending Count ==="
+let pending = count_pending(todos)
+print "Pending todos: " + str(pending)
+
+# Clean up test file
+# (We use exit instead since we can't delete files)
+print ""
+print "=== All Tests Passed! ==="

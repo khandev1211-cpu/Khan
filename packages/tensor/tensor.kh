@@ -1,61 +1,171 @@
-# Khan Tensor Package
-# High-speed math for AI (Matrices and Vectors)
+# Khan Tensor package — real n-dimensional tensors with automatic
+# differentiation, backed by the native engine in src/tensor_lib.c
+# (VAL_TENSOR: one contiguous double buffer, not nested Khan arrays).
+# This is the first slice of Khan's AI-native-core direction — see
+# docs/tensor.md for the full design writeup and v1 scope limits.
+#
 # Usage: import "tensor"
+#
+#   let x = Tensor([[1, 2], [3, 4]], true)   # requires_grad = true
+#   let y = Tensor([[5, 6], [7, 8]], true)
+#   let loss = x.add(y).mul(x).sum()
+#   loss.backward(nil)
+#   print x.grad.data()
 
-# Matrix multiplication C = A * B
+class Tensor:
+    fn __init__(self, data, requires_grad):
+        if type(data) == "tensor":
+            self.buf = data
+        else:
+            self.buf = _tensor_from_nested(data)
+        self.requires_grad = requires_grad
+        self.grad = nil
+        self.op = "leaf"
+        self.a = nil
+        self.b = nil
+
+    # -- inspection ----------------------------------------------------
+    fn shape(self):
+        return _tensor_shape(self.buf)
+    fn ndim(self):
+        return _tensor_ndim(self.buf)
+    fn numel(self):
+        return _tensor_numel(self.buf)
+    fn data(self):
+        return _tensor_to_nested(self.buf)
+
+    # Wraps a plain number or nested array as a (non-tracking) Tensor,
+    # so `t.add(5)` works the same as `t.add(Tensor(5, false))`.
+    fn _as_tensor(self, v):
+        if type(v) == "instance":
+            return v
+        return Tensor(v, false)
+
+    # -- ops - each records what it was built from, for backward() ----
+    fn add(self, other):
+        let ot = self._as_tensor(other)
+        let out = Tensor(_tensor_add(self.buf, ot.buf), self.requires_grad or ot.requires_grad)
+        out.op = "add"
+        out.a = self
+        out.b = ot
+        return out
+
+    fn sub(self, other):
+        let ot = self._as_tensor(other)
+        let out = Tensor(_tensor_sub(self.buf, ot.buf), self.requires_grad or ot.requires_grad)
+        out.op = "sub"
+        out.a = self
+        out.b = ot
+        return out
+
+    fn mul(self, other):
+        let ot = self._as_tensor(other)
+        let out = Tensor(_tensor_mul(self.buf, ot.buf), self.requires_grad or ot.requires_grad)
+        out.op = "mul"
+        out.a = self
+        out.b = ot
+        return out
+
+    fn matmul(self, other):
+        let ot = self._as_tensor(other)
+        let out = Tensor(_tensor_matmul(self.buf, ot.buf), self.requires_grad or ot.requires_grad)
+        out.op = "matmul"
+        out.a = self
+        out.b = ot
+        return out
+
+    fn transpose(self):
+        let out = Tensor(_tensor_transpose(self.buf), self.requires_grad)
+        out.op = "transpose"
+        out.a = self
+        return out
+
+    fn reshape(self, shape):
+        let out = Tensor(_tensor_reshape(self.buf, shape), self.requires_grad)
+        out.op = "reshape"
+        out.a = self
+        return out
+
+    fn sum(self):
+        let out = Tensor(_tensor_sum(self.buf), self.requires_grad)
+        out.op = "sum"
+        out.a = self
+        return out
+
+    # -- autograd -------------------------------------------------------
+    # Accumulates an incoming gradient (so a Tensor used more than once
+    # in a graph sums the contributions from every use, standard
+    # reverse-mode behaviour) without recording this add itself in the
+    # graph -- self.grad is bookkeeping, not part of the forward graph.
+    fn _accumulate(self, g):
+        if self.grad == nil:
+            self.grad = g
+        else:
+            self.grad = Tensor(_tensor_add(self.grad.buf, g.buf), false)
+
+    # grad may be nil (meaning "I am the final scalar output, seed with
+    # ones" - the usual `loss.backward(nil)` entry point) or an explicit
+    # Tensor for calling backward() on a non-leaf mid-graph.
+    fn backward(self, grad):
+        let g = grad
+        if g == nil:
+            g = Tensor(_tensor_ones_like(self.buf), false)
+        if self.requires_grad:
+            self._accumulate(g)
+
+        if self.op == "add":
+            if self.a.requires_grad:
+                self.a.backward(g)
+            if self.b.requires_grad:
+                self.b.backward(g)
+        elif self.op == "sub":
+            if self.a.requires_grad:
+                self.a.backward(g)
+            if self.b.requires_grad:
+                self.b.backward(Tensor(_tensor_mul(g.buf, -1), false))
+        elif self.op == "mul":
+            if self.a.requires_grad:
+                self.a.backward(Tensor(_tensor_mul(g.buf, self.b.buf), false))
+            if self.b.requires_grad:
+                self.b.backward(Tensor(_tensor_mul(g.buf, self.a.buf), false))
+        elif self.op == "matmul":
+            # z = a @ b  =>  dL/da = g @ b^T ,  dL/db = a^T @ g
+            if self.a.requires_grad:
+                self.a.backward(Tensor(_tensor_matmul(g.buf, _tensor_transpose(self.b.buf)), false))
+            if self.b.requires_grad:
+                self.b.backward(Tensor(_tensor_matmul(_tensor_transpose(self.a.buf), g.buf), false))
+        elif self.op == "transpose":
+            if self.a.requires_grad:
+                self.a.backward(Tensor(_tensor_transpose(g.buf), false))
+        elif self.op == "sum":
+            if self.a.requires_grad:
+                # d(sum)/d(each element) = 1, so broadcast g (a scalar)
+                # back out to a's original shape.
+                self.a.backward(Tensor(_tensor_add(_tensor_zeros_like(self.a.buf), g.buf), false))
+        elif self.op == "reshape":
+            if self.a.requires_grad:
+                self.a.backward(Tensor(_tensor_reshape(g.buf, _tensor_shape(self.a.buf)), false))
+        return nil
+
+
+# -- backward-compatible free functions (nested-array in, nested-array
+# out), kept for anything written against the old array-based package.
+# These now call the native engine instead of the old pure-Khan O(n^3)
+# loops, so they're also just faster. ------------------------------------
+
 fn matmul(A, B):
-    let rows_A = len(A)
-    let cols_A = len(A[0])
-    let rows_B = len(B)
-    let cols_B = len(B[0])
+    return _tensor_to_nested(_tensor_matmul(_tensor_from_nested(A), _tensor_from_nested(B)))
 
-    if cols_A != rows_B:
-        print "Error: Matrix dimensions mismatch for matmul"
-        return nil
-
-    let result = []
-    let i = 0
-    while i < rows_A:
-        let row = []
-        let j = 0
-        while j < cols_B:
-            let sum = 0
-            let k = 0
-            while k < cols_A:
-                sum = sum + A[i][k] * B[k][j]
-                k = k + 1
-            row = push(row, sum)
-            j = j + 1
-        result = push(result, row)
-        i = i + 1
-    return result
-
-# Vector dot product
 fn dot(a, b):
-    if len(a) != len(b):
+    let ta = _tensor_from_nested(a)
+    let tb = _tensor_from_nested(b)
+    if _tensor_ndim(ta) != 1 or _tensor_ndim(tb) != 1:
+        print "Error: dot() expects two 1-D vectors"
         return nil
-    let sum = 0
-    let i = 0
-    while i < len(a):
-        sum = sum + a[i] * b[i]
-        i = i + 1
-    return sum
+    return _tensor_to_nested(_tensor_sum(_tensor_mul(ta, tb)))
 
-# Element-wise addition
 fn add(a, b):
-    let res = []
-    let i = 0
-    while i < len(a):
-        res = push(res, a[i] + b[i])
-        i = i + 1
-    return res
+    return _tensor_to_nested(_tensor_add(_tensor_from_nested(a), _tensor_from_nested(b)))
 
-# Scalar multiplication
 fn scale(A, s):
-    let res = []
-    for row in A:
-        let new_row = []
-        for val in row:
-            new_row = push(new_row, val * s)
-        res = push(res, new_row)
-    return res
+    return _tensor_to_nested(_tensor_mul(_tensor_from_nested(A), s))
