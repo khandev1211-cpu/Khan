@@ -20,6 +20,16 @@ typedef struct {
                                 (borrowed from the KhanClosure the callee
                                 Value pointed at; NULL for non-capturing
                                 functions) — indexed by fn->upvalues[]   */
+    int          is_method_call; /* 1 if pushed by OP_CALL_METHOD: `self`
+                                (the receiver) sits at slots[0] with NO
+                                hidden callee slot below it, so OP_RETURN
+                                must truncate the stack to slots, not
+                                slots - 1. 0 for every other frame.     */
+    int          is_constructor; /* 1 if this frame is a class's __init__
+                                run inline by OP_CALL: on OP_RETURN the
+                                frame yields `self` (slots[0]) instead of
+                                the function's own return value. Always
+                                set together with is_method_call.       */
 } CallFrame;
 
 /* One active try/catch handler. Registered by OP_TRY_BEGIN, retired by

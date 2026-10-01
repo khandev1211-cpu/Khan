@@ -67,6 +67,7 @@ SRCS = \
     src/vision_lib.c    \
     src/vision_cv.c     \
     src/vision_cascade.c \
+    src/tensor_lib.c    \
     src/main.c
 
 KH_SRCS = src/kh.c

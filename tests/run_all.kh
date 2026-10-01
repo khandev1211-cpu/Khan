@@ -16,6 +16,8 @@ import "suites/operators.kh"
 import "suites/stdlib_math.kh"
 import "suites/stdlib_json.kh"
 import "suites/stdlib_collections.kh"
+import "suites/classes.kh"
+import "suites/tensor.kh"
 
 let all_passed = true
 
@@ -28,6 +30,10 @@ all_passed = test_run(suite_operators()) and all_passed
 all_passed = test_run(suite_stdlib_math()) and all_passed
 all_passed = test_run(suite_stdlib_json()) and all_passed
 all_passed = test_run(suite_stdlib_collections()) and all_passed
+all_passed = test_run(suite_classes()) and all_passed
+all_passed = test_run(suite_inheritance()) and all_passed
+all_passed = test_run(suite_tensor_native()) and all_passed
+all_passed = test_run(suite_tensor_autograd()) and all_passed
 
 print ""
 if all_passed:

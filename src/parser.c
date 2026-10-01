@@ -321,6 +321,7 @@ static AstNode *fn_declaration(Parser *parser) {
 }
 
 // class Name: <one or more `fn method(self, ...): ...` bodies>
+// class Name(Base): <...>   — single inheritance
 //
 // `self` is an ordinary, explicit first parameter — same as Python's own
 // actual convention (a Python method's `self` is a real parameter too;
@@ -328,12 +329,23 @@ static AstNode *fn_declaration(Parser *parser) {
 // method dispatch a straightforward "prepend the receiver as arg 0" rule
 // (see finish_call's TOKEN_DOT handling and AST_METHOD_CALL) rather than
 // needing a bound-method value type — see docs/classes.md for the fuller
-// design writeup and its v1 scope limits (no inheritance, no `let m =
-// obj.method` bound-method references).
+// design writeup and its v1 scope limits (no `let m = obj.method`
+// bound-method references, no multiple inheritance).
 static AstNode *class_declaration(Parser *parser) {
     int line = parser->previous.line;
     consume(parser, TOKEN_IDENTIFIER, "Expected class name after 'class'.");
     const char *name = khan_strndup(parser->previous.start, parser->previous.length);
+
+    // Optional `(Base)` — single inheritance only, no comma-separated
+    // base list. `Base` must already be a defined class by the time this
+    // statement runs (ordinary top-down script execution, same
+    // requirement Python has) — see docs/classes.md.
+    const char *super_name = NULL;
+    if (match(parser, TOKEN_LPAREN)) {
+        consume(parser, TOKEN_IDENTIFIER, "Expected superclass name after '('.");
+        super_name = khan_strndup(parser->previous.start, parser->previous.length);
+        consume(parser, TOKEN_RPAREN, "Expected ')' after superclass name.");
+    }
     consume(parser, TOKEN_COLON, "Expected ':' after class name.");
 
     // Reuses block()'s indent/dedent handling exactly like a function body
@@ -355,8 +367,9 @@ static AstNode *class_declaration(Parser *parser) {
     // method AstNode itself was already detached above.
     ast_free(body);
 
-    AstNode *node = ast_new_class_stmt(name, methods, line);
+    AstNode *node = ast_new_class_stmt(name, super_name, methods, line);
     free((void *)name); // ast_new_class_stmt strdup'd it
+    if (super_name) free((void *)super_name);
     return node;
 }
 
@@ -703,6 +716,29 @@ static AstNode *primary(Parser *parser) {
     if (match(parser, TOKEN_IDENTIFIER)) {
         const char *name = khan_strndup(parser->previous.start, parser->previous.length);
         return ast_new_identifier(name, parser->previous.line);
+    }
+
+    // `super.method(args)` — the only form `super` may appear in. Resolved
+    // statically against the enclosing class's declared superclass (see
+    // AST_SUPER_CALL in ast.h and docs/classes.md), so it's parsed as its
+    // own complete node here rather than falling through to call()'s
+    // generic '.'/'(' handling.
+    if (match(parser, TOKEN_SUPER)) {
+        int line = parser->previous.line;
+        consume(parser, TOKEN_DOT, "Expected '.' after 'super'.");
+        consume(parser, TOKEN_IDENTIFIER, "Expected method name after 'super.'.");
+        const char *name = khan_strndup(parser->previous.start, parser->previous.length);
+        consume(parser, TOKEN_LPAREN, "Expected '(' after 'super.<method>'.");
+        AstNodeList *args = NULL;
+        if (!check(parser, TOKEN_RPAREN)) {
+            do {
+                args = ast_list_append(args, expression(parser));
+            } while (match(parser, TOKEN_COMMA));
+        }
+        consume(parser, TOKEN_RPAREN, "Expected ')' after 'super' call arguments.");
+        AstNode *node = ast_new_super_call(name, args, line);
+        free((void *)name); // ast_new_super_call strdup'd it
+        return node;
     }
 
     if (match(parser, TOKEN_TRUE)) {

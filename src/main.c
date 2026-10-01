@@ -34,6 +34,7 @@ static void enable_ansi(void) {}
 #include "vision_lib.h"
 #include "vision_cv.h"
 #include "vision_cascade.h"
+#include "tensor_lib.h"
 #include "khan_version.h"
 #ifdef LLM_SUPPORT
 #include "llm_lib.h"
@@ -88,6 +89,7 @@ static void register_all_libraries(VM *vm) {
     vision_register_all_vm(vm);
     vision_cv_register_all_vm(vm);
     vision_cascade_register_all_vm(vm);
+    tensor_register_all_vm(vm);
 #ifdef LLM_SUPPORT
     llm_register_all_vm(vm);
 #endif

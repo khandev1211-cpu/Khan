@@ -97,6 +97,25 @@ typedef enum {
 
     OP_POP,
 
+    /* ── Classes / instances ── */
+    OP_MAKE_CLASS,       /* operand = method count (1 byte). Stack: [name][mname][fn_idx]... */
+    OP_MAKE_CLASS_WIDE,  /* operand = method count (2 bytes, big-endian) */
+    OP_CALL_METHOD,      /* operands = name const idx (1 byte), arg count (1 byte). Stack: [obj][args...] */
+    OP_CALL_METHOD_WIDE, /* operands = name const idx (2 bytes), arg count (1 byte) */
+    OP_GET_ATTR,         /* operand = name const idx (1 byte). Stack: [obj] -> [value] */
+    OP_GET_ATTR_WIDE,    /* operand = name const idx (2 bytes) */
+    OP_SET_ATTR,         /* operand = name const idx (1 byte). Stack: [obj][value] -> [value] */
+    OP_SET_ATTR_WIDE,    /* operand = name const idx (2 bytes) */
+    OP_CALL_SUPER,       /* operands = superclass name const idx (2 bytes),
+                             method name const idx (2 bytes), arg count (1
+                             byte). Stack: [self][args...], self pushed by
+                             the compiler via OP_GET_LOCAL 0. Resolves the
+                             method starting at the *named* superclass's
+                             own chain — static, not the receiver's
+                             dynamic class. Always wide (2-byte name
+                             indices): super calls are rare enough that a
+                             narrow variant isn't worth a second opcode. */
+
     OP_COUNT /* sentinel: always the total number of opcodes, must stay
                 last in this enum. Used by run_loop's computed-goto
                 dispatch to bounds-check a byte before indexing its

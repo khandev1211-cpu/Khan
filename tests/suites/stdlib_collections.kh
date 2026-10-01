@@ -20,9 +20,16 @@ fn suite_stdlib_collections():
     let doubled = map_each([1, 2, 3], double_it)
     t = test_eq(t, "map_each transforms every element", doubled[1], 4)
 
-    fn add(acc, n):
+    # NOTE: named with a leading underscore, not `add`, because nested `fn`
+    # still defines a GLOBAL in Khan (see docs/classes.md / vm.c), and this
+    # suite's functions all get CALLED (from tests/run_all.kh) after every
+    # suite file has already been IMPORTED — so an unprefixed `add` here
+    # would silently clobber any other top-level `add` a later-imported
+    # file defines (e.g. packages/tensor/tensor.kh's `add`), the moment
+    # this suite function runs. Bit us once; keep the prefix.
+    fn _reduce_add_cb(acc, n):
         return acc + n
-    t = test_eq(t, "reduce accumulates a value", reduce([1, 2, 3, 4], add, 0), 10)
+    t = test_eq(t, "reduce accumulates a value", reduce([1, 2, 3, 4], _reduce_add_cb, 0), 10)
 
     let found = find([1, 2, 3, 4], is_even)
     t = test_eq(t, "find returns the first match", found, 2)
