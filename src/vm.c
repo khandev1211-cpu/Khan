@@ -34,6 +34,22 @@ int khanfn_registry_index(void) {
    number constant) into a real VAL_FUNCTION value, snapshotting any
    captured upvalues from `frame` (the function currently executing).
    Shared by OP_DEF_GLOBAL and OP_MAKE_CLASS. */
+/* Walks a class's superclass chain looking for `name`, own map first
+   (so an override always wins over an inherited definition), then its
+   superclass, and so on. `klass` must be VAL_CLASS. Returns a borrowed
+   pointer into whichever class's map actually holds it, or NULL. */
+static Value *class_method_lookup(Value *klass, const char *name) {
+    Value cur = *klass;
+    while (cur.as.obj) {
+        Value *m = map_get(&cur, name);
+        if (m) return m;
+        if (!cur.as.obj->super_ref) return NULL;
+        cur.type = VAL_CLASS;
+        cur.as.obj = cur.as.obj->super_ref;
+    }
+    return NULL;
+}
+
 static Value materialize_registered_fn(CallFrame *frame, int idx) {
     Value fv;
     fv.type = VAL_FUNCTION;
@@ -643,7 +659,7 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
                    hidden callee slot — exactly OP_CALL_METHOD's layout.
                    OP_RETURN on an is_constructor frame yields `self`. */
                 Value instance = value_instance_new(callee);
-                Value *init = map_get(&callee, "__init__");
+                Value *init = class_method_lookup(&callee, "__init__");
                 Value *cslot = vm->stack_top - arg_count - 1;
                 if (init) {
                     KhanFunction *ifn = (init->type == VAL_FUNCTION)
@@ -698,8 +714,25 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
                 idxs[i] = pop(vm);
                 keys[i] = pop(vm);
             }
+            /* Superclass slot: pushed by the compiler right after the
+               class name, either OP_NIL (no `(Base)` clause) or the
+               already-resolved global for Base — see AST_CLASS_STMT in
+               compiler.c. emit_global_get already raised a runtime error
+               if Base wasn't defined, so by the time we get here it's
+               either nil or a real class. */
+            Value super_v = pop(vm);
             Value name_v = pop(vm);
             Value klass = value_class_new(name_v.as.string);
+            if (super_v.type == VAL_CLASS) {
+                klass.as.obj->super_ref = super_v.as.obj;
+                super_v.as.obj->ref_count++;   /* retained by the subclass */
+            } else if (super_v.type != VAL_NIL) {
+                value_free(klass);
+                value_free(super_v);
+                value_free(name_v);
+                TRY_ERR("Superclass in 'class Name(Base):' is not a class");
+            }
+            value_free(super_v);
             for (int i = 0; i < method_count; i++) {
                 int fidx = (int)idxs[i].as.number;
                 if (fidx >= 0 && fidx < fn_registry_count && fn_registry[fidx]) {
@@ -727,10 +760,10 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             Value klass;
             klass.type   = VAL_CLASS;
             klass.as.obj = recv.as.obj->class_ref;
-            Value *method = map_get(&klass, mname);
+            Value *method = class_method_lookup(&klass, mname);
             if (!method || method->type != VAL_FUNCTION) {
                 char msg[192];
-                snprintf(msg, sizeof(msg), "Undefined method '%s' on class '%s'",
+                snprintf(msg, sizeof(msg), "Undefined method '%s' on class '%s' (or its superclasses)",
                          mname, klass.as.obj->class_name ? klass.as.obj->class_name : "?");
                 TRY_ERR(msg);
             }
@@ -782,6 +815,64 @@ static InterpretResult run_loop(VM *vm, int initial_frame_count) {
             map_set(&obj, aname, value_copy(val));
             push(vm, val);
             value_free(obj);
+            break;
+        }
+
+        case OP_CALL_SUPER: {
+            /* Stack: [self][arg1..argN], self already pushed by the
+               compiler (OP_GET_LOCAL 0) — exactly OP_CALL_METHOD's
+               layout, so the same is_method_call frame convention
+               applies. The method is resolved statically starting at
+               the *named* superclass, never the receiver's dynamic
+               class — that's what makes this `super`, not just another
+               dynamic dispatch. */
+            int super_idx = READ_SHORT();
+            int mname_idx = READ_SHORT();
+            int arg_count = READ_BYTE();
+            const char *sname = frame->fn->chunk.constants[super_idx].as.string;
+            const char *mname = frame->fn->chunk.constants[mname_idx].as.string;
+
+            /* global_get (== table_get) hands back a shallow, BORROWED
+               copy of the stored Value — same convention OP_GET_GLOBAL
+               relies on when it explicitly value_copy()s the result
+               before pushing it. super_val must NOT be value_free()'d:
+               we never incremented its Obj's ref_count, so doing so
+               would drop a reference we don't own and free the live
+               global class out from under the rest of the program
+               (caught by valgrind as a use-after-free in
+               class_method_lookup on the next unrelated method call). */
+            Value super_val;
+            int super_found = global_get(vm, sname, &super_val);
+            if (!super_found || super_val.type != VAL_CLASS) {
+                char msg[192];
+                snprintf(msg, sizeof(msg), "'super' target '%s' is not a defined class", sname);
+                TRY_ERR(msg);
+            }
+            Value *method = class_method_lookup(&super_val, mname);
+            if (!method || method->type != VAL_FUNCTION) {
+                char msg[192];
+                snprintf(msg, sizeof(msg), "Undefined method '%s' on superclass '%s' (or its superclasses)",
+                         mname, sname);
+                TRY_ERR(msg);
+            }
+            KhanFunction *fn = (KhanFunction*)method->as.function.body;
+            if (!fn) TRY_ERR("Invalid method");
+            if (fn->arity != arg_count + 1) {
+                TRY_ERR("Arg count mismatch in 'super' call (methods take 'self' first)");
+            }
+            if (vm->frame_count >= VM_FRAMES_MAX) {
+                TRY_ERR("Stack overflow");
+            }
+            CallFrame *new_frame = &vm->frames[vm->frame_count++];
+            new_frame->fn    = fn;
+            new_frame->ip    = fn->chunk.code;
+            new_frame->slots = vm->stack_top - arg_count - 1;   /* self = slots[0] */
+            new_frame->upvalues = method->as.function.closure
+                ? ((KhanClosure*)method->as.function.closure)->values
+                : NULL;
+            new_frame->is_method_call = 1;
+            new_frame->is_constructor = 0;
+            frame = new_frame;
             break;
         }
 

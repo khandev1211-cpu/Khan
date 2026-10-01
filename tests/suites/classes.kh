@@ -148,3 +148,85 @@ fn suite_classes():
     t = test_eq(t, "REGRESSION: VM healthy after constructor throw", 1 + th.ok() + 1, 7)
 
     return t
+
+class Animal:
+    fn __init__(self, name):
+        self.name = name
+    fn speak(self):
+        return self.name + " makes a sound"
+    fn describe(self):
+        return "I am " + self.name
+
+class Dog(Animal):
+    fn __init__(self, name, breed):
+        super.__init__(name)
+        self.breed = breed
+    fn speak(self):
+        return self.name + " barks"
+    fn parent_speak(self):
+        return super.speak()
+
+class NoOwnInit(Animal):
+    fn speak(self):
+        return self.name + " (no own __init__)"
+
+class Puppy(Dog):
+    fn speak(self):
+        return super.speak() + " (in a tiny voice)"
+
+fn suite_inheritance():
+    let t = test_suite("Inheritance")
+
+    let d = Dog("Rex", "Labrador")
+    t = test_eq(t, "subclass field set via super.__init__", d.name, "Rex")
+    t = test_eq(t, "subclass field set in its own __init__", d.breed, "Labrador")
+    t = test_eq(t, "overridden method wins over inherited", d.speak(), "Rex barks")
+    t = test_eq(t, "super.method() reaches the parent's implementation", d.parent_speak(), "Rex makes a sound")
+    t = test_eq(t, "inherited method not overridden by subclass", d.describe(), "I am Rex")
+    t = test_eq(t, "type() of a subclass instance", type(d), "instance")
+
+    let n = NoOwnInit("Cat")
+    t = test_eq(t, "subclass with no own __init__ uses the parent's", n.name, "Cat")
+    t = test_eq(t, "subclass with no own __init__ can still override a method", n.speak(), "Cat (no own __init__)")
+    t = test_eq(t, "subclass with no own __init__ still inherits other methods", n.describe(), "I am Cat")
+
+    # ── REGRESSION: global_get/table_get hand back a shallow, BORROWED
+    # Value — same convention OP_GET_GLOBAL relies on by explicitly
+    # value_copy()-ing the result. OP_CALL_SUPER used to value_free() that
+    # borrowed copy, dropping a reference it never owned and freeing the
+    # live superclass out from under the program — invisible until some
+    # LATER, unrelated method call walked the now-corrupted class and
+    # segfaulted (caught by valgrind as a use-after-free in
+    # class_method_lookup). A super call must never free anything the
+    # global table still owns. Must never regress. ─────────────────────
+    let p = Puppy("Fido", "Beagle")
+    t = test_eq(t, "REGRESSION: super call two levels deep", p.speak(), "Fido barks (in a tiny voice)")
+    t = test_eq(t, "REGRESSION: inherited method survives a prior super call", p.describe(), "I am Fido")
+    t = test_eq(t, "REGRESSION: grandparent field still reachable", p.breed, "Beagle")
+
+    let total = 0
+    let i = 0
+    while i < 2000:
+        total = total + len(d.parent_speak())
+        total = total + len(d.describe())
+        total = total + len(p.speak())
+        i = i + 1
+    t = test_eq(t, "REGRESSION: stack/heap stay healthy across 2000 mixed super/inherited calls", total, 106000)
+
+    # ── errors ──────────────────────────────────────────────────────────
+    let msg = ""
+    try:
+        class Bad(NotDefinedAnywhere):
+            fn f(self):
+                return 1
+    catch e:
+        msg = e
+    t = test_contains_str(t, "undefined superclass name", msg, "Undefined variable")
+
+    try:
+        d.no_such_super_method_target()
+    catch e:
+        msg = e
+    t = test_contains_str(t, "calling an undefined method (sanity check)", msg, "Undefined method")
+
+    return t

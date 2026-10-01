@@ -204,9 +204,11 @@ AstNode *ast_new_throw_stmt(AstNode *expr, int line) {
     return node;
 }
 
-AstNode *ast_new_class_stmt(const char *class_name, AstNodeList *methods, int line) {
+AstNode *ast_new_class_stmt(const char *class_name, const char *superclass_name,
+                             AstNodeList *methods, int line) {
     AstNode *node = ast_new_node(AST_CLASS_STMT, line);
     node->data.class_stmt.class_name = strdup(class_name);
+    node->data.class_stmt.superclass_name = superclass_name ? strdup(superclass_name) : NULL;
     node->data.class_stmt.methods = methods;
     return node;
 }
@@ -231,6 +233,13 @@ AstNode *ast_new_method_call(AstNode *object, const char *method_name, AstNodeLi
     node->data.method_call.object = object;
     node->data.method_call.method_name = strdup(method_name);
     node->data.method_call.arguments = arguments;
+    return node;
+}
+
+AstNode *ast_new_super_call(const char *method_name, AstNodeList *arguments, int line) {
+    AstNode *node = ast_new_node(AST_SUPER_CALL, line);
+    node->data.super_call.method_name = strdup(method_name);
+    node->data.super_call.arguments = arguments;
     return node;
 }
 
@@ -375,6 +384,7 @@ void ast_free(AstNode *node) {
             break;
         case AST_CLASS_STMT:
             free((void *)node->data.class_stmt.class_name);
+            free((void *)node->data.class_stmt.superclass_name);
             ast_free_list(node->data.class_stmt.methods);
             break;
         case AST_GET_ATTR:
@@ -390,6 +400,10 @@ void ast_free(AstNode *node) {
             ast_free(node->data.method_call.object);
             free((void *)node->data.method_call.method_name);
             ast_free_list(node->data.method_call.arguments);
+            break;
+        case AST_SUPER_CALL:
+            free((void *)node->data.super_call.method_name);
+            ast_free_list(node->data.super_call.arguments);
             break;
         case AST_LET_STMT:
             free((void *)node->data.let_decl.let_name);
@@ -596,7 +610,10 @@ void ast_print(AstNode *node, int indent) {
             print_indent(indent); printf(")\n");
             break;
         case AST_CLASS_STMT:
-            printf("(class %s\n", node->data.class_stmt.class_name);
+            if (node->data.class_stmt.superclass_name)
+                printf("(class %s(%s)\n", node->data.class_stmt.class_name, node->data.class_stmt.superclass_name);
+            else
+                printf("(class %s\n", node->data.class_stmt.class_name);
             ast_print_list(node->data.class_stmt.methods, indent + 1);
             print_indent(indent); printf(")\n");
             break;
@@ -615,6 +632,11 @@ void ast_print(AstNode *node, int indent) {
             printf("(method-call %s\n", node->data.method_call.method_name);
             ast_print(node->data.method_call.object, indent + 1);
             ast_print_list(node->data.method_call.arguments, indent + 1);
+            print_indent(indent); printf(")\n");
+            break;
+        case AST_SUPER_CALL:
+            printf("(super-call %s\n", node->data.super_call.method_name);
+            ast_print_list(node->data.super_call.arguments, indent + 1);
             print_indent(indent); printf(")\n");
             break;
         case AST_BLOCK:

@@ -61,6 +61,13 @@ typedef struct CompilerState {
 
     /* Import tracking (shared across frames) */
     ImportCtx          *imports;
+
+    /* Set only while compiling a method of a class declared with a
+       `(Base)` clause — the declared superclass's NAME (not resolved to
+       a value; that happens at runtime). NULL everywhere else, including
+       for ordinary functions and for methods of a class with no
+       superclass. `super.foo()` compiles by consulting this. */
+    const char         *class_super_name;
 } CompilerState;
 
 static CompilerState *current = NULL;
@@ -239,6 +246,7 @@ static void compiler_state_init(CompilerState *c, KhanFunction *fn,
     c->upvalue_count = 0;
     c->loop_depth   = 0;
     c->had_error    = 0;
+    c->class_super_name = NULL;
 
     if (enclosing) {
         c->imports = enclosing->imports;
@@ -886,6 +894,31 @@ static void compile_expr(AstNode *node) {
         break;
     }
 
+    /* ── super.method(args) — see docs/classes.md ── */
+    case AST_SUPER_CALL: {
+        if (!current->class_super_name) {
+            compiler_error("'super' used outside a method of a class with a superclass", line);
+            break;
+        }
+        emit2(OP_GET_LOCAL, 0, line);   /* self is always local slot 0 in a method */
+        int argc = 0;
+        for (AstNodeList *a = node->data.super_call.arguments; a; a = a->next) {
+            compile_expr(a->node);
+            argc++;
+        }
+        if (argc > 255) {
+            compiler_error("Too many arguments in 'super' call (max 255)", line);
+            argc = 255;
+        }
+        int super_idx = chunk_add_const(cur_chunk(), vm_val_string(current->class_super_name));
+        int mname_idx = chunk_add_const(cur_chunk(), vm_val_string(node->data.super_call.method_name));
+        emit(OP_CALL_SUPER, line);
+        emit_short((uint16_t)super_idx, line);
+        emit_short((uint16_t)mname_idx, line);
+        emit((uint8_t)argc, line);
+        break;
+    }
+
     default:
         compiler_error("Unhandled expression node", line);
         emit(OP_NIL, line);
@@ -914,7 +947,7 @@ static void emit_name_op(uint8_t narrow, uint8_t wide, const char *name, int lin
    as a top-level `fn`, minus the trailing "define a global" step, since
    a method lives in its class's method table instead. `self` is just
    the first ordinary parameter. */
-static int compile_class_method(AstNode *node) {
+static int compile_class_method(AstNode *node, const char *super_name) {
     int line = node->line;
     const char *fname = node->data.fn_decl.fn_name;
     int arity = list_count(node->data.fn_decl.params);
@@ -923,6 +956,7 @@ static int compile_class_method(AstNode *node) {
 
     CompilerState fn_state;
     compiler_state_init(&fn_state, fn, current);
+    fn_state.class_super_name = super_name;
     current = &fn_state;
     current->scope_depth = 1;
 
@@ -1027,11 +1061,17 @@ static void compile_stmt(AstNode *node) {
        so `Name(args)` is an ordinary call that OP_CALL recognizes. */
     case AST_CLASS_STMT: {
         const char *cname = node->data.class_stmt.class_name;
+        const char *super_name = node->data.class_stmt.superclass_name;
         emit_const(vm_val_string(cname), line);
+        if (super_name) {
+            emit_global_get(super_name, line);   /* runtime error if undefined */
+        } else {
+            emit(OP_NIL, line);
+        }
         int method_count = 0;
         for (AstNodeList *m = node->data.class_stmt.methods; m; m = m->next) {
             AstNode *fn_node = m->node;
-            int fn_idx = compile_class_method(fn_node);
+            int fn_idx = compile_class_method(fn_node, super_name);
             emit_const(vm_val_string(fn_node->data.fn_decl.fn_name), line);
             emit_const(value_number((double)fn_idx), line);
             method_count++;

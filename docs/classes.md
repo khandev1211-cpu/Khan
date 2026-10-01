@@ -1,8 +1,9 @@
 # Classes (v1)
 
 Khan has Python-style classes: a class is a set of methods, calling the
-class builds an instance, and `self` is an ordinary explicit first
-parameter.
+class builds an instance, `self` is an ordinary explicit first
+parameter, and single inheritance (`class Dog(Animal):`) with `super`
+is supported.
 
 ```
 class Dog:
@@ -17,6 +18,15 @@ class Dog:
 let d = Dog("Rex", 3)
 d.birthday().birthday()
 print d.age                  # 5
+
+class Puppy(Dog):
+    fn __init__(self, name, age):
+        super.__init__(name, age)   # runs Dog.__init__
+    fn birthday(self):
+        return super.birthday() + 1 # Dog's birthday, plus one more
+
+let p = Puppy("Fido", 1)
+print p.birthday()           # 3
 ```
 
 ## What works
@@ -33,16 +43,20 @@ print d.age                  # 5
 | `print` / `str()` | `<class Dog>` and `<Dog instance>`. |
 | `==` | Identity. Two separately built instances are never equal. |
 | Reference semantics | `let b = a` aliases the same instance, like arrays and maps. |
-| `try`/`catch` | A `throw` or runtime error inside a method or `__init__` unwinds correctly. |
+| `try`/`catch` | A `throw` or runtime error inside a method or `__init__` unwinds correctly, including inside `super.method()` and across multiple inheritance levels. |
+| `class Dog(Animal):` | Single inheritance. `Animal` must already be a defined class by the time this statement runs (ordinary top-down script execution, same requirement Python has). |
+| Method/constructor lookup | Checks the instance's own class first, then walks up the superclass chain — an override always wins; an inherited method/`__init__` is found automatically if the subclass doesn't define its own. |
+| `super.method(args)` | Only valid inside a method of a class declared with a `(Base)` clause. Resolved **statically** against that class's declared superclass (and *its* chain), not the receiver's dynamic class — the usual meaning of `super`. |
 
 ## What does not (yet)
 
-- **No inheritance.** There is no `class B(A)` syntax.
+- **No multiple inheritance.** `class C(A, B):` is not supported — only one base class.
 - **No bound-method values.** `let m = obj.method` is not supported;
   methods are only reachable through call syntax `obj.method(...)`.
   This is why `obj.method(args)` is its own AST node
   (`AST_METHOD_CALL`) rather than `AST_GET_ATTR` + a call.
 - **No class-level fields or static methods.** A class holds methods only.
+- **No `isinstance`-style checks.**
 - **Cycles through instance fields leak.** Instances are reference
   counted but not registered with the cycle collector (same documented
   gap as closures). `a.friend = b; b.friend = a` leaks both; acyclic
@@ -56,7 +70,9 @@ print d.age                  # 5
 
 ## How it works
 
-**Values.** `VAL_CLASS` and `VAL_INSTANCE` are new value types. Both are
+**Values.** `VAL_CLASS` and `VAL_INSTANCE` are new value types. A class's
+`Obj` also carries `super_ref`, a retained pointer to its immediate
+superclass's `Obj` (NULL with no `(Base)` clause). Both are
 heap `Obj`s whose `as.map` storage is laid out exactly like a `VAL_MAP`
 (a class's map is `method name -> function`, an instance's is
 `field name -> value`), so `map_get`/`map_set` and the hash index are
@@ -66,10 +82,51 @@ outside the cycle collector; see above.
 
 **Compiling a class.** `AST_CLASS_STMT` compiles each method like a
 top-level `fn` (`compile_class_method`, no global definition at the end),
-pushes `[class name][method name][fn index]...`, then emits
-`OP_MAKE_CLASS` (or `_WIDE` for more than 255 methods) and binds the
-result to a global named after the class. Because of that, `Dog(...)` is
-compiled as an ordinary call; nothing special happens at the call site.
+pushes `[class name][superclass or nil][method name][fn index]...`, then
+emits `OP_MAKE_CLASS` (or `_WIDE` for more than 255 methods) and binds the
+result to a global named after the class. The superclass slot is either
+`OP_NIL` (no `(Base)` clause) or `emit_global_get(Base)` — which already
+raises a runtime error if `Base` isn't defined, so `OP_MAKE_CLASS` only
+needs to check that what it popped is nil or actually a `VAL_CLASS`.
+Because of that, `Dog(...)` is compiled as an ordinary call; nothing
+special happens at the call site.
+
+**Method/constructor lookup** (`class_method_lookup` in `vm.c`) checks a
+class's own method map first, then walks `super_ref` up the chain,
+returning the first match — so an override always wins, and an inherited
+method is found automatically. `OP_CALL`'s instantiation branch and
+`OP_CALL_METHOD` both use this for `__init__` and ordinary method
+dispatch respectively.
+
+**`super.method(args)`.** Compiling a method inside `class Dog(Animal):`
+records `Animal`'s name on that method's `CompilerState`
+(`class_super_name`), not resolved to a value until the call actually
+runs. `super.method(args)` then compiles to: push `self`
+(`OP_GET_LOCAL 0` — self is always local slot 0 in a method), push the
+arguments, then `OP_CALL_SUPER` with the superclass name and method name
+baked in as constant operands (always 2-byte indices; super calls are
+rare enough that a narrow variant isn't worth a second opcode). At
+runtime, `OP_CALL_SUPER` looks up the named superclass as a global,
+resolves the method by walking *that* class's chain (`class_method_lookup`
+again — so `super.foo()` finds `foo` even if the immediate parent doesn't
+define it but a grandparent does), and runs it inline with the same
+`is_method_call` convention as `OP_CALL_METHOD` (`self` already on the
+stack, no hidden callee slot below it).
+
+A real bug, caught by valgrind rather than by the test suite: the global
+class value `OP_CALL_SUPER` looks up is a **shallow, borrowed** copy —
+`table_get`/`global_get` just alias the stored `Obj*` without bumping its
+refcount, the same convention `OP_GET_GLOBAL` relies on when it explicitly
+`value_copy()`s the result before pushing it. The first version of
+`OP_CALL_SUPER` called `value_free()` on that borrowed copy after setting
+up the call frame, dropping a reference it never owned and freeing the
+live superclass `Obj` out from under the rest of the program. Nothing
+broke immediately — the corruption was invisible until some *later*,
+unrelated method call walked the now-freed class and crashed inside
+`class_method_lookup`. Fixed by simply never freeing it;
+`tests/suites/classes.kh` has a regression test that calls a `super`
+method and then an unrelated inherited method afterward, specifically to
+catch this class of bug again.
 
 **Opcodes.**
 
@@ -100,8 +157,15 @@ the caller's dispatch loop fixes that class of bug, and
 
 ## Tests
 
-`tests/suites/classes.kh` (25 checks), registered in `tests/run_all.kh`.
-It covers construction, fields, chaining, temporaries around method calls,
-a 5,000-iteration stack-balance loop, reference semantics, instances in
-arrays and nested instances, `type()`, every error path through
-`try`/`catch`, and the constructor-throw regression.
+`tests/suites/classes.kh`, registered in `tests/run_all.kh`:
+
+- **`suite_classes`** (25 checks) — construction, fields, chaining,
+  temporaries around method calls, a 5,000-iteration stack-balance loop,
+  reference semantics, instances in arrays and nested instances, `type()`,
+  every error path through `try`/`catch`, and the constructor-throw
+  regression.
+- **`suite_inheritance`** (15 checks) — overriding vs. inheriting,
+  `super.__init__`/`super.method()`, a subclass with no `__init__` of its
+  own, two-level inheritance (`Puppy(Dog)` where `Dog(Animal)`), a
+  2,000-iteration mixed super-call/inherited-call loop, undefined
+  superclass names, and the borrowed-reference regression above.

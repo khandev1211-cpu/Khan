@@ -87,7 +87,7 @@ static int is_alpha(char c) {
 
 static TokenKind keyword_type(const char *start, int length) {
     struct { const char *word; TokenKind type; } keywords[] = {
-        {"let", TOKEN_LET}, {"fn", TOKEN_FN}, {"class", TOKEN_CLASS}, {"print", TOKEN_PRINT},
+        {"let", TOKEN_LET}, {"fn", TOKEN_FN}, {"class", TOKEN_CLASS}, {"super", TOKEN_SUPER}, {"print", TOKEN_PRINT},
         {"import", TOKEN_IMPORT}, {"from", TOKEN_FROM}, {"if", TOKEN_IF}, {"elif", TOKEN_ELIF},
         {"else", TOKEN_ELSE}, {"while", TOKEN_WHILE}, {"for", TOKEN_FOR},
         {"in", TOKEN_IN}, {"return", TOKEN_RETURN},
@@ -294,6 +294,7 @@ const char *token_type_name(TokenKind type) {
         case TOKEN_LET: return "LET";
         case TOKEN_FN: return "FN";
         case TOKEN_CLASS: return "CLASS";
+        case TOKEN_SUPER: return "SUPER";
         case TOKEN_PRINT: return "PRINT";
         case TOKEN_IMPORT: return "IMPORT";
         case TOKEN_FROM: return "FROM";

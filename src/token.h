@@ -10,7 +10,7 @@ typedef enum {
     // Keywords
     TOKEN_LET,
     TOKEN_FN,
-    TOKEN_CLASS,
+    TOKEN_CLASS, TOKEN_SUPER,
     TOKEN_PRINT,
     TOKEN_IMPORT,
     TOKEN_FROM,

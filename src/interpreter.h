@@ -42,6 +42,11 @@ typedef struct Obj {
     /* VAL_CLASS only: strdup'd class name (for `str()`/`type()`/error
        messages). NULL for every other object type. */
     char *class_name;
+    /* VAL_CLASS only: a retained pointer to the immediate superclass's
+       Obj, from `class Name(Base):`, or NULL with no `(Base)` clause.
+       Method lookup walks this chain — see class_method_lookup in
+       vm.c. Single inheritance only. */
+    struct Obj *super_ref;
     /* VAL_INSTANCE only: a retained (ref_count-bumped) pointer to the
        VAL_CLASS Obj this instance was built from — how a method call
        (`obj.method(args)`) finds the method to run. NULL for every

@@ -61,6 +61,7 @@ static Obj *obj_new(ValueType type) {
     obj->buffered = 0;
     obj->class_name = NULL;
     obj->class_ref = NULL;
+    obj->super_ref = NULL;
     if (++gc_alloc_counter >= GC_AUTO_INTERVAL) {
         gc_alloc_counter = 0;
         gc_collect_cycles();
@@ -550,7 +551,15 @@ void value_free(Value v) {
             }
             free(v.as.obj->as.map.entries);
             free(v.as.obj->as.map.hash_index);
-            if (v.type == VAL_CLASS) free(v.as.obj->class_name);
+            if (v.type == VAL_CLASS) {
+                free(v.as.obj->class_name);
+                if (v.as.obj->super_ref) {
+                    Value sv;
+                    sv.type = VAL_CLASS;
+                    sv.as.obj = v.as.obj->super_ref;
+                    value_free(sv);   /* release this class's hold on its superclass */
+                }
+            }
             if (v.type == VAL_INSTANCE && v.as.obj->class_ref) {
                 Value kv;
                 kv.type = VAL_CLASS;

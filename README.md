@@ -60,7 +60,7 @@ Most from-scratch language projects are tempted to round up. This one tries hard
 - `sqlite` — a real bridge to `libsqlite3` (`sqlite3_prepare_v2`/`sqlite3_bind_*`/`sqlite3_step`), not a JSON-backed mock (an earlier version was; ripped out and rebuilt for real)
 - `{}` maps — a real open-addressing hash index (FNV-1a), not a linear scan; the old O(n) version made a 50,000-key map take ~9 seconds, the current one takes ~0.01s (~725x). Full story in [docs/hash-table-audit.md](docs/hash-table-audit.md)
 - `try`/`catch`/`throw` — a real exception-handling implementation (unwinds the VM stack and call frames to the nearest handler), not just a parser accepting the syntax. Catches both user `throw`s and every built-in runtime error. Design and a real bug found along the way in [docs/trycatch-implementation.md](docs/trycatch-implementation.md)
-- `class` — Python-style classes: `fn` methods with an explicit `self`, `__init__` constructors, dynamic fields, method chaining, all working with `try`/`catch`. No inheritance or bound-method values yet. See [docs/classes.md](docs/classes.md)
+- `class` — Python-style classes: `fn` methods with an explicit `self`, `__init__` constructors, dynamic fields, method chaining, single inheritance (`class Dog(Animal):`) with `super`, all working with `try`/`catch`. No multiple inheritance or bound-method values yet. See [docs/classes.md](docs/classes.md)
 - A cycle collector for circular references in arrays/maps (`a[0] = a` no longer leaks for the life of the process) — a Bacon-Rajan trial-deletion collector, the same algorithm CPython's `gc` module uses, not a full tracing GC. Two real bugs found and fixed during testing, plus a >99% leak reduction measured (not just "doesn't crash") in [docs/gc-notes.md](docs/gc-notes.md)
 - Testing: thousands of fuzz-mutated parser inputs with zero crashes, memory stress-tested at 10M-allocation scale with flat RSS, CI gating on real assertion suites across Linux/Windows/macOS
 
@@ -866,7 +866,7 @@ package.
 | Mutable closures (currently value-capture only) | 🔲 Planned |
 | Garbage collector (circular references) | ✅ Complete — cycle collector for arrays/maps, see [docs/gc-notes.md](docs/gc-notes.md) |
 | Error handling (`try`/`catch`/`throw`) | ✅ Complete, see [docs/trycatch-implementation.md](docs/trycatch-implementation.md) |
-| Classes (`class`, `self`, `__init__`, methods, fields) | ✅ v1 complete (no inheritance yet), see [docs/classes.md](docs/classes.md) |
+| Classes (`class`, `self`, `__init__`, methods, fields, inheritance, `super`) | ✅ v1 complete (single inheritance only), see [docs/classes.md](docs/classes.md) |
 | Dispatch-loop optimization (computed goto) | ✅ Tried, measured slower than the existing switch, reverted — see [docs/dispatch-perf.md](docs/dispatch-perf.md) |
 | `webi` threaded server (thread-per-connection, concurrency cap) — see [docs/phase4-plan.md](docs/phase4-plan.md) | 🔲 Planned |
 | ONNX Runtime bridge (run pretrained deep-learning OCR models) — see [docs/onnx-ocr-plan.md](docs/onnx-ocr-plan.md) | 🔲 Planned |

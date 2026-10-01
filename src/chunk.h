@@ -106,6 +106,15 @@ typedef enum {
     OP_GET_ATTR_WIDE,    /* operand = name const idx (2 bytes) */
     OP_SET_ATTR,         /* operand = name const idx (1 byte). Stack: [obj][value] -> [value] */
     OP_SET_ATTR_WIDE,    /* operand = name const idx (2 bytes) */
+    OP_CALL_SUPER,       /* operands = superclass name const idx (2 bytes),
+                             method name const idx (2 bytes), arg count (1
+                             byte). Stack: [self][args...], self pushed by
+                             the compiler via OP_GET_LOCAL 0. Resolves the
+                             method starting at the *named* superclass's
+                             own chain — static, not the receiver's
+                             dynamic class. Always wide (2-byte name
+                             indices): super calls are rare enough that a
+                             narrow variant isn't worth a second opcode. */
 
     OP_COUNT /* sentinel: always the total number of opcodes, must stay
                 last in this enum. Used by run_loop's computed-goto
